@@ -121,7 +121,7 @@ func (e *Encoder) EncodeStereoParamsWithIntensity(nbBands, intensityBand int, du
 // Returns: mid and side channel arrays
 //
 // Reference: RFC 6716 Section 4.3.4
-func ConvertToMidSide(left, right []celtNorm) (mid, side []celtNorm) {
+func ConvertToMidSide(left, right []celtNorm) (mid, side []CeltNorm) {
 	n := len(left)
 	if n == 0 {
 		return nil, nil
@@ -159,7 +159,7 @@ func ConvertToMidSide(left, right []celtNorm) (mid, side []celtNorm) {
 //
 // Combined with ConvertToMidSide, this forms an identity transform:
 // L,R -> M,S -> L,R (with floating point precision)
-func ConvertMidSideToLR(mid, side []celtNorm) (left, right []celtNorm) {
+func ConvertMidSideToLR(mid, side []celtNorm) (left, right []CeltNorm) {
 	n := len(mid)
 	if n == 0 {
 		return nil, nil
@@ -190,20 +190,6 @@ func ConvertMidSideToLR(mid, side []celtNorm) (left, right []celtNorm) {
 		right[i] = celtNorm((float32(mid[i]) - float32(side[i])) * invSqrt2)
 	}
 
-	return left, right
-}
-
-// deinterleaveStereoScratchF32 separates interleaved float-build stereo using
-// float-width scratch buffers.
-func deinterleaveStereoScratchF32(interleaved []float32, leftBuf, rightBuf *[]float32) (left, right []float32) {
-	if len(interleaved) < 2 {
-		return nil, nil
-	}
-
-	n := len(interleaved) / 2
-	left = ensureFloat32Slice(leftBuf, n)
-	right = ensureFloat32Slice(rightBuf, n)
-	DeinterleaveStereoIntoF32(interleaved, left, right)
 	return left, right
 }
 

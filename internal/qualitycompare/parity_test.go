@@ -1,6 +1,7 @@
 package qualitycompare
 
 import (
+	"errors"
 	"math"
 	"testing"
 )
@@ -85,6 +86,143 @@ func TestAssertParitySplitsCodedAndConcealed(t *testing.T) {
 			t.Errorf("region %s tier=%v want waveform", r.Name, r.Tier)
 		}
 	}
+}
+
+func TestValidateParityInputsRejectsInvalidPCMAndProfiles(t *testing.T) {
+	valid := []float32{0.1, -0.2, 0.3, -0.4}
+	base := SignalProfile{SampleRate: 16000, Channels: 2, TotalSamples: len(valid), CodedSamples: 2}
+	cases := []struct {
+		name      string
+		candidate []float32
+		reference []float32
+		profile   SignalProfile
+		intent    ParityIntent
+	}{
+		{name: "empty PCM", candidate: nil, reference: nil, profile: base, intent: IntentNearExact},
+		{name: "unequal PCM lengths", candidate: valid, reference: valid[:2], profile: base, intent: IntentNearExact},
+		{name: "total samples too short", candidate: valid, reference: valid, profile: SignalProfile{SampleRate: 16000, Channels: 2, TotalSamples: 2, CodedSamples: 2}, intent: IntentNearExact},
+		{name: "total samples too long", candidate: valid, reference: valid, profile: SignalProfile{SampleRate: 16000, Channels: 2, TotalSamples: 6, CodedSamples: 2}, intent: IntentNearExact},
+		{name: "negative coded samples", candidate: valid, reference: valid, profile: SignalProfile{SampleRate: 16000, Channels: 2, TotalSamples: 4, CodedSamples: -2}, intent: IntentNearExact},
+		{name: "coded samples exceed total", candidate: valid, reference: valid, profile: SignalProfile{SampleRate: 16000, Channels: 2, TotalSamples: 4, CodedSamples: 6}, intent: IntentNearExact},
+		{name: "coded boundary splits channel frame", candidate: valid, reference: valid, profile: SignalProfile{SampleRate: 16000, Channels: 2, TotalSamples: 4, CodedSamples: 1}, intent: IntentNearExact},
+		{name: "PCM length splits channel frame", candidate: valid[:3], reference: valid[:3], profile: SignalProfile{SampleRate: 16000, Channels: 2, TotalSamples: 3, CodedSamples: 2}, intent: IntentNearExact},
+		{name: "invalid sample rate", candidate: valid, reference: valid, profile: SignalProfile{Channels: 2, TotalSamples: 4, CodedSamples: 2}, intent: IntentNearExact},
+		{name: "invalid channel count", candidate: valid, reference: valid, profile: SignalProfile{SampleRate: 16000, TotalSamples: 4, CodedSamples: 2}, intent: IntentNearExact},
+		{name: "unsupported intent", candidate: valid, reference: valid, profile: base, intent: ParityIntent(99)},
+		{name: "candidate NaN", candidate: []float32{0, float32(math.NaN()), 0, 0}, reference: valid, profile: base, intent: IntentNearExact},
+		{name: "reference positive infinity", candidate: valid, reference: []float32{0, 0, float32(math.Inf(1)), 0}, profile: base, intent: IntentNearExact},
+		{name: "reference negative infinity", candidate: valid, reference: []float32{0, 0, 0, float32(math.Inf(-1))}, profile: base, intent: IntentNearExact},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := validateParityInputs(tc.candidate, tc.reference, tc.profile, tc.intent); err == nil {
+				t.Fatal("validateParityInputs accepted invalid parity input")
+			}
+		})
+	}
+}
+
+func TestValidateParityInputsDocumentsTotalSamplesDefault(t *testing.T) {
+	x := []float32{0.1, -0.1, 0.2, -0.2}
+	p := SignalProfile{SampleRate: 16000, Channels: 2, CodedSamples: len(x)}
+	got, err := validateParityInputs(x, append([]float32(nil), x...), p, IntentNearExact)
+	if err != nil {
+		t.Fatalf("zero TotalSamples default: %v", err)
+	}
+	if got.TotalSamples != len(x) {
+		t.Fatalf("normalized TotalSamples=%d, want %d", got.TotalSamples, len(x))
+	}
+}
+
+func TestCodedTierUsesWaveformForUnsupportedChannelCount(t *testing.T) {
+	p := CodedProfile(48000, 3, 1440)
+	if tier := p.codedTier(); tier != TierWaveform {
+		t.Fatalf("codedTier for %d channels=%s, want %s", p.Channels, tier, TierWaveform)
+	}
+}
+
+func TestScoreParityRegionDoesNotDowngradeOpusCompareError(t *testing.T) {
+	wantErr := errors.New("opus_compare unavailable")
+	x := sine(480, 1, 440)
+	_, err := scoreParityRegion(x, x, CodedProfile(48000, 1, len(x)), TierOpusCompare,
+		func([]float32, []float32, int, int, int) (QualityComparison, error) {
+			return QualityComparison{}, wantErr
+		})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("scoreParityRegion error=%v, want %v", err, wantErr)
+	}
+}
+
+func TestValidateComparablePCMRejectsInvalidInputs(t *testing.T) {
+	valid := []float32{0, 0.25, -0.25, 0.5}
+	cases := []struct {
+		name      string
+		candidate []float32
+		reference []float32
+		rate      int
+		channels  int
+		maxDelay  int
+	}{
+		{name: "empty", candidate: nil, reference: nil, rate: 48000, channels: 1},
+		{name: "unequal lengths", candidate: valid, reference: valid[:2], rate: 48000, channels: 1},
+		{name: "unsupported channels", candidate: valid, reference: valid, rate: 48000, channels: 3},
+		{name: "unaligned stereo", candidate: valid[:3], reference: valid[:3], rate: 48000, channels: 2},
+		{name: "negative delay", candidate: valid, reference: valid, rate: 48000, channels: 1, maxDelay: -1},
+		{name: "candidate NaN", candidate: []float32{0, float32(math.NaN())}, reference: []float32{0, 0}, rate: 48000, channels: 1},
+		{name: "reference infinity", candidate: []float32{0, 0}, reference: []float32{0, float32(math.Inf(1))}, rate: 48000, channels: 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := validateComparablePCM(tc.candidate, tc.reference, tc.rate, tc.channels, tc.maxDelay); err == nil {
+				t.Fatal("validateComparablePCM accepted invalid comparison input")
+			}
+		})
+	}
+}
+
+func TestQualityBarCheckRejectsNonFiniteMetricsAndThresholds(t *testing.T) {
+	validBar := QualityBar{MinQ: 0, MinCorr: 0.9, RMSLo: 0.9, RMSHi: 1.1}
+	validCmp := QualityComparison{Q: 20, Corr: 1, RMSRatio: 1}
+	cases := []struct {
+		name string
+		bar  QualityBar
+		cmp  QualityComparison
+	}{
+		{name: "Q NaN", bar: validBar, cmp: QualityComparison{Q: math.NaN(), Corr: 1, RMSRatio: 1}},
+		{name: "Q positive infinity", bar: validBar, cmp: QualityComparison{Q: math.Inf(1), Corr: 1, RMSRatio: 1}},
+		{name: "Q negative infinity while enabled", bar: validBar, cmp: QualityComparison{Q: math.Inf(-1), Corr: 1, RMSRatio: 1}},
+		{name: "correlation NaN", bar: validBar, cmp: QualityComparison{Q: 20, Corr: math.NaN(), RMSRatio: 1}},
+		{name: "correlation infinity", bar: validBar, cmp: QualityComparison{Q: 20, Corr: math.Inf(1), RMSRatio: 1}},
+		{name: "RMS NaN", bar: validBar, cmp: QualityComparison{Q: 20, Corr: 1, RMSRatio: math.NaN()}},
+		{name: "RMS infinity", bar: validBar, cmp: QualityComparison{Q: 20, Corr: 1, RMSRatio: math.Inf(1)}},
+		{name: "NaN Q threshold", bar: QualityBar{MinQ: math.NaN()}, cmp: validCmp},
+		{name: "infinite correlation threshold", bar: QualityBar{MinCorr: math.Inf(1)}, cmp: validCmp},
+		{name: "inverted RMS bounds", bar: QualityBar{RMSLo: 1.1, RMSHi: 0.9}, cmp: validCmp},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if fails := tc.bar.Check(tc.cmp); len(fails) == 0 {
+				t.Fatal("QualityBar.Check accepted non-finite metric or invalid threshold")
+			}
+		})
+	}
+}
+
+func TestQualityBarCheckPreservesDisabledMetricSemantics(t *testing.T) {
+	t.Run("waveform-only Q sentinel", func(t *testing.T) {
+		bar := QualityBar{MinQ: math.Inf(-1), MinCorr: 0.9, RMSLo: 0.9, RMSHi: 1.1}
+		cmp := QualityComparison{Q: math.Inf(-1), Corr: 1, RMSRatio: 1}
+		if fails := bar.Check(cmp); len(fails) != 0 {
+			t.Fatalf("disabled Q sentinel rejected: %v", fails)
+		}
+	})
+	t.Run("Q-only bar with finite unchecked waveform metrics", func(t *testing.T) {
+		bar := QualityBar{MinQ: 0}
+		cmp := QualityComparison{Q: 20}
+		if fails := bar.Check(cmp); len(fails) != 0 {
+			t.Fatalf("finite unchecked zero metrics rejected: %v", fails)
+		}
+	})
 }
 
 // TestAssertParityConcealedTailNotScoredByQ proves the core safety property: on a

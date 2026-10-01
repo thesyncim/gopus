@@ -79,18 +79,13 @@ func TestQuantizeInputNearestEvenUsesFloat32Product(t *testing.T) {
 		t.Fatalf("test input no longer straddles the arm64 quantizer boundary: legacy=%d want=%d", legacy, want)
 	}
 
-	if got := quantizeInputWithOptions(x, true, false); got != want {
+	if got := quantizeInputWithOptions(x, true); got != want {
 		t.Fatalf("quantizeInput(%v)=%d want %d", x, got, want)
 	}
 
-	x86AVX2Want := int16(math.RoundToEven(float64(float32(math.FMA(float64(x), 127, 127)))))
-	if got := quantizeInputWithOptions(x, true, true); got != x86AVX2Want {
-		t.Fatalf("quantizeInput(%v) with avx2 subias=%d want %d", x, got, x86AVX2Want)
-	}
-
-	x86SSEWant := int16(127 + opusmath.FloorHalfPlusF32ToInt32(float32(127*x)))
-	if got := quantizeInputWithOptions(x, false, true); got != x86SSEWant {
-		t.Fatalf("quantizeInput(%v) with sse subias=%d want %d", x, got, x86SSEWant)
+	scalarWant := int16(opusmath.FloorHalfPlusF32ToInt32(float32(127 * x)))
+	if got := quantizeInputWithOptions(x, false); got != scalarWant {
+		t.Fatalf("quantizeInput(%v) scalar=%d want %d", x, got, scalarWant)
 	}
 }
 

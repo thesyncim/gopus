@@ -18,7 +18,7 @@ func TestRDOVAELayerSpecsMatchLibopusReference(t *testing.T) {
 func assertLayerSpecsMatchLibopus(t *testing.T, label, fileName, initName string, got []LinearLayerSpec) {
 	t.Helper()
 
-	data := libopustest.ReadRefFileOrSkip(t, label+" layer specs", "dnn", fileName)
+	data := libopustest.ReadPinnedSourceFileOrSkip(t, label+" layer specs", "dnn", fileName)
 	want := parseLibopusLinearInitSpecs(t, string(data), initName)
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("%s layer specs mismatch\n got=%#v\nwant=%#v", label, got, want)

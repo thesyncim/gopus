@@ -37,12 +37,11 @@ var (
 
 func getLibopusAutoModeHelperPath() (string, error) {
 	libopusAutoModeHelperOnce.Do(func() {
-		libopusAutoModeHelperPath, libopusAutoModeHelperErr = libopustest.BuildCHelper(libopustest.CHelperConfig{
+		libopusAutoModeHelperPath, libopusAutoModeHelperErr = libopustest.BuildPublicAPIHelper(libopustest.CHelperConfig{
 			Label:      "auto mode",
 			OutputBase: "gopus_libopus_auto_mode",
 			SourceFile: "libopus_auto_mode_info.c",
 			CFlags:     []string{"-DHAVE_CONFIG_H"},
-			Libs:       []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
 		})
 	})
 	if libopusAutoModeHelperErr != nil {

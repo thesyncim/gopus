@@ -72,23 +72,24 @@ func int32Int24ToFloat32(in []int32) []float32 {
 	return out
 }
 
-// assertInt24ParityNearExact converts both int32 int24 streams to float32 and
-// applies the trusted near-exact quality bar, matching the approach used for
-// int16 parity (assertAPIRateQualityInt16). This correctly absorbs the
-// documented darwin/arm64 1-ULP float drift that produces ≤1 LSB int24
-// divergence on CELT/Hybrid modes.
-func assertInt24ParityNearExact(t *testing.T, got, want []int32, sampleRate, channels int, label string) {
+// assertInt24ParitySelectedCExact keeps the quality diagnostic and requires
+// exact int24 samples from the selected libopus build.
+func assertInt24ParitySelectedCExact(t *testing.T, got, want []int32, sampleRate, channels int, label string) {
 	t.Helper()
 	if len(got) != len(want) {
 		t.Fatalf("%s len=%d want %d", label, len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("%s sample[%d]=%d want %d", label, i, got[i], want[i])
+		}
 	}
 	assertAPIRateQualityFloat32(t, int32Int24ToFloat32(got), int32Int24ToFloat32(want), sampleRate, channels, label)
 }
 
 // TestDecodeInt24SILKAPIRatePCMMatchesLibopus verifies that Decoder.DecodeInt24
-// produces bit-exact output vs libopus opus_decode24() for SILK packets.
-// SILK float32 decode is bit-exact vs libopus on all architectures, so the
-// int24 conversion is also bit-exact.
+// produces bit-exact output vs the selected libopus opus_decode24() reference
+// for the tested SILK packets and API rates.
 func TestDecodeInt24SILKAPIRatePCMMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 	for _, channels := range []int{1, 2} {
@@ -119,7 +120,7 @@ func TestDecodeInt24SILKAPIRatePCMMatchesLibopus(t *testing.T) {
 					t.Fatalf("DecodeInt24 samples=%d want %d", n, frameSize)
 				}
 				got = got[:n*channels]
-				// SILK: bit-exact on all architectures.
+				// SILK output is bit-exact for this selected-reference case.
 				if len(got) != len(want) {
 					t.Fatalf("DecodeInt24 len=%d want %d", len(got), len(want))
 				}
@@ -133,12 +134,8 @@ func TestDecodeInt24SILKAPIRatePCMMatchesLibopus(t *testing.T) {
 	}
 }
 
-// TestDecodeInt24CELTAPIRatePCMMatchesLibopus verifies that Decoder.DecodeInt24
-// produces near-exact output vs libopus opus_decode24() for CELT packets.
-//
-// The ≤1 LSB tolerance absorbs the documented darwin/arm64 1-ULP float drift
-// in the CELT path; CI (amd64) is bit-exact. This matches the trusted
-// near-exact bar used for the float32/int16 CELT decode tests.
+// TestDecodeInt24CELTAPIRatePCMMatchesLibopus compares public CELT int24
+// output sample-for-sample with the selected libopus opus_decode24 build.
 func TestDecodeInt24CELTAPIRatePCMMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 	for _, channels := range []int{1, 2} {
@@ -169,8 +166,7 @@ func TestDecodeInt24CELTAPIRatePCMMatchesLibopus(t *testing.T) {
 					t.Fatalf("DecodeInt24 samples=%d want %d", n, frameSize)
 				}
 				got = got[:n*channels]
-				// CELT: ≤1 LSB tolerance for the arm64 1-ULP float drift.
-				assertInt24ParityNearExact(t, got, want, sampleRate, channels, "CELT int24 decode")
+				assertInt24ParitySelectedCExact(t, got, want, sampleRate, channels, "CELT int24 decode")
 			})
 		}
 	}
@@ -208,8 +204,7 @@ func TestDecodeInt24HybridAPIRatePCMMatchesLibopus(t *testing.T) {
 					t.Fatalf("DecodeInt24 samples=%d want %d", n, frameSize)
 				}
 				got = got[:n*channels]
-				// Hybrid: ≤1 LSB tolerance for the arm64 1-ULP float drift.
-				assertInt24ParityNearExact(t, got, want, sampleRate, channels, "Hybrid int24 decode")
+				assertInt24ParitySelectedCExact(t, got, want, sampleRate, channels, "Hybrid int24 decode")
 			})
 		}
 	}
@@ -352,7 +347,7 @@ func TestDecodeInt24PLCMatchesLibopus(t *testing.T) {
 				}
 				got = append(got, buf[:n*channels]...)
 			}
-			assertInt24ParityNearExact(t, got, want, sampleRate, channels, "CELT int24 PLC decode")
+			assertInt24ParitySelectedCExact(t, got, want, sampleRate, channels, "CELT int24 PLC decode")
 		})
 	}
 }

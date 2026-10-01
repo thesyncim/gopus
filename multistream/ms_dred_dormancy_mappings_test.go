@@ -105,10 +105,10 @@ func assertMappingDREDDormancyOnGoodDecode(
 //   - only the target stream's dredRecovery is non-zero
 //   - all other streams have dredRecovery == 0
 //
-// Reference: multistream/multistream.go decodePLCChunkToFloat32() —
-// calls decodeDREDPLCStream(i, frameSize) per-stream; streams without a cached
-// DRED payload return (nil, false, nil) so their dredRecovery stays at zero.
-// Only the target stream advances its dredRecovery counter.
+// Reference: src/opus_multistream_decoder.c opus_multistream_decode_native calls
+// each child decoder with dred=NULL and dred_offset=0. A Go child without a
+// cached DRED payload may still use main-model PLC, but only a child with a
+// cached sidecar payload advances dredRecovery.
 func assertMappingDREDDormancyOnLoss(
 	t *testing.T,
 	label string,

@@ -267,6 +267,7 @@ func TestAllocTrimAnalysisValidAppliesZeroSlopeAdjustment(t *testing.T) {
 		0,
 		0,
 		false,
+		EBands[:],
 	)
 	_, valid := allocTrimAnalysisDetailed(
 		normL,
@@ -281,6 +282,7 @@ func TestAllocTrimAnalysisValidAppliesZeroSlopeAdjustment(t *testing.T) {
 		0,
 		0,
 		true,
+		EBands[:],
 	)
 
 	if invalid.tonal != 0 {

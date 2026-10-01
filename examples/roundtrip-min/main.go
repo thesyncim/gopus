@@ -53,8 +53,8 @@ func encodeDecode(pcm []float32) (packet []byte, decodedSamples int, err error) 
 		return nil, 0, fmt.Errorf("new encoder: %w", err)
 	}
 
-	// 4000 bytes is large enough for any single Opus packet. Encode writes into
-	// this caller-owned buffer and returns how many bytes it used.
+	// This example gives Encode a 4000-byte packet budget. Encode writes into
+	// the caller-owned buffer and returns how many bytes it used.
 	packetBuf := make([]byte, 4000)
 	nPacket, err := enc.Encode(pcm, packetBuf)
 	if err != nil {

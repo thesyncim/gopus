@@ -91,9 +91,9 @@ func TestConcealFrameFloatWithAnalysisMatchesLibopus(t *testing.T) {
 		t.Fatalf("GenerateConcealedFrameFloatWithAnalysis gotFEC=%v want %v", gotFEC, want.GotFEC)
 	}
 
-	assertFloat32Close(t, frame[:], want.Frame[:], 5e-3, "conceal-analysis frame")
-	assertConcealAnalysisStateMatches(t, state, want.State, 5e-3, "conceal-analysis state")
-	assertFARGANStateClose(t, fargan.state, libopusFARGANRuntimeResult{
+	assertFloat32BitsMatch(t, frame[:], want.Frame[:], "conceal-analysis frame")
+	assertConcealAnalysisStateBitsMatch(t, state, want.State, "conceal-analysis state")
+	assertFARGANStateMatchesLibopus(t, fargan.state, libopusFARGANRuntimeResult{
 		ContInitialized: want.FARGAN.ContInitialized,
 		LastPeriod:      want.FARGAN.LastPeriod,
 		DeemphMem:       want.FARGAN.DeemphMem,
@@ -103,11 +103,11 @@ func TestConcealFrameFloatWithAnalysisMatchesLibopus(t *testing.T) {
 		GRU1State:       want.FARGAN.GRU1State[:],
 		GRU2State:       want.FARGAN.GRU2State[:],
 		GRU3State:       want.FARGAN.GRU3State[:],
-	}, 5e-3, "conceal-analysis fargan")
+	}, "conceal-analysis fargan")
 	assertAnalysisMatches(t, &analysis, want.Analysis, "conceal-analysis analysis")
 }
 
-func assertConcealAnalysisStateMatches(t *testing.T, got State, want StateSnapshot, tol float64, label string) {
+func assertConcealAnalysisStateBitsMatch(t *testing.T, got State, want StateSnapshot, label string) {
 	t.Helper()
 	if got.blend != want.Blend {
 		t.Fatalf("%s blend=%d want %d", label, got.blend, want.Blend)
@@ -133,13 +133,13 @@ func assertConcealAnalysisStateMatches(t *testing.T, got State, want StateSnapsh
 	if got.fecSkip != want.FECSkip {
 		t.Fatalf("%s fecSkip=%d want %d", label, got.fecSkip, want.FECSkip)
 	}
-	assertFloat32Close(t, got.features[:], want.Features[:], tol, label+" features")
-	assertFloat32Close(t, got.cont[:], want.Cont[:], tol, label+" cont")
-	assertFloat32Close(t, got.pcm[:], want.PCM[:], tol, label+" pcm")
-	assertFloat32Close(t, got.plcNet.gru1[:], want.PLCNet.GRU1[:], tol, label+" plc net gru1")
-	assertFloat32Close(t, got.plcNet.gru2[:], want.PLCNet.GRU2[:], tol, label+" plc net gru2")
-	assertFloat32Close(t, got.plcBak[0].gru1[:], want.PLCBak[0].GRU1[:], tol, label+" plc bak0 gru1")
-	assertFloat32Close(t, got.plcBak[0].gru2[:], want.PLCBak[0].GRU2[:], tol, label+" plc bak0 gru2")
-	assertFloat32Close(t, got.plcBak[1].gru1[:], want.PLCBak[1].GRU1[:], tol, label+" plc bak1 gru1")
-	assertFloat32Close(t, got.plcBak[1].gru2[:], want.PLCBak[1].GRU2[:], tol, label+" plc bak1 gru2")
+	assertFloat32BitsMatch(t, got.features[:], want.Features[:], label+" features")
+	assertFloat32BitsMatch(t, got.cont[:], want.Cont[:], label+" cont")
+	assertFloat32BitsMatch(t, got.pcm[:], want.PCM[:], label+" pcm")
+	assertFloat32BitsMatch(t, got.plcNet.gru1[:], want.PLCNet.GRU1[:], label+" plc net gru1")
+	assertFloat32BitsMatch(t, got.plcNet.gru2[:], want.PLCNet.GRU2[:], label+" plc net gru2")
+	assertFloat32BitsMatch(t, got.plcBak[0].gru1[:], want.PLCBak[0].GRU1[:], label+" plc bak0 gru1")
+	assertFloat32BitsMatch(t, got.plcBak[0].gru2[:], want.PLCBak[0].GRU2[:], label+" plc bak0 gru2")
+	assertFloat32BitsMatch(t, got.plcBak[1].gru1[:], want.PLCBak[1].GRU1[:], label+" plc bak1 gru1")
+	assertFloat32BitsMatch(t, got.plcBak[1].gru2[:], want.PLCBak[1].GRU2[:], label+" plc bak1 gru2")
 }

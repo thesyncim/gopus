@@ -147,6 +147,9 @@ func TestSILKWarpedAutocorrelationFLPMatchesLibopusOracle(t *testing.T) {
 		{name: "order16_loud", order: 16, warping: 0.21875, x: silkWarpedAutocorrSignal(256, 0xdeadbeef, 4096.0)},
 		{name: "order16_neg_warp", order: 16, warping: -0.125, x: silkWarpedAutocorrSignal(256, 0xcafebabe, 1.0)},
 		{name: "order16_short", order: 16, warping: 0.25, x: silkWarpedAutocorrSignal(48, 0x13579bdf, 0.7)},
+		// A 12 kHz shape window: whole eight-sample groups plus a four-sample tail.
+		{name: "order24_group_tail", order: 24, warping: 0.28125, x: silkWarpedAutocorrSignal(180, 0x2468ace0, 1.5)},
+		{name: "order16_odd_tail", order: 16, warping: 0.1875, x: silkWarpedAutocorrSignal(203, 0x0f1e2d3c, 0.9)},
 	}
 	want, err := probeLibopusSILKWarpedAutocorr(cases)
 	if err != nil {
@@ -176,11 +179,19 @@ func TestSILKWarpedAutocorrelationFLPMatchesLibopusOracle(t *testing.T) {
 // TestSILKApplySineWindowFLPMatchesLibopusOracle verifies the float sine-window
 // kernel matches libopus silk_apply_sine_window_FLP
 // (silk/float/apply_sine_window_FLP.c) bit-for-bit. The recurrence
-// S0 = c*S1 - S0 (and S1 = c*S0 - S1) and the windowing products are
-// single-statement multiply-adds that arm64 clang may contract into FMA.
+// S0 = c*S1 - S0 (and S1 = c*S0 - S1) follows the selected compiler
+// target's contraction order.
 func TestSILKApplySineWindowFLPMatchesLibopusOracle(t *testing.T) {
 	libopustest.RequireOracle(t)
 	cases := []libopusSILKSineWindowCase{
+		// The shaping window's 15 ms length and 3 ms flat section leave
+		// 6 ms slopes: 48, 72 and 96 samples at 8, 12 and 16 kHz.
+		{name: "type1_shape_nb", winType: 1, x: silkWarpedAutocorrSignal(48, 0x48ab1020, 32768.0)},
+		{name: "type2_shape_nb", winType: 2, x: silkWarpedAutocorrSignal(48, 0x48ab3040, 32768.0)},
+		{name: "type1_shape_mb", winType: 1, x: silkWarpedAutocorrSignal(72, 0x72ab1020, 32768.0)},
+		{name: "type2_shape_mb", winType: 2, x: silkWarpedAutocorrSignal(72, 0x72ab3040, 32768.0)},
+		{name: "type1_shape_wb", winType: 1, x: silkWarpedAutocorrSignal(96, 0x96ab1020, 32768.0)},
+		{name: "type2_shape_wb", winType: 2, x: silkWarpedAutocorrSignal(96, 0x96ab3040, 32768.0)},
 		{name: "type1_len64", winType: 1, x: silkWarpedAutocorrSignal(64, 0x10203040, 1.0)},
 		{name: "type2_len64", winType: 2, x: silkWarpedAutocorrSignal(64, 0x50607080, 1.0)},
 		{name: "type1_len192", winType: 1, x: silkWarpedAutocorrSignal(192, 0x11223344, 0.5)},
@@ -325,6 +336,14 @@ func TestSILKProcessGainsFLPMatchesLibopusOracle(t *testing.T) {
 			resNrg: []float32{15000.0, 22000.0, 8000.0, 30000.0},
 		},
 		{
+			name: "voiced_2db", signalType: typeVoiced, nbSubfr: 4, subfrLength: 80,
+			condCoding: codeIndependently, snrDBQ7: 25 * 128, speechActQ8: 200,
+			inputTiltQ15: -4000, nStatesDD: 4, quantOffsetType: 0, lastGainIndex: 40,
+			predGainQ7: 2 * 128, inputQuality: 0.8, codingQuality: 0.6,
+			gains:  []float32{120.5, 88.25, 200.0, 64.0},
+			resNrg: []float32{15000.0, 22000.0, 8000.0, 30000.0},
+		},
+		{
 			name: "unvoiced_4sf", signalType: typeUnvoiced, nbSubfr: 4, subfrLength: 80,
 			condCoding: codeConditionally, snrDBQ7: 18 * 128, speechActQ8: 50,
 			inputTiltQ15: 1000, nStatesDD: 1, quantOffsetType: 1, lastGainIndex: 20,
@@ -381,7 +400,7 @@ func TestSILKProcessGainsFLPMatchesLibopusOracle(t *testing.T) {
 			gainIndices := make([]int8, tc.nbSubfr)
 			prevInd := silkGainsQuantInto(gainIndices, gainsQ16, tc.lastGainIndex, tc.condCoding == codeConditionally, tc.nbSubfr)
 
-			lambdaQ10 := computeLambdaQ10(tc.signalType, tc.speechActQ8, quantOffset, tc.nStatesDD, tc.codingQuality, tc.inputQuality)
+			lambda := computeLambda(tc.signalType, tc.speechActQ8, quantOffset, tc.nStatesDD, tc.codingQuality, tc.inputQuality)
 
 			// quantOffsetType.
 			if quantOffset != want[i].quantOffsetType {
@@ -412,10 +431,10 @@ func TestSILKProcessGainsFLPMatchesLibopusOracle(t *testing.T) {
 			if prevInd != want[i].lastGainIndex {
 				t.Fatalf("LastGainIndex=%d want %d", prevInd, want[i].lastGainIndex)
 			}
-			// Lambda: compare Q10 fixed-point against libopus float Lambda.
-			wantLambdaQ10 := float32ToInt32RoundEven(want[i].lambda * 1024.0)
-			if lambdaQ10 != wantLambdaQ10 {
-				t.Fatalf("LambdaQ10=%d want %d (libopus Lambda=%.10g)", lambdaQ10, wantLambdaQ10, want[i].lambda)
+			// Lambda: the float Lambda bit for bit.
+			if math.Float32bits(lambda) != math.Float32bits(want[i].lambda) {
+				t.Fatalf("Lambda=%08x %.10g want %08x %.10g", math.Float32bits(lambda), lambda,
+					math.Float32bits(want[i].lambda), want[i].lambda)
 			}
 		})
 	}

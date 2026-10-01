@@ -40,7 +40,7 @@ func haar1Stride2Generic(x []float64, n0 int) {
 	}
 }
 
-func haar1Stride4(x []float64, n0 int) {
+func haar1Stride4Generic(x []float64, n0 int) {
 	const invSqrt2 = float32(0.7071067811865476)
 	if n0 <= 0 {
 		return
@@ -68,5 +68,5 @@ func haar1Stride2Asm(x []float64, n0 int) {
 }
 
 func haar1Stride4Asm(x []float64, n0 int) {
-	haar1Stride4(x, n0)
+	haar1Stride4Generic(x, n0)
 }

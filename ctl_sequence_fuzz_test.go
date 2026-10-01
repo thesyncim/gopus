@@ -3,7 +3,7 @@
 // encodes/decodes and OPUS_RESET_STATE through both gopus and a libopus oracle,
 // asserting behavioral parity:
 //
-//   - SET return-code parity (OPUS_OK vs OPUS_BAD_ARG) per step.
+//   - SET, PROCESS, and RESET return-code parity per step.
 //   - GET value + return-code parity after every step.
 //   - post-encode lookahead / final-range and post-decode last-packet-duration
 //     parity (these GETs are interleaved in the program).
@@ -228,7 +228,8 @@ func gopusErrToCode(err error) int32 {
 // public typed setters/getters, returning (ret, value, haveValue).
 // ---------------------------------------------------------------------------
 
-func applyEncoderOp(enc *Encoder, op libopustest.CTLOp) (ret int32, value int32, haveValue bool) {
+func applyEncoderOp(t *testing.T, enc *Encoder, op libopustest.CTLOp) (ret int32, value int32, haveValue bool) {
+	t.Helper()
 	switch op.Op {
 	case libopustest.CTLOpProcess:
 		// Mirror the C oracle's OP_PROCESS frame exactly: a FrameSize()-sample
@@ -239,7 +240,10 @@ func applyEncoderOp(enc *Encoder, op libopustest.CTLOp) (ret int32, value int32,
 		buf := make([]byte, 4000)
 		n, err := enc.Encode(pcm, buf)
 		if err != nil {
-			return -1, 0, false
+			if err != ErrInvalidFrameSize || n != 0 {
+				t.Fatalf("PROCESS encode: samples=%d error=%v; only expert-frame rejection is valid", n, err)
+			}
+			return cOpusBadArg, 0, false
 		}
 		return int32(n), 0, false
 	case libopustest.CTLOpReset:
@@ -394,13 +398,14 @@ func applyEncoderGet(enc *Encoder, req int32) (int32, bool) {
 	return 0, false
 }
 
-func applyDecoderOp(dec *Decoder, op libopustest.CTLOp, feedPkt []byte) (ret int32, value int32, haveValue bool) {
+func applyDecoderOp(t *testing.T, dec *Decoder, op libopustest.CTLOp, feedPkt []byte) (ret int32, value int32, haveValue bool) {
+	t.Helper()
 	switch op.Op {
 	case libopustest.CTLOpProcess:
 		pcm := make([]float32, dec.maxPacketSamples*dec.Channels())
 		n, err := dec.Decode(feedPkt, pcm)
 		if err != nil {
-			return -1, 0, false
+			t.Fatalf("PROCESS decode of valid feed: %v", err)
 		}
 		return int32(n), 0, false
 	case libopustest.CTLOpReset:
@@ -575,13 +580,8 @@ var encoderSetReqs = []struct {
 // (see TestEncoderCTL_BitrateGetResidual); SET_BITRATE clamping is still
 // exercised for return-code parity.
 //
-// OPUS_GET_FINAL_RANGE / OPUS_GET_IN_DTX value parity is NOT asserted here:
-// both reflect the encoder's entropy-coded OUTPUT, which is exercised
-// byte-for-byte by the encode differential fuzz (encode_differential_fuzz_test);
-// asserting them on arbitrary CTL programs (which may drive OPUS_AUTO-bitrate
-// corners outside the encode harness's explicit-bitrate matrix) would duplicate
-// that gate and conflate CTL semantics with encode parity. Their CTL return
-// code is still verified (ctlGetComparesValue).
+// Output-derived GETs use the same feature and instruction configuration as
+// the Go encoder and remain exact after each control/program step.
 var encoderGetReqs = []int32{
 	reqGetApplication, reqGetMaxBandwidth, reqGetVBR,
 	reqGetBandwidth, reqGetComplexity, reqGetInbandFEC, reqGetPacketLossPerc,
@@ -589,21 +589,6 @@ var encoderGetReqs = []int32{
 	reqGetLookahead, reqGetSampleRate, reqGetFinalRange, reqGetLSBDepth,
 	reqGetExpertFrameDuration, reqGetPredictionDisabled,
 	reqGetPhaseInversionDisabled, reqGetInDTX,
-}
-
-// ctlGetComparesValue reports whether a GET request's VALUE (not just its
-// return code) is asserted for parity. Output-derived encoder GETs whose value
-// is a function of the entropy-coded packet stream are compared only for return
-// code, since byte-stream parity is covered by the dedicated encode/decode
-// differential harnesses.
-func ctlGetComparesValue(isDecoder bool, req int32) bool {
-	if !isDecoder {
-		switch int(req) {
-		case reqGetFinalRange, reqGetInDTX:
-			return false
-		}
-	}
-	return true
 }
 
 var decoderSetReqs = []struct {
@@ -680,25 +665,32 @@ func genDecoderProgram(r *rand.Rand, n int) []libopustest.CTLOp {
 // compareCTLResults asserts gopus vs oracle parity for a single program. It
 // reports the first divergence with a minimized prefix so failures pinpoint the
 // exact op (and its predecessors) that produced the mismatch.
-func compareCTLResults(t *testing.T, label string, isDecoder bool, ops []libopustest.CTLOp, gopus, oracle []libopustest.CTLResult) {
+func compareCTLResults(t *testing.T, label string, ops []libopustest.CTLOp, gopus, oracle []libopustest.CTLResult) {
 	t.Helper()
-	if len(gopus) != len(oracle) {
-		t.Fatalf("%s: result count gopus=%d oracle=%d", label, len(gopus), len(oracle))
+	if len(gopus) != len(ops) || len(oracle) != len(ops) {
+		t.Fatalf("%s: result count gopus=%d oracle=%d operations=%d", label, len(gopus), len(oracle), len(ops))
 	}
 	for i := range ops {
 		g, o := gopus[i], oracle[i]
 		op := ops[i]
 		mismatch := ""
-		if op.Op == libopustest.CTLOpSet {
+		switch op.Op {
+		case libopustest.CTLOpProcess, libopustest.CTLOpReset:
+			if g.Ret != o.Ret {
+				mismatch = fmt.Sprintf("%s ret gopus=%d oracle=%d", opName(op.Op), g.Ret, o.Ret)
+			}
+		case libopustest.CTLOpSet:
 			if g.Ret != o.Ret {
 				mismatch = fmt.Sprintf("SET %s(%d) ret gopus=%d oracle=%d",
 					ctlReqName(op.Request), op.Arg, g.Ret, o.Ret)
 			}
-		} else if op.Op == libopustest.CTLOpGet {
+		case libopustest.CTLOpGet:
 			if g.Ret != o.Ret {
 				mismatch = fmt.Sprintf("GET %s ret gopus=%d oracle=%d",
 					ctlReqName(op.Request), g.Ret, o.Ret)
-			} else if o.Ret == cOpusOK && ctlGetComparesValue(isDecoder, op.Request) && g.Value != o.Value {
+			} else if g.HaveValue != o.HaveValue {
+				mismatch = fmt.Sprintf("GET %s value presence gopus=%t oracle=%t", ctlReqName(op.Request), g.HaveValue, o.HaveValue)
+			} else if o.Ret == cOpusOK && g.Value != o.Value {
 				mismatch = fmt.Sprintf("GET %s value gopus=%d oracle=%d",
 					ctlReqName(op.Request), g.Value, o.Value)
 			}
@@ -716,13 +708,13 @@ func formatProgram(ops []libopustest.CTLOp) string {
 	for i, op := range ops {
 		switch op.Op {
 		case libopustest.CTLOpSet:
-			s.WriteString(fmt.Sprintf("  [%d] SET %s arg=%d\n", i, ctlReqName(op.Request), op.Arg))
+			fmt.Fprintf(&s, "  [%d] SET %s arg=%d\n", i, ctlReqName(op.Request), op.Arg)
 		case libopustest.CTLOpGet:
-			s.WriteString(fmt.Sprintf("  [%d] GET %s\n", i, ctlReqName(op.Request)))
+			fmt.Fprintf(&s, "  [%d] GET %s\n", i, ctlReqName(op.Request))
 		case libopustest.CTLOpProcess:
-			s.WriteString(fmt.Sprintf("  [%d] PROCESS\n", i))
+			fmt.Fprintf(&s, "  [%d] PROCESS\n", i)
 		case libopustest.CTLOpReset:
-			s.WriteString(fmt.Sprintf("  [%d] RESET\n", i))
+			fmt.Fprintf(&s, "  [%d] RESET\n", i)
 		}
 	}
 	return s.String()
@@ -732,7 +724,7 @@ func runEncoderCTLProgram(t *testing.T, sampleRate, channels int, app Applicatio
 	enc := mustNewTestEncoder(t, sampleRate, channels, app)
 	out := make([]libopustest.CTLResult, len(ops))
 	for i, op := range ops {
-		ret, val, have := applyEncoderOp(enc, op)
+		ret, val, have := applyEncoderOp(t, enc, op)
 		out[i] = libopustest.CTLResult{Ret: ret, Value: val, HaveValue: have}
 	}
 	return out
@@ -742,7 +734,7 @@ func runDecoderCTLProgram(t *testing.T, sampleRate, channels int, ops []libopust
 	dec := mustNewTestDecoder(t, sampleRate, channels)
 	out := make([]libopustest.CTLResult, len(ops))
 	for i, op := range ops {
-		ret, val, have := applyDecoderOp(dec, op, feed)
+		ret, val, have := applyDecoderOp(t, dec, op, feed)
 		out[i] = libopustest.CTLResult{Ret: ret, Value: val, HaveValue: have}
 	}
 	return out
@@ -804,7 +796,10 @@ func TestEncoderCTLSequenceFuzz(t *testing.T) {
 		t.Run(fmt.Sprintf("%dHz_%dch_%v", c.rate, c.ch, c.app), func(t *testing.T) {
 			for seed := range seeds {
 				r := rand.New(rand.NewSource(int64(seed)*1000003 + int64(c.rate) + int64(c.ch)))
-				ops := genEncoderProgram(r, opsPerSeed, c.withProcess)
+				// The Go facade starts at 64 kbps; libopus starts at OPUS_AUTO.
+				// Apply the same initial control before comparing encoded output.
+				ops := []libopustest.CTLOp{{Op: libopustest.CTLOpSet, Request: reqSetBitrate, Arg: cOpusAuto}}
+				ops = append(ops, genEncoderProgram(r, opsPerSeed, c.withProcess)...)
 
 				oracle, err := libopustest.ProbeCTLSequence(libopustest.CTLSequenceParams{
 					IsDecoder:   false,
@@ -818,7 +813,7 @@ func TestEncoderCTLSequenceFuzz(t *testing.T) {
 					t.Fatalf("oracle seed %d: %v", seed, err)
 				}
 				gopus := runEncoderCTLProgram(t, c.rate, c.ch, c.app, ops)
-				compareCTLResults(t, fmt.Sprintf("enc seed=%d", seed), false, ops, gopus, oracle)
+				compareCTLResults(t, fmt.Sprintf("enc seed=%d", seed), ops, gopus, oracle)
 				if t.Failed() {
 					return
 				}
@@ -870,7 +865,7 @@ func TestDecoderCTLSequenceFuzz(t *testing.T) {
 					t.Fatalf("oracle seed %d: %v", seed, err)
 				}
 				gopus := runDecoderCTLProgram(t, c.rate, c.ch, ops, feed)
-				compareCTLResults(t, fmt.Sprintf("dec seed=%d", seed), true, ops, gopus, oracle)
+				compareCTLResults(t, fmt.Sprintf("dec seed=%d", seed), ops, gopus, oracle)
 				if t.Failed() {
 					return
 				}

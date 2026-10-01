@@ -151,7 +151,7 @@ func runBurstTrainParityTest(t *testing.T, label string, cfg burstTrainConfig) {
 			label, len(gopusResult.lossDecoded), len(libResult.lossDecoded))
 	}
 	if len(gopusResult.lossDecoded) == 0 {
-		t.Skipf("%s no DRED-recovered PCM to compare (%d burst frames all fell back to PLC)", label, cfg.burstLen)
+		t.Fatalf("%s no DRED-recovered PCM to compare (%d burst frames all fell back to PLC)", label, cfg.burstLen)
 	}
 
 	// PCM quality gate: gopus vs libopus recovered audio

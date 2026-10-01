@@ -430,20 +430,26 @@ func TestHybridRoundTrip(t *testing.T) {
 	}
 }
 
-// TestInvalidHybridFrameSize tests that invalid frame sizes return error for hybrid mode.
-// Note: long hybrid packets from 40ms through 120ms are valid and are encoded
-// as repeated 20ms hybrid frames.
+// TestInvalidHybridFrameSize tests forced hybrid mode against the frame sizes
+// libopus accepts. Sizes that are not Opus frame durations return an error.
+// Frames shorter than 10 ms fall back to CELT-only, as opus_encode_native does
+// when frame_size < Fs/100. Long hybrid packets from 40ms through 120ms are
+// valid and are encoded as repeated 20ms hybrid frames.
 func TestInvalidHybridFrameSize(t *testing.T) {
-	enc := encoder.NewEncoder(48000, 1)
-	enc.SetMode(encoder.ModeHybrid)
-
-	invalidSizes := []int{120, 240, 100, 500}
-
-	for _, size := range invalidSizes {
+	for _, size := range []int{120, 240, 100, 500} {
 		t.Run(string(rune('0'+size/100)), func(t *testing.T) {
-			pcm := make([]float64, size)
-
-			_, err := encodeTest(enc, pcm, size)
+			enc := encoder.NewEncoder(48000, 1)
+			enc.SetMode(encoder.ModeHybrid)
+			packet, err := encodeTest(enc, make([]float64, size), size)
+			if size < 480 && size%120 == 0 {
+				if err != nil {
+					t.Fatalf("frame size %d in hybrid mode: %v", size, err)
+				}
+				if len(packet) == 0 || packet[0]>>3 < 16 {
+					t.Fatalf("frame size %d in hybrid mode: packet %x is not CELT-only", size, packet)
+				}
+				return
+			}
 			if err == nil {
 				t.Errorf("Expected error for frame size %d in hybrid mode", size)
 			}
@@ -553,38 +559,6 @@ func TestAutoLongFrameSpeechLikePrefersCELTAtFullband(t *testing.T) {
 	if toc.Mode != gopus.ModeCELT {
 		t.Fatalf("TOC mode = %v, want %v", toc.Mode, gopus.ModeCELT)
 	}
-}
-
-// TestDownsample48to16 tests the downsampling function.
-func TestDownsample48to16(t *testing.T) {
-	// 960 samples at 48kHz should become 320 samples at 16kHz
-	pcm := generateTestSignal(960, 1)
-
-	// Create an encoder to access the downsampling method
-	enc := encoder.NewEncoder(48000, 1)
-	downsampled := enc.Downsample48to16Hybrid(pcm, 960)
-
-	expectedLen := 960 / 3
-	if len(downsampled) != expectedLen {
-		t.Errorf("Downsampled length = %d, want %d", len(downsampled), expectedLen)
-	}
-
-	// Verify downsampled signal has reasonable values
-	var maxVal float32
-	for _, s := range downsampled {
-		if s > maxVal {
-			maxVal = s
-		}
-		if -s > maxVal {
-			maxVal = -s
-		}
-	}
-
-	if maxVal < 0.01 {
-		t.Error("Downsampled signal appears to be silent")
-	}
-
-	t.Logf("Downsampled max value: %f", maxVal)
 }
 
 // TestModeAutoSelection tests automatic mode selection.

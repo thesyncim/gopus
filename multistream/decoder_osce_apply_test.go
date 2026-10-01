@@ -33,6 +33,7 @@ func TestStreamOSCELACEComplexityMode(t *testing.T) {
 		complexity int
 		want       streamOSCELACEMode
 	}{
+		{complexity: 0, want: streamOSCELACEModeNone},
 		{complexity: 5, want: streamOSCELACEModeNone},
 		{complexity: 6, want: streamOSCELACEModeLACE},
 		{complexity: 7, want: streamOSCELACEModeNoLACE},
@@ -41,6 +42,39 @@ func TestStreamOSCELACEComplexityMode(t *testing.T) {
 		if got := pickStreamOSCELACEMode(tc.complexity); got != tc.want {
 			t.Fatalf("pickStreamOSCELACEMode(%d)=%v want %v", tc.complexity, got, tc.want)
 		}
+	}
+}
+
+func TestStreamOSCELACEComplexityEnablePrecedence(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		complexity      int32
+		overrideSet     bool
+		overrideEnabled bool
+		wantEnabled     bool
+		wantMode        streamOSCELACEMode
+	}{
+		{name: "automatic below threshold", complexity: 5, wantEnabled: false, wantMode: streamOSCELACEModeNone},
+		{name: "automatic LACE", complexity: 6, wantEnabled: true, wantMode: streamOSCELACEModeLACE},
+		{name: "automatic NoLACE", complexity: 7, wantEnabled: true, wantMode: streamOSCELACEModeNoLACE},
+		{name: "explicit false suppresses auto", complexity: 6, overrideSet: true, wantEnabled: false, wantMode: streamOSCELACEModeLACE},
+		{name: "explicit true below threshold has no method", complexity: 5, overrideSet: true, overrideEnabled: true, wantEnabled: true, wantMode: streamOSCELACEModeNone},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := &streamState{
+				complexity: tc.complexity,
+				streamOSCEFields: streamOSCEFields{
+					osceLACEOverrideSet: tc.overrideSet,
+					osceLACEEnabled:     tc.overrideEnabled,
+				},
+			}
+			if got := st.osceLACEEnabledForComplexity(); got != tc.wantEnabled {
+				t.Fatalf("enabled=%t want %t", got, tc.wantEnabled)
+			}
+			if got := pickStreamOSCELACEMode(int(tc.complexity)); got != tc.wantMode {
+				t.Fatalf("mode=%v want %v", got, tc.wantMode)
+			}
+		})
 	}
 }
 
@@ -77,7 +111,7 @@ func TestStreamOSCELACEOutputResetMatchesLibopusSequence(t *testing.T) {
 	}
 }
 
-func TestStreamOSCEInactiveMarkClearsNonSILKState(t *testing.T) {
+func TestStreamOSCECELTMarkPreservesSILKState(t *testing.T) {
 	st := &streamState{
 		channels:   2,
 		sampleRate: 48000,
@@ -89,19 +123,27 @@ func TestStreamOSCEInactiveMarkClearsNonSILKState(t *testing.T) {
 			},
 		},
 	}
-	st.osceState.laceResetFrames[0] = 2
+	st.osceState.laceResetFrames[0] = 1
 	st.osceState.laceResetFrames[1] = 2
 
+	// libopus src/opus_decoder.c::opus_decode_frame skips its SILK block for
+	// MODE_CELT_ONLY, so the per-SILK OSCE state remains untouched by this frame.
 	st.markOSCEInactiveIfModeIneligible(streamTOC{mode: streamModeCELT, bandwidth: 4, stereo: true}, make([]float32, 960*2), 960)
 
-	if st.osceState.prevLACEActive {
-		t.Fatal("CELT transition left LACE active")
+	if !st.osceState.prevLACEActive {
+		t.Fatal("CELT-only frame cleared the retained SILK LACE state")
 	}
 	if st.osceState.prevBWEActive {
 		t.Fatal("CELT transition left BWE active")
 	}
-	if st.osceState.laceMethod != streamOSCELACEModeNone {
-		t.Fatalf("laceMethod=%v want none", st.osceState.laceMethod)
+	if st.osceState.laceMethod != streamOSCELACEModeLACE {
+		t.Fatalf("CELT-only frame changed laceMethod=%v want LACE", st.osceState.laceMethod)
+	}
+	if got, want := st.osceState.laceResetFrames, [2]int{1, 2}; got != want {
+		t.Fatalf("CELT-only frame changed LACE reset countdowns=%v want %v", got, want)
+	}
+	if st.osceState.prevExtendedMode != bweModeCeltOnly {
+		t.Fatalf("previous OSCE extended mode=%v want CELT-only", st.osceState.prevExtendedMode)
 	}
 }
 
@@ -133,8 +175,9 @@ func TestStreamOSCEPLCSilkResetsLACEAndClearsInactiveBWE(t *testing.T) {
 		channels:   1,
 		sampleRate: 48000,
 		streamOSCEFields: streamOSCEFields{
-			osceLACEEnabled: true,
-			osceBWEEnabled:  true,
+			osceLACEEnabled:     true,
+			osceLACEOverrideSet: true,
+			osceBWEEnabled:      true,
 			osceState: &streamOSCEState{
 				prevLACEActive: true,
 				prevBWEActive:  true,
@@ -143,10 +186,11 @@ func TestStreamOSCEPLCSilkResetsLACEAndClearsInactiveBWE(t *testing.T) {
 		},
 	}
 
+	st.resetOSCELACELostChannel(0)
 	st.applyOSCEPLCSilk(make([]float32, 960), 960, silk.BandwidthWideband, false)
 
-	if st.osceState.prevLACEActive {
-		t.Fatal("SILK WB PLC left LACE active")
+	if st.osceState.laceMethod != streamOSCELACEModeLACE || st.osceState.laceResetFrames[0] != 2 {
+		t.Fatal("SILK WB PLC must preserve the selected method and arm its output reset")
 	}
 	if st.osceState.prevBWEActive {
 		t.Fatal("SILK WB PLC without model left BWE active")

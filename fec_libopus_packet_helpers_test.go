@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
-	"os"
 
 	encpkg "github.com/thesyncim/gopus/internal/encoder"
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -61,11 +60,13 @@ var libopusFECEmitPacketsHelper libopustest.HelperCache
 
 func getLibopusFECEmitPacketsHelperPath() (string, error) {
 	return libopusFECEmitPacketsHelper.Path(func() (string, error) {
-		repoRoot, err := os.Getwd()
-		if err != nil {
-			return "", fmt.Errorf("getwd: %w", err)
-		}
-		return libopustest.BuildDREDHelper(repoRoot, "libopus_fec_emit_packets.c", "gopus_libopus_fec_emit_packets", true)
+		return libopustest.BuildPublicAPIHelper(libopustest.CHelperConfig{
+			Label:       "FEC packet emit",
+			OutputBase:  "gopus_libopus_fec_emit_packets",
+			SourceFile:  "libopus_fec_emit_packets.c",
+			CFlags:      []string{"-DHAVE_CONFIG_H"},
+			RefIncludes: []string{"celt", "silk", "src"},
+		})
 	})
 }
 

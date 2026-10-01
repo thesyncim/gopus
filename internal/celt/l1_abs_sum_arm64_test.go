@@ -1,4 +1,4 @@
-//go:build arm64 && !purego
+//go:build arm64 && !nosimd && !purego
 
 package celt
 
@@ -23,9 +23,9 @@ func scalarL1Abs(tmp []float32, n int) float32 {
 // l1AbsSumNeonReference reproduces the exact accumulation order of the NEON
 // kernel: four lane accumulators take |tmp[i]| for i grouped mod 4, a sequential
 // scalar tail takes the final n%4 elements, and the lanes reduce pairwise as
-// (acc0+acc1)+(acc2+acc3) before the tail is added — matching the asm's
-// FADDP/FADDP/FADDS sequence. abs and add carry no fusion, so the only thing
-// that could diverge is add order, which this fixes; the asm must match to the bit.
+// (acc0+acc1)+(acc2+acc3) before the tail is added — matching libopus's NEON
+// FADDP/FADDP/FADDS sequence. Absolute value and addition do not fuse, so add
+// order determines exact parity.
 func l1AbsSumNeonReference(tmp []float32, n int) float32 {
 	var acc [4]float32
 	i := 0

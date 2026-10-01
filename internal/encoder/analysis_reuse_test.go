@@ -7,10 +7,11 @@ import (
 	"github.com/thesyncim/gopus/types"
 )
 
-func TestUpdateOpusVADReusesFreshAnalysis(t *testing.T) {
+func TestUpdateFrameActivityReusesFreshAnalysis(t *testing.T) {
 	const frameSize = 1920
 
 	enc := NewEncoder(48000, 1)
+	enc.SetComplexity(10)
 	pcmRes := make([]opusRes, frameSize)
 	for i := range pcmRes {
 		s := 0.25 * math.Sin(2*math.Pi*220*float64(i)/48000.0)
@@ -23,9 +24,9 @@ func TestUpdateOpusVADReusesFreshAnalysis(t *testing.T) {
 	}
 
 	countBefore := enc.analyzer.Count
-	enc.updateOpusVADRes(pcmRes, frameSize)
+	enc.updateFrameActivity(pcmRes, false, ModeSILK)
 	if enc.analyzer.Count != countBefore {
-		t.Fatalf("updateOpusVAD consumed fresh analysis but still advanced analyzer count: got %d want %d", enc.analyzer.Count, countBefore)
+		t.Fatalf("updateFrameActivity consumed fresh analysis but still advanced analyzer count: got %d want %d", enc.analyzer.Count, countBefore)
 	}
 	if enc.lastAnalysisFresh {
 		t.Fatal("expected fresh analysis flag to be consumed")
@@ -36,13 +37,13 @@ func TestUpdateOpusVADReusesFreshAnalysis(t *testing.T) {
 
 	// libopus opus_encoder.c never re-runs the tonality analysis in the VAD
 	// path: opus_encode_frame_native() derives activity from the analysis_info
-	// produced once per frame by run_analysis(). A second updateOpusVADRes call
+	// produced once per frame by run_analysis(). A second updateFrameActivity call
 	// without a fresh analysis must therefore reuse the last valid snapshot and
 	// must NOT advance the analyzer (re-running RunAnalysis would mutate
 	// write_pos/read cursor and desynchronise the next frame's curr_lookahead).
-	enc.updateOpusVADRes(pcmRes, frameSize)
+	enc.updateFrameActivity(pcmRes, false, ModeSILK)
 	if enc.analyzer.Count != countBefore {
-		t.Fatalf("second updateOpusVAD call must not advance analyzer: countBefore=%d countAfter=%d", countBefore, enc.analyzer.Count)
+		t.Fatalf("second updateFrameActivity call must not advance analyzer: countBefore=%d countAfter=%d", countBefore, enc.analyzer.Count)
 	}
 	if !enc.lastOpusVADValid {
 		t.Fatal("expected reused valid Opus VAD on second call")
@@ -84,6 +85,7 @@ func TestLongHybridMultiframeReusesAnalysisCadence(t *testing.T) {
 	const frameSize = 1920
 
 	enc := NewEncoder(48000, 1)
+	enc.SetComplexity(10)
 	enc.SetMode(ModeHybrid)
 	enc.SetBandwidth(types.BandwidthSuperwideband)
 	enc.SetBitrate(48000)

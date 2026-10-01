@@ -3,14 +3,8 @@
 package silk
 
 import (
-	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"runtime"
+	"github.com/thesyncim/gopus/internal/libopustest"
 	"sync"
-
-	"github.com/thesyncim/gopus/internal/libopustooling"
 )
 
 // fixed_oracle_helper_test.go centralizes the FIXED_POINT libopus oracle build
@@ -43,54 +37,15 @@ func buildFixedSILKOracle(srcName, binSlug string) (string, error) {
 	if got, ok := fixedOracleBins[binSlug]; ok {
 		return got.bin, got.err
 	}
-	bin, err := compileFixedSILKOracle(srcName, binSlug)
+	bin, err := libopustest.BuildCHelper(libopustest.CHelperConfig{
+		Label:       "silk fixed " + binSlug,
+		OutputBase:  "gopus_silk_fixed_" + binSlug,
+		SourceFile:  srcName,
+		FixedRef:    true,
+		CFlags:      []string{"-DHAVE_CONFIG_H", "-O2"},
+		RefIncludes: []string{"celt", "silk", "silk/fixed"},
+		Libs:        []string{libopustest.FixedRefPath(".libs", "libopus.a"), "-lm"},
+	})
 	fixedOracleBins[binSlug] = fixedOracleResult{bin: bin, err: err}
 	return bin, err
-}
-
-func compileFixedSILKOracle(srcName, binSlug string) (string, error) {
-	_, file, _, _ := runtime.Caller(0)
-	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
-
-	refDir := fixedRefPath()
-	staticLib := fixedRefPath(".libs", "libopus.a")
-	if _, err := os.Stat(staticLib); err != nil {
-		cmd := exec.Command("bash", filepath.Join("tools", "ensure_libopus.sh"))
-		cmd.Dir = repoRoot
-		cmd.Env = append(os.Environ(), "LIBOPUS_ENABLE_FIXED=1")
-		if out, berr := cmd.CombinedOutput(); berr != nil {
-			return "", fmt.Errorf("ensure fixed libopus: %w (%s)", berr, out)
-		}
-	}
-	if _, err := os.Stat(staticLib); err != nil {
-		return "", fmt.Errorf("fixed libopus static lib missing: %w", err)
-	}
-
-	cc, err := libopustooling.FindCCompiler()
-	if err != nil {
-		return "", err
-	}
-
-	src := filepath.Join(repoRoot, "tools", "csrc", srcName)
-	outDir := filepath.Join(os.TempDir(), "gopus_libopus_test_helpers")
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
-		return "", err
-	}
-	out := filepath.Join(outDir, fmt.Sprintf("gopus_silk_fixed_%s_%s_%s", binSlug, runtime.GOOS, runtime.GOARCH))
-
-	args := []string{
-		"-std=c99", "-O2", "-DHAVE_CONFIG_H",
-		"-I", refDir,
-		"-I", filepath.Join(refDir, "include"),
-		"-I", filepath.Join(refDir, "celt"),
-		"-I", filepath.Join(refDir, "silk"),
-		"-I", filepath.Join(refDir, "silk", "fixed"),
-		src, staticLib, "-lm",
-		"-o", out,
-	}
-	cmd := exec.Command(cc, args...)
-	if combined, cerr := cmd.CombinedOutput(); cerr != nil {
-		return "", fmt.Errorf("build silk fixed %s helper: %w (%s)", binSlug, cerr, combined)
-	}
-	return out, nil
 }

@@ -61,7 +61,7 @@ func TestMarkUpdatedFrameFloatMatchesLibopus(t *testing.T) {
 	if st.predictPos != want.PredictPos {
 		t.Fatalf("predictPos=%d want %d", st.predictPos, want.PredictPos)
 	}
-	assertFloat32Close(t, st.pcm[:], want.PCM, 1e-7, "updated pcm")
+	assertFloat32BitsMatch(t, st.pcm[:], want.PCM, "updated pcm")
 }
 
 func TestMarkUpdatedFrameInt16MatchesLibopus(t *testing.T) {
@@ -105,5 +105,5 @@ func TestMarkUpdatedFrameInt16MatchesLibopus(t *testing.T) {
 	if st.predictPos != want.PredictPos {
 		t.Fatalf("predictPos=%d want %d", st.predictPos, want.PredictPos)
 	}
-	assertFloat32Close(t, st.pcm[:], want.PCM, 1e-7, "updated pcm")
+	assertFloat32BitsMatch(t, st.pcm[:], want.PCM, "updated pcm")
 }

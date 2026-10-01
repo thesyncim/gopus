@@ -1,25 +1,7 @@
-// VBR and CVBR byte-parity tests against pinned libopus 1.6.1.
-//
-// (1) Unconstrained VBR: SetVBR(true), SetVBRConstraint(false) — encodes the
-//
-//	same PCM through gopus and libopus across SILK/CELT/Hybrid × rates ×
-//	frame sizes and asserts byte-identical packets where libopus is
-//	deterministic on the current platform.
-//
-// (2) CVBR: SetVBRConstraint(true) — asserts that per-frame packet-size
-//
-//	sequences match libopus across a multi-frame stream. The CVBR
-//	reservoir/bound logic inside celt/encoder.go must track libopus exactly.
-//
-// Reference: libopus src/opus_encoder.c opus_encode_native()
-//
-//	use_vbr         = OPUS_GET_VBR                (default 1)
-//	constrained_vbr = OPUS_GET_VBR_CONSTRAINT      (default 0)
-//
-// The CELT sub-encoder constrained-VBR reservoir logic lives in
-//
-//	celt/celt_encoder.c opus_celt_encode_with_ec() around the
-//	vbr_offset / vbr_count / nb_bits_budget path.
+// VBR and CVBR parity tests against a libopus build selected for the active
+// feature set and instruction lane. The direct C gates compare packet bytes
+// and final ranges. The opus_demo CVBR gate reproduces its float-input
+// conversion to int24 before comparing the public encoders.
 package testvectors
 
 import (
@@ -27,16 +9,13 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
-	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"testing"
 
 	gopus "github.com/thesyncim/gopus"
 	"github.com/thesyncim/gopus/internal/libopustest"
-	"github.com/thesyncim/gopus/internal/libopustooling"
 	"github.com/thesyncim/gopus/types"
 )
 
@@ -68,12 +47,13 @@ var vbrCVBREncodeHelper libopustest.HelperCache
 
 func getVBRCVBREncodeHelperPath(t testing.TB) (string, bool) {
 	t.Helper()
-	path, err := vbrCVBREncodeHelper.CHelperPath(libopustest.CHelperConfig{
-		Label:      "vbr-cvbr encode",
-		OutputBase: "gopus_libopus_vbr_cvbr_encode",
-		SourceFile: "libopus_vbr_cvbr_encode_info.c",
-		CFlags:     []string{"-O2", "-DNDEBUG"},
-		Libs:       []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
+	path, err := vbrCVBREncodeHelper.Path(func() (string, error) {
+		return libopustest.BuildPublicAPIHelper(libopustest.CHelperConfig{
+			Label:      "vbr-cvbr encode",
+			OutputBase: "gopus_libopus_vbr_cvbr_encode",
+			SourceFile: "libopus_vbr_cvbr_encode_info.c",
+			CFlags:     []string{"-O2", "-DNDEBUG"},
+		})
 	})
 	if err != nil {
 		if libopustest.StrictRefRequired() {
@@ -183,6 +163,38 @@ func encodeVBRCVBRWithGopus(
 	pcm []float32,
 	nFrames int,
 ) ([]oracleResult, error) {
+	enc, err := newVBRCVBREncoder(application, sampleRate, channels, frameSize, bitrate,
+		bandwidth, setBandwidth, signal, vbrConstraint, false)
+	if err != nil {
+		return nil, err
+	}
+
+	samplesPerFrame := frameSize * channels
+	buf := make([]byte, 4000)
+	results := make([]oracleResult, 0, nFrames)
+	for i := range nFrames {
+		frame := pcm[i*samplesPerFrame : (i+1)*samplesPerFrame]
+		n, err := enc.Encode(frame, buf)
+		if err != nil {
+			return nil, fmt.Errorf("encode frame %d: %w", i, err)
+		}
+		results = append(results, oracleResult{
+			data:       append([]byte(nil), buf[:n]...),
+			finalRange: enc.FinalRange(),
+		})
+	}
+	return results, nil
+}
+
+func newVBRCVBREncoder(
+	application gopus.Application,
+	sampleRate, channels, frameSize, bitrate int,
+	bandwidth types.Bandwidth,
+	setBandwidth bool,
+	signal types.Signal,
+	vbrConstraint bool,
+	opusDemoInput bool,
+) (*gopus.Encoder, error) {
 	enc, err := gopus.NewEncoder(gopus.EncoderConfig{
 		SampleRate:  sampleRate,
 		Channels:    channels,
@@ -208,17 +220,51 @@ func encodeVBRCVBRWithGopus(
 	if err := enc.SetComplexity(10); err != nil {
 		return nil, fmt.Errorf("set complexity: %w", err)
 	}
+	if opusDemoInput {
+		// opus_demo.c sets OPUS_SET_LSB_DEPTH(24) for FORMAT_F32_LE before it
+		// quantizes the input and calls opus_encode24.
+		if err := enc.SetLSBDepth(24); err != nil {
+			return nil, fmt.Errorf("set input LSB depth: %w", err)
+		}
+	}
 	enc.SetVBR(true)
 	enc.SetVBRConstraint(vbrConstraint)
+	return enc, nil
+}
 
+func quantizeOpusDemoFloatInputToInt24(pcm []float32) []int32 {
+	pcm24 := make([]int32, len(pcm))
+	for i, sample := range pcm {
+		// src/opus_demo.c FORMAT_F32_LE computes floor(.5 + sample*8388608)
+		// and passes the result to opus_encode24.
+		pcm24[i] = int32(math.Floor(0.5 + float64(sample)*8388608.0))
+	}
+	return pcm24
+}
+
+func encodeOpusDemoInt24(
+	application gopus.Application,
+	sampleRate, channels, frameSize, bitrate int,
+	bandwidth types.Bandwidth,
+	setBandwidth bool,
+	vbrConstraint bool,
+	pcm []float32,
+	nFrames int,
+) ([]oracleResult, error) {
+	enc, err := newVBRCVBREncoder(application, sampleRate, channels, frameSize, bitrate,
+		bandwidth, setBandwidth, types.SignalAuto, vbrConstraint, true)
+	if err != nil {
+		return nil, err
+	}
+	pcm24 := quantizeOpusDemoFloatInputToInt24(pcm)
 	samplesPerFrame := frameSize * channels
 	buf := make([]byte, 4000)
 	results := make([]oracleResult, 0, nFrames)
 	for i := range nFrames {
-		frame := pcm[i*samplesPerFrame : (i+1)*samplesPerFrame]
-		n, err := enc.Encode(frame, buf)
+		frame := pcm24[i*samplesPerFrame : (i+1)*samplesPerFrame]
+		n, err := enc.EncodeInt24(frame, buf)
 		if err != nil {
-			return nil, fmt.Errorf("encode frame %d: %w", i, err)
+			return nil, fmt.Errorf("encode int24 frame %d: %w", i, err)
 		}
 		results = append(results, oracleResult{
 			data:       append([]byte(nil), buf[:n]...),
@@ -355,25 +401,8 @@ func makeVBRCVBRTestPCM(nFrames, frameSize, channels int) []float32 {
 // ---- VBR byte-parity test ----------------------------------------------------
 
 // TestVBRByteParityAgainstLibopus encodes the same PCM through gopus (VBR)
-// and the pinned libopus oracle and asserts byte-identical packets.
-//
-// Current parity status per mode:
-//   - CELT mono (celt-fb-mono-*): byte-identical on all platforms.
-//   - CELT stereo (celt-fb-stereo-*): size-identical; on darwin/arm64
-//     content may differ due to the documented 1-ULP CELT drift. The
-//     waveform quality floor is amd64EncoderFixtureWaveformMinQ (-60 dB).
-//   - SILK (silk-*): packet sizes diverge from libopus by 1-10 bytes per
-//     frame. Residual: gopus SILK VBR rate-control produces slightly
-//     different per-frame budgets than libopus silk/enc_API.c.
-//   - Hybrid (hybrid-*): packet sizes diverge significantly. Residual:
-//     the gopus hybrid VBR architecture passes payloadTargetMain (the
-//     nominal target) as CELT's bit budget, while libopus passes the full
-//     max_data_bytes - 1 - redundancy_bytes (opus_encoder.c line 2392).
-//     The CELT sub-encoder's internal VBR reservoir then decides actual
-//     frame size from within the larger budget.
-//
-// SILK and Hybrid residuals are reported as non-fatal log messages with
-// exact evidence. CELT mono parity is a hard assertion.
+// and the feature/ISA-paired libopus oracle. Every packet and final-range value
+// must match exactly.
 func TestVBRByteParityAgainstLibopus(t *testing.T) {
 	t.Parallel()
 	requireTestTier(t, testTierParity)
@@ -461,17 +490,6 @@ func runVBRParityCase(t *testing.T, tc vbrCVBRCase, helperPath string) {
 		}
 	}
 
-	if mismatchLen == 0 && mismatchBytes == 0 {
-		t.Logf("VBR byte-identical: all %d frames match", tc.nFrames)
-		return
-	}
-
-	isDarwinARM64 := runtime.GOOS == "darwin" && runtime.GOARCH == "arm64"
-	isLinuxAMD64 := runtime.GOOS == "linux" && runtime.GOARCH == "amd64"
-
-	t.Logf("VBR mismatch: frames=%d len_mismatch=%d bytes_mismatch=%d range_mismatch=%d firstMismatch=%d",
-		tc.nFrames, mismatchLen, mismatchBytes, mismatchRange, firstMismatch)
-
 	if mismatchLen > 0 {
 		refLens := make([]int, len(refResults))
 		goLens := make([]int, len(goResults))
@@ -480,112 +498,17 @@ func runVBRParityCase(t *testing.T, tc vbrCVBRCase, helperPath string) {
 			goLens[i] = len(goResults[i].data)
 		}
 
-		isSILKCase := len(tc.name) >= 4 && tc.name[:4] == "silk"
-
-		// Hybrid (and CELT) per-frame packet SIZE parity is a HARD requirement.
-		// Hybrid hands the CELT sub-encoder the full nb_compr_bytes =
-		// (max_data_bytes-1)-redundancy_bytes budget (opus_encoder.c line 2392) and
-		// the CELT VBR reservoir (compute_vbr, celt_encoder.c) chooses the per-frame
-		// size from within it, so Hybrid sizes now track libopus exactly.
-		if !isSILKCase {
-			t.Fatalf("VBR packet SIZE mismatch: mismatch=%d/%d firstAt=%d\n  refLens=%v\n  gopusLens=%v",
-				mismatchLen, tc.nFrames, firstMismatch, refLens, goLens)
-			return
-		}
-
-		// Pure-SILK VBR: now a HARD assertion.
-		//
-		// FIXED at source: the VoIP input high-pass stage. libopus applies the
-		// adaptive hp_cutoff() biquad to VoIP input (src/opus_encoder.c line 1982),
-		// driven by the SILK variable-HP-cutoff smoother (silk_HP_variable_cutoff,
-		// silk/HP_variable_cutoff.c) and the Opus-level variable_HP_smth2_Q15
-		// smoothing; every other application uses the fixed 3 Hz dc_reject(). gopus
-		// previously always used dc_reject, so the resampled SILK input — and hence
-		// every shaping/NSQ quantity and the iter-0 packet size — diverged for
-		// VoIP-SILK only. Hybrid/CELT used Audio/LowDelay (dc_reject) and matched;
-		// restricted-SILK CBR used dc_reject and stayed byte-exact. Implementing
-		// hp_cutoff for VoIP (encoder.preprocessInputHP / hpCutoff +
-		// silk.UpdateVariableHPCutoff) makes the SILK input track libopus.
-		//
-		// linux/amd64 (CI): HARD per-frame size-parity gate. On darwin/arm64 a
-		// residual ≤1-ULP float-contraction difference in the SILK FLP shaping
-		// chain remains. Root cause (verified): libopus is built with clang, which
-		// emits scalar FMA (fmadd/fmsub) for the double-precision multiply-adds in
-		// the SILK FLP kernels (warped_autocorrelation_FLP, find_LPC/Burg,
-		// hp_cutoff biquad) on arm64 but plain mulsd+addsd on x86_64 baseline.
-		// Go's backend matches that exactly per-arch (FMADDD on arm64, MULSD+ADDSD
-		// on amd64), but clang and the Go SSA scheduler choose *different* fusion
-		// groupings for the same multi-term expression on arm64 (e.g. which of the
-		// two `warping*x` products is absorbed into the surrounding add). The
-		// isolated warped_autocorrelation_FLP kernel is in fact bit-identical to the
-		// clang arm64 reference; the divergence enters the cascade as a 1-ULP delta
-		// downstream that crosses a silk_float2int rounding boundary in the shaping
-		// AR_Q13 coefficients (silk ctrl oracle: AR_Q13 off by exactly one quant
-		// step), then feeds NSQ/gain and flips an occasional per-frame byte count.
-		// On x86_64 neither compiler fuses, so the IEEE double mul-then-add is
-		// identical and amd64 is byte-exact. This is the same darwin/arm64-only
-		// float-FMA-tail class as the documented CELT 1-ULP drift (CI/amd64 is the
-		// hard gate); the per-frame size sequence is bounded and reported, not
-		// silently ignored.
-		if isDarwinARM64 {
-			maxDelta := 0
-			for i := range refLens {
-				d := refLens[i] - goLens[i]
-				if d < 0 {
-					d = -d
-				}
-				if d > maxDelta {
-					maxDelta = d
-				}
-			}
-			// Guard against gross regressions even within the arm64 budget: the
-			// post-hp_cutoff residual is a handful of bytes per frame at most.
-			const silkVBRArm64MaxByteDelta = 12
-			if maxDelta > silkVBRArm64MaxByteDelta {
-				t.Fatalf("SILK VBR size drift on darwin/arm64 exceeds 1-ULP budget: maxDelta=%d (>%d) mismatch=%d/%d\n  refLens=%v\n  gopusLens=%v",
-					maxDelta, silkVBRArm64MaxByteDelta, mismatchLen, tc.nFrames, refLens, goLens)
-			}
-			t.Logf("SILK VBR size residual on darwin/arm64 (≤1-ULP hp_cutoff/shaping-AR float drift): mismatch=%d/%d maxDelta=%d firstAt=%d",
-				mismatchLen, tc.nFrames, maxDelta, firstMismatch)
-			return
-		}
-		// linux/amd64 and all other platforms: HARD size-parity assertion.
-		t.Fatalf("SILK VBR packet SIZE mismatch on %s/%s: mismatch=%d/%d firstAt=%d\n  refLens=%v\n  gopusLens=%v",
-			runtime.GOOS, runtime.GOARCH, mismatchLen, tc.nFrames, firstMismatch, refLens, goLens)
-		return
+		t.Fatalf("VBR packet length mismatch: mismatch=%d/%d firstAtFrame=%d\n  refLens=%v\n  gopusLens=%v",
+			mismatchLen, tc.nFrames, firstMismatch, refLens, goLens)
 	}
 
-	// Size-identical, content mismatch.
-	if isLinuxAMD64 {
-		// Full byte parity required on CI.
-		t.Errorf("VBR byte content mismatch on linux/amd64: mismatch=%d/%d firstAt=%d",
-			mismatchBytes, tc.nFrames, firstMismatch)
-		return
+	if mismatchBytes > 0 {
+		t.Fatalf("VBR packet bytes mismatch: mismatch=%d/%d firstAtFrame=%d", mismatchBytes, tc.nFrames, firstMismatch)
 	}
-	if isDarwinARM64 {
-		// Known 1-ULP CELT drift on darwin/arm64; use the same floor as the
-		// encoder fixture suite (amd64EncoderFixtureWaveformMinQ = -60.0).
-		refPackets := make([][]byte, len(refResults))
-		goPackets := make([][]byte, len(goResults))
-		for i := range refResults {
-			refPackets[i] = refResults[i].data
-			goPackets[i] = goResults[i].data
-		}
-		q, delay, err := comparePacketWaveformsWithLibopusReference(refPackets, goPackets, tc.channels, tc.frameSize)
-		if err != nil {
-			t.Fatalf("compare decoded waveforms: %v", err)
-		}
-		if q < amd64EncoderFixtureWaveformMinQ {
-			t.Fatalf("VBR content drift on darwin/arm64 changed waveform too much: Q=%.2f delay=%d mismatch=%d/%d (floor=%.1f)",
-				q, delay, mismatchBytes, tc.nFrames, amd64EncoderFixtureWaveformMinQ)
-		}
-		t.Logf("VBR content mismatch on darwin/arm64 (known 1-ULP CELT drift): Q=%.2f delay=%d mismatch=%d/%d",
-			q, delay, mismatchBytes, tc.nFrames)
-		return
+	if mismatchRange > 0 {
+		t.Fatalf("VBR final-range mismatch: %d/%d frames", mismatchRange, tc.nFrames)
 	}
-	// Other platforms: report as non-fatal residual.
-	t.Logf("VBR content mismatch (platform=%s/%s): mismatch=%d/%d firstAt=%d — residual",
-		runtime.GOOS, runtime.GOARCH, mismatchBytes, tc.nFrames, firstMismatch)
+	t.Logf("VBR packets and final ranges match: all %d frames", tc.nFrames)
 }
 
 // ---- CVBR packet-size distribution parity test --------------------------------
@@ -596,10 +519,7 @@ func runVBRParityCase(t *testing.T, tc vbrCVBRCase, helperPath string) {
 // The CVBR reservoir logic in celt/encoder.go must track the libopus
 // celt_encoder.c vbr_offset / vbr_count / nb_bits_budget path exactly.
 //
-// We compare:
-//   - Per-frame packet lengths: must be identical.
-//   - Aggregate statistics (mean, p95, max).
-//   - Final-range values (full parity where deterministic).
+// The test compares per-frame packet bytes, lengths, and final ranges.
 func TestCVBRSizeDistributionAgainstLibopus(t *testing.T) {
 	t.Parallel()
 	requireTestTier(t, testTierParity)
@@ -669,15 +589,26 @@ func runCVBRParityCase(t *testing.T, tc vbrCVBRCase, helperPath string) {
 	// Compute size-distribution statistics.
 	refLens := make([]int, len(refResults))
 	goLens := make([]int, len(goResults))
-	var lenMismatch int
-	var firstLenMismatch int = -1
+	var lenMismatch, bytesMismatch, rangeMismatch int
+	firstLenMismatch, firstBytesMismatch, firstRangeMismatch := -1, -1, -1
 	for i := range refResults {
 		refLens[i] = len(refResults[i].data)
 		goLens[i] = len(goResults[i].data)
 		if refLens[i] != goLens[i] {
 			lenMismatch++
-			if firstLenMismatch < 0 {
+			if firstLenMismatch == -1 {
 				firstLenMismatch = i
+			}
+		} else if !bytes.Equal(refResults[i].data, goResults[i].data) {
+			bytesMismatch++
+			if firstBytesMismatch == -1 {
+				firstBytesMismatch = i
+			}
+		}
+		if refResults[i].finalRange != goResults[i].finalRange {
+			rangeMismatch++
+			if firstRangeMismatch == -1 {
+				firstRangeMismatch = i
 			}
 		}
 	}
@@ -704,88 +635,58 @@ func runCVBRParityCase(t *testing.T, tc vbrCVBRCase, helperPath string) {
 	t.Logf("  gopus:   mean=%.1f p95=%d max=%d", goMean, goP95, goMax)
 	t.Logf("  size mismatch: %d/%d frames (firstAt=%d)", lenMismatch, tc.nFrames, firstLenMismatch)
 
-	if lenMismatch > 0 {
-		isDarwinARM64 := runtime.GOOS == "darwin" && runtime.GOARCH == "arm64"
-
+	if lenMismatch > 0 || bytesMismatch > 0 || rangeMismatch > 0 {
 		// Log a per-frame diff for the first mismatching region.
-		limit := min(firstLenMismatch+5, len(refLens))
-		start := max(firstLenMismatch-2, 0)
+		firstMismatch := firstLenMismatch
+		if firstMismatch < 0 || (firstBytesMismatch >= 0 && firstBytesMismatch < firstMismatch) {
+			firstMismatch = firstBytesMismatch
+		}
+		if firstMismatch < 0 || (firstRangeMismatch >= 0 && firstRangeMismatch < firstMismatch) {
+			firstMismatch = firstRangeMismatch
+		}
+		limit := min(firstMismatch+5, len(refLens))
+		start := max(firstMismatch-2, 0)
 		t.Logf("  first mismatch region (frames %d..%d):", start, limit-1)
 		for i := start; i < limit; i++ {
 			mark := ""
-			if refLens[i] != goLens[i] {
-				mark = " <-- MISMATCH"
+			if refLens[i] != goLens[i] || !bytes.Equal(refResults[i].data, goResults[i].data) ||
+				refResults[i].finalRange != goResults[i].finalRange {
+				mark = fmt.Sprintf(" <-- MISMATCH len=%t bytes=%t range=%t",
+					refLens[i] != goLens[i], !bytes.Equal(refResults[i].data, goResults[i].data),
+					refResults[i].finalRange != goResults[i].finalRange)
 			}
 			t.Logf("    frame[%d]: libopus=%d gopus=%d%s", i, refLens[i], goLens[i], mark)
 		}
 
-		if isDarwinARM64 {
-			// darwin/arm64: content drift can affect CVBR size decisions marginally.
-			// Check that sizes are within the CVBR ±15% tolerance band relative to
-			// the libopus reference (not a hard fail, but report).
-			cvbrBound := float64(expectedBytes) * 1.15
-			badGo := 0
-			for _, l := range goLens {
-				if float64(l) > cvbrBound*1.1 {
-					badGo++
-				}
-			}
-			if badGo > 0 {
-				t.Errorf("CVBR size out of CVBR tolerance on darwin/arm64: %d/%d frames exceed 1.265× target", badGo, tc.nFrames)
-			} else {
-				t.Logf("CVBR size mismatch on darwin/arm64 (1-ULP drift): %d/%d frames — within tolerance, reporting as residual", lenMismatch, tc.nFrames)
-			}
-		} else {
-			// Hard failure on all other platforms.
-			t.Errorf("CVBR packet size mismatch: %d/%d frames (firstAt=%d)\n  refLens=%v\n  gopusLens=%v",
-				lenMismatch, tc.nFrames, firstLenMismatch, refLens, goLens)
-		}
+		t.Errorf("CVBR exact parity failed: size=%d/%d first=%d bytes=%d/%d first=%d finalRange=%d/%d first=%d\n  refLens=%v\n  gopusLens=%v",
+			lenMismatch, tc.nFrames, firstLenMismatch, bytesMismatch, tc.nFrames, firstBytesMismatch,
+			rangeMismatch, tc.nFrames, firstRangeMismatch, refLens, goLens)
 		return
 	}
 
-	// Full size parity achieved. Now check final-range parity.
-	rangeMismatch := 0
-	for i := range refResults {
-		if refResults[i].finalRange != goResults[i].finalRange {
-			rangeMismatch++
-		}
-	}
-	if rangeMismatch > 0 {
-		isDarwinARM64 := runtime.GOOS == "darwin" && runtime.GOARCH == "arm64"
-		if isDarwinARM64 {
-			t.Logf("CVBR final-range mismatch on darwin/arm64 (known 1-ULP CELT drift): %d/%d frames", rangeMismatch, tc.nFrames)
-		} else {
-			t.Errorf("CVBR final-range mismatch: %d/%d frames", rangeMismatch, tc.nFrames)
-		}
-	} else {
-		t.Logf("CVBR full parity (size + range): all %d frames match", tc.nFrames)
-	}
+	t.Logf("CVBR packets and final ranges match: all %d frames", tc.nFrames)
 }
 
 // ---- VBR parity via opus_demo (exhaustive tier) --------------------------------
 
-// TestVBRByteParityViaOpusDemoExhaustive cross-validates gopus VBR output
-// against opus_demo (the libopus reference encoder CLI) at the exhaustive tier.
-// This is a second opinion on top of the C oracle test.
+// TestVBRByteParityViaOpusDemoExhaustive compares public gopus VBR packets and
+// final ranges with the feature/ISA-matched public opus_demo. Both sides use
+// the int24 samples that opus_demo derives from its -f32 input.
 func TestVBRByteParityViaOpusDemoExhaustive(t *testing.T) {
 	t.Parallel()
 	requireTestTier(t, testTierExhaustive)
+	libopustest.RequireOracle(t)
 
-	opusDemo, ok := libopustooling.FindOrEnsureOpusDemo(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots())
-	if !ok {
-		t.Skip("opus_demo not available; skipping exhaustive VBR parity")
-	}
-
-	tmpDir, err := os.MkdirTemp("", "gopus-vbr-demo-*")
+	opusDemo, err := libopustest.PublicAPIOpusDemoPath()
 	if err != nil {
-		t.Fatalf("create temp dir: %v", err)
+		libopustest.HelperUnavailable(t, "public API opus_demo", err)
+		return
 	}
-	defer os.RemoveAll(tmpDir)
 
 	for _, tc := range vbrTestCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			runVBRParityCaseViaOpusDemo(t, tc, opusDemo, tmpDir)
+			runVBRParityCaseViaOpusDemo(t, tc, opusDemo, t.TempDir())
 		})
 	}
 }
@@ -840,11 +741,13 @@ func runVBRParityCaseViaOpusDemo(t *testing.T, tc vbrCVBRCase, opusDemo, tmpDir 
 		t.Fatalf("parse bitstream: %v", err)
 	}
 
-	goResults, err := encodeVBRCVBRWithGopus(
+	goPCM := make([]float32, len(pcm)+tc.frameSize*tc.channels)
+	copy(goPCM, pcm)
+	goResults, err := encodeOpusDemoInt24(
 		tc.application,
 		48000, tc.channels, tc.frameSize, tc.bitrate,
-		tc.bandwidth, tc.setBandwidth, tc.signal,
-		false, pcm, tc.nFrames,
+		tc.bandwidth, tc.setBandwidth,
+		false, goPCM, tc.nFrames+1,
 	)
 	if err != nil {
 		t.Fatalf("gopus encode: %v", err)
@@ -853,50 +756,57 @@ func runVBRParityCaseViaOpusDemo(t *testing.T, tc vbrCVBRCase, opusDemo, tmpDir 
 	if len(goResults) != len(refPackets) {
 		t.Fatalf("packet count mismatch: gopus=%d opusdemo=%d", len(goResults), len(refPackets))
 	}
-
 	var lenMismatch, bytesMismatch, rangeMismatch int
+	firstLenMismatch, firstBytesMismatch, firstRangeMismatch := -1, -1, -1
 	for i := range refPackets {
 		if len(goResults[i].data) != len(refPackets[i]) {
 			lenMismatch++
+			if firstLenMismatch < 0 {
+				firstLenMismatch = i
+			}
 		} else if !bytes.Equal(goResults[i].data, refPackets[i]) {
 			bytesMismatch++
+			if firstBytesMismatch < 0 {
+				firstBytesMismatch = i
+			}
 		}
 		if goResults[i].finalRange != refRanges[i] {
 			rangeMismatch++
+			if firstRangeMismatch < 0 {
+				firstRangeMismatch = i
+			}
 		}
 	}
 
-	t.Logf("opus_demo VBR: len_mismatch=%d bytes_mismatch=%d range_mismatch=%d / %d frames",
-		lenMismatch, bytesMismatch, rangeMismatch, len(refPackets))
-
-	if lenMismatch > 0 {
-		t.Errorf("VBR size mismatch via opus_demo: %d/%d frames", lenMismatch, len(refPackets))
+	t.Logf("opus_demo VBR: inputFrames=%d encodedFrames=%d lenMismatch=%d bytesMismatch=%d rangeMismatch=%d",
+		tc.nFrames, len(refPackets), lenMismatch, bytesMismatch, rangeMismatch)
+	if lenMismatch > 0 || bytesMismatch > 0 || rangeMismatch > 0 {
+		t.Errorf("VBR exact parity failed: size=%d/%d first=%d bytes=%d/%d first=%d finalRange=%d/%d first=%d",
+			lenMismatch, len(refPackets), firstLenMismatch, bytesMismatch, len(refPackets), firstBytesMismatch,
+			rangeMismatch, len(refPackets), firstRangeMismatch)
 	}
 }
 
 // ---- CVBR parity via opus_demo (exhaustive tier) --------------------------------
 
-// TestCVBRSizeDistributionViaOpusDemoExhaustive cross-validates gopus CVBR
-// packet sizes against opus_demo at the exhaustive tier.
+// TestCVBRSizeDistributionViaOpusDemoExhaustive compares gopus CVBR packets,
+// final ranges, and sizes with the feature/ISA-matched public opus_demo. Both
+// sides receive the same int24 samples that opus_demo derives from its -f32 input.
 func TestCVBRSizeDistributionViaOpusDemoExhaustive(t *testing.T) {
 	t.Parallel()
 	requireTestTier(t, testTierExhaustive)
+	libopustest.RequireOracle(t)
 
-	opusDemo, ok := libopustooling.FindOrEnsureOpusDemo(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots())
-	if !ok {
-		t.Skip("opus_demo not available; skipping exhaustive CVBR parity")
-	}
-
-	tmpDir, err := os.MkdirTemp("", "gopus-cvbr-demo-*")
+	opusDemo, err := libopustest.PublicAPIOpusDemoPath()
 	if err != nil {
-		t.Fatalf("create temp dir: %v", err)
+		libopustest.HelperUnavailable(t, "public API opus_demo", err)
+		return
 	}
-	defer os.RemoveAll(tmpDir)
 
 	for _, tc := range cvbrTestCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			runCVBRParityCaseViaOpusDemo(t, tc, opusDemo, tmpDir)
+			runCVBRParityCaseViaOpusDemo(t, tc, opusDemo, t.TempDir())
 		})
 	}
 }
@@ -905,6 +815,11 @@ func runCVBRParityCaseViaOpusDemo(t *testing.T, tc vbrCVBRCase, opusDemo, tmpDir
 	t.Helper()
 
 	pcm := makeVBRCVBRTestPCM(tc.nFrames, tc.frameSize, tc.channels)
+	// opus_demo.c emits one final zero-padded frame when fread reaches EOF after
+	// an exact number of frames. Include that frame in Go's stream so the packet
+	// and reservoir comparison covers the same encoder calls.
+	goPCM := make([]float32, len(pcm)+tc.frameSize*tc.channels)
+	copy(goPCM, pcm)
 
 	appArg := opusDemoAppFromApplication(tc.application)
 	if appArg == "" {
@@ -945,16 +860,16 @@ func runCVBRParityCaseViaOpusDemo(t *testing.T, tc vbrCVBRCase, opusDemo, tmpDir
 		t.Fatalf("opus_demo encode failed: %v (%s)", err, out)
 	}
 
-	refPackets, _, err := parseOpusDemoEncodeBitstream(bitPath)
+	refPackets, refRanges, err := parseOpusDemoEncodeBitstream(bitPath)
 	if err != nil {
 		t.Fatalf("parse bitstream: %v", err)
 	}
 
-	goResults, err := encodeVBRCVBRWithGopus(
+	goResults, err := encodeOpusDemoInt24(
 		tc.application,
 		48000, tc.channels, tc.frameSize, tc.bitrate,
-		tc.bandwidth, tc.setBandwidth, tc.signal,
-		true, pcm, tc.nFrames,
+		tc.bandwidth, tc.setBandwidth,
+		true, goPCM, tc.nFrames+1,
 	)
 	if err != nil {
 		t.Fatalf("gopus encode: %v", err)
@@ -963,33 +878,43 @@ func runCVBRParityCaseViaOpusDemo(t *testing.T, tc vbrCVBRCase, opusDemo, tmpDir
 	if len(goResults) != len(refPackets) {
 		t.Fatalf("packet count mismatch: gopus=%d opusdemo=%d", len(goResults), len(refPackets))
 	}
+	encodedFrames := len(refPackets)
 
 	refLens := make([]int, len(refPackets))
 	goLens := make([]int, len(goResults))
-	var lenMismatch int
+	var lenMismatch, bytesMismatch, rangeMismatch int
+	firstLenMismatch, firstBytesMismatch, firstRangeMismatch := -1, -1, -1
 	for i := range refPackets {
 		refLens[i] = len(refPackets[i])
 		goLens[i] = len(goResults[i].data)
 		if refLens[i] != goLens[i] {
 			lenMismatch++
+			if firstLenMismatch < 0 {
+				firstLenMismatch = i
+			}
+		} else if !bytes.Equal(refPackets[i], goResults[i].data) {
+			bytesMismatch++
+			if firstBytesMismatch < 0 {
+				firstBytesMismatch = i
+			}
+		}
+		if refRanges[i] != goResults[i].finalRange {
+			rangeMismatch++
+			if firstRangeMismatch < 0 {
+				firstRangeMismatch = i
+			}
 		}
 	}
 
 	refMean := meanInt(refLens)
 	goMean := meanInt(goLens)
 
-	t.Logf("opus_demo CVBR: nFrames=%d lenMismatch=%d/%d refMean=%.1f gopusMean=%.1f",
-		tc.nFrames, lenMismatch, tc.nFrames, refMean, goMean)
-
-	if lenMismatch > 0 {
-		// Tolerant check on darwin/arm64 (1-ULP drift).
-		isDarwinARM64 := runtime.GOOS == "darwin" && runtime.GOARCH == "arm64"
-		if isDarwinARM64 {
-			t.Logf("CVBR size mismatch via opus_demo on darwin/arm64: %d/%d frames (1-ULP drift residual)", lenMismatch, tc.nFrames)
-		} else {
-			t.Errorf("CVBR size mismatch via opus_demo: %d/%d frames\n  refLens=%v\n  gopusLens=%v",
-				lenMismatch, tc.nFrames, refLens, goLens)
-		}
+	t.Logf("opus_demo CVBR: inputFrames=%d encodedFrames=%d lenMismatch=%d/%d bytesMismatch=%d/%d rangeMismatch=%d/%d refMean=%.1f gopusMean=%.1f",
+		tc.nFrames, encodedFrames, lenMismatch, encodedFrames, bytesMismatch, encodedFrames, rangeMismatch, encodedFrames, refMean, goMean)
+	if lenMismatch > 0 || bytesMismatch > 0 || rangeMismatch > 0 {
+		t.Errorf("CVBR exact parity failed: size=%d/%d first=%d bytes=%d/%d first=%d finalRange=%d/%d first=%d\n  refLens=%v\n  gopusLens=%v",
+			lenMismatch, encodedFrames, firstLenMismatch, bytesMismatch, encodedFrames, firstBytesMismatch,
+			rangeMismatch, encodedFrames, firstRangeMismatch, refLens, goLens)
 	}
 }
 

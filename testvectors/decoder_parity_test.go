@@ -9,11 +9,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
-
-	"github.com/thesyncim/gopus/internal/libopustooling"
 )
 
 func decoderDominantMode(hist map[string]int) string {
@@ -65,18 +62,20 @@ func TestDecoderParityLibopusMatrix(t *testing.T) {
 			if err != nil {
 				t.Fatalf("decode fixture packets: %v", err)
 			}
-			refDecoded, err := decodeLibopusDecoderMatrixSamples(c)
+			refDecoded, err := decodeWithMatchedTierReferencePacketsSingle(fixture.SampleRate, c.Channels, c.FrameSize, packets)
 			if err != nil {
-				t.Fatalf("decode fixture f32 samples: %v", err)
+				t.Fatalf("decode packets with matched libopus: %v", err)
 			}
 			internalDecoded := decodeWithInternalDecoder(t, packets, c.Channels)
 			if len(refDecoded) == 0 || len(internalDecoded) == 0 {
 				t.Fatalf("decoded streams empty: ref=%d internal=%d", len(refDecoded), len(internalDecoded))
 			}
+			if len(internalDecoded) != len(refDecoded) {
+				t.Fatalf("decoded length mismatch: Go=%d matched C=%d", len(internalDecoded), len(refDecoded))
+			}
 
-			compareLen := min(len(internalDecoded), len(refDecoded))
 			maxDelay := max(4*c.FrameSize, 960)
-			cmp, err := CompareDecodedFloat32(internalDecoded[:compareLen], refDecoded[:compareLen], fixture.SampleRate, c.Channels, maxDelay)
+			cmp, err := CompareDecodedFloat32(internalDecoded, refDecoded, fixture.SampleRate, c.Channels, maxDelay)
 			if err != nil {
 				t.Fatalf("compare decoded quality: %v", err)
 			}
@@ -146,10 +145,6 @@ func buildOpusDemoBitstreamFromFixtureCase(c libopusDecoderMatrixCaseFile) ([]by
 	return out, nil
 }
 
-func getFixtureOpusDemoPath() (string, bool) {
-	return libopustooling.FindOrEnsureOpusDemo(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots())
-}
-
 func decodeRawFloat32LE(raw []byte) ([]float32, error) {
 	if len(raw)%4 != 0 {
 		return nil, fmt.Errorf("raw f32 payload length must be multiple of 4, got %d", len(raw))
@@ -165,14 +160,11 @@ func TestDecoderParityMatrixFixtureHonestyWithOpusDemo(t *testing.T) {
 	t.Parallel()
 	requireTestTier(t, testTierExhaustive)
 
-	opusDemo, ok := getFixtureOpusDemoPath()
-	if !ok {
-		t.Skip("tmp_check opus_demo not found; skipping fixture honesty check")
-	}
 	fixture, err := loadLibopusDecoderMatrixFixture()
 	if err != nil {
 		t.Fatalf("load decoder matrix fixture: %v", err)
 	}
+	opusDemo := fixtureProducerOpusDemo(t, fixture.Provenance)
 	tmpDir, err := os.MkdirTemp("", "gopus-fixture-honesty-*")
 	if err != nil {
 		t.Fatalf("create temp dir: %v", err)
@@ -204,28 +196,7 @@ func TestDecoderParityMatrixFixtureHonestyWithOpusDemo(t *testing.T) {
 				t.Fatalf("decode fixture decoded payload: %v", err)
 			}
 			if !bytes.Equal(gotRaw, wantRaw) {
-				if runtime.GOARCH == "amd64" {
-					// Native amd64 libopus decode can drift at sample-bit level across toolchains.
-					// Keep a strict waveform guard to catch true regressions.
-					gotSamples, err := decodeRawFloat32LE(gotRaw)
-					if err != nil {
-						t.Fatalf("decode live decoded payload: %v", err)
-					}
-					wantSamples, err := decodeRawFloat32LE(wantRaw)
-					if err != nil {
-						t.Fatalf("decode fixture decoded payload: %v", err)
-					}
-					q, delay, err := computeOpusCompareQualityBetweenDecoded(wantSamples, gotSamples, 48000, c.Channels, amd64FixtureWaveformMaxDelay)
-					if err != nil {
-						t.Fatalf("compute fixture opus_compare quality on amd64: %v", err)
-					}
-					if q < amd64FixtureWaveformMinQ {
-						t.Fatalf("fixture drift vs tmp_check opus_demo %s on amd64: Q=%.2f delay=%d (got=%d bytes want=%d bytes)", libopustooling.DefaultVersion, q, delay, len(gotRaw), len(wantRaw))
-					}
-					t.Logf("non-bitexact decoder drift on amd64 accepted: Q=%.2f delay=%d", q, delay)
-					return
-				}
-				t.Fatalf("fixture drift vs tmp_check opus_demo %s: got=%d bytes want=%d bytes", libopustooling.DefaultVersion, len(gotRaw), len(wantRaw))
+				t.Fatalf("fixture PCM differs from producer decode: got=%d bytes want=%d bytes", len(gotRaw), len(wantRaw))
 			}
 		})
 	}

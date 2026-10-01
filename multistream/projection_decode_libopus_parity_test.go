@@ -26,18 +26,13 @@ import (
 // proven exact; the composition is sample-exact whenever the per-stream Opus
 // decode is sample-exact.
 //
-// FIRST-order (FOA, 4ch) at >=96 kbit/s selects pure-CELT per-stream coding for
-// every frame, where gopus decode is bit-exact on amd64 (CI) and within the
-// documented <=1-ULP CELT float drift on darwin/arm64
-// (project_arm64_celt_1ulp_drift.md). TestProjectionDecodeMatchesLibopus locks
-// that to sample-exact.
+// First-order (FOA, 4ch) at >=96 kbit/s selects pure-CELT per-stream coding
+// for every frame. Both the per-stream decode and projection mixing remain
+// sample-exact against the matching libopus feature and instruction build.
 //
 // Lower bitrates and higher orders (SOA, 9ch) select Hybrid (SILK+CELT) / SILK
-// per-stream coding for some frames; gopus per-stream Hybrid/SILK stereo decode
-// has an upstream (non-projection) residual on those frames.
-// TestProjectionDecodePerStreamModeClassification documents that the projection
-// decode divergence, when present, is confined to non-CELT per-stream frames and
-// is therefore upstream of the projection layer.
+// per-stream coding for some frames. The projection decode remains sample-exact
+// across both pure-CELT and mixed-mode per-stream frames.
 
 // projectionDecodeRef encodes generateAmbisonicsSweep through the libopus
 // projection encode oracle and returns the stream layout, demixing matrix and
@@ -123,11 +118,8 @@ func allPerStreamCELT(packets [][]byte, streams int) bool {
 	return true
 }
 
-// assertProjectionFloatSampleExact requires bit-exact float32 PCM on amd64; on
-// the documented darwin/arm64 <=1-ULP CELT float drift target a tiny per-sample
-// slack is tolerated and logged. The demix coefficients are <=1 in magnitude
-// after the 1/32768 scale, so a <=1-ULP stream sample maps to a comparably small
-// output difference (observed maxAbs ~1.2e-7).
+// assertProjectionFloatSampleExact requires bit-exact float32 PCM against the
+// same-feature, same-instruction libopus reference.
 func assertProjectionFloatSampleExact(t *testing.T, got, want []float32, label string) {
 	t.Helper()
 	if len(got) != len(want) {
@@ -152,18 +144,16 @@ func assertProjectionFloatSampleExact(t *testing.T, got, want []float32, label s
 	if mismatches == 0 {
 		return
 	}
-	if armEncodeFloatDrift() && maxAbs <= 1e-6 {
-		t.Logf("%s: documented darwin/arm64 <=1-ULP CELT drift: %d/%d samples differ, maxAbs=%g (firstIdx=%d)",
-			label, mismatches, len(got), maxAbs, firstIdx)
-		return
+	if projectionUsesIntegerDecoderReference() {
+		t.Fatalf("fixed projection float decode not bit-exact: %d/%d samples differ, maxAbs=%g (firstIdx=%d got=%g want=%g)",
+			mismatches, len(got), maxAbs, firstIdx, got[firstIdx], want[firstIdx])
 	}
 	t.Fatalf("%s decode not sample-exact: %d/%d samples differ, maxAbs=%g (firstIdx=%d got=%g want=%g)",
 		label, mismatches, len(got), maxAbs, firstIdx, got[firstIdx], want[firstIdx])
 }
 
-// assertProjectionInt16SampleExact requires bit-exact int16 PCM on amd64; on the
-// documented darwin/arm64 CELT drift target a <=1 int16-unit difference is
-// tolerated and logged.
+// assertProjectionInt16SampleExact requires bit-exact int16 PCM against the
+// same-feature, same-instruction libopus reference.
 func assertProjectionInt16SampleExact(t *testing.T, got, want []int16, label string) {
 	t.Helper()
 	if len(got) != len(want) {
@@ -191,10 +181,9 @@ func assertProjectionInt16SampleExact(t *testing.T, got, want []int16, label str
 	if mismatches == 0 {
 		return
 	}
-	if armEncodeFloatDrift() && maxAbs <= 1 {
-		t.Logf("%s: documented darwin/arm64 <=1-ULP CELT drift: %d/%d samples differ, maxAbs=%d (firstIdx=%d)",
-			label, mismatches, len(got), maxAbs, firstIdx)
-		return
+	if projectionUsesIntegerDecoderReference() {
+		t.Fatalf("fixed projection int16 decode not exact: %d/%d samples differ, maxAbs=%d (firstIdx=%d got=%d want=%d)",
+			mismatches, len(got), maxAbs, firstIdx, got[firstIdx], want[firstIdx])
 	}
 	t.Fatalf("%s decode not sample-exact: %d/%d samples differ, maxAbs=%d (firstIdx=%d got=%d want=%d)",
 		label, mismatches, len(got), maxAbs, firstIdx, got[firstIdx], want[firstIdx])
@@ -205,9 +194,9 @@ func assertProjectionInt16SampleExact(t *testing.T, got, want []int16, label str
 // oracle for first-order ambisonics (FOA, 4 channels) at bitrates that select
 // pure-CELT per-stream coding for every frame.
 //
-// Both the float32 (opus_projection_decode_float) and int16
-// (opus_projection_decode) paths are asserted sample-exact: bit-exact on amd64
-// (CI), and within the documented <=1-ULP CELT float drift on darwin/arm64.
+// Float32 (opus_projection_decode_float) and int16
+// (opus_projection_decode) are compared exactly in each same-feature,
+// same-instruction build.
 func TestProjectionDecodeMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 
@@ -254,19 +243,17 @@ func TestProjectionDecodeMatchesLibopus(t *testing.T) {
 	}
 }
 
-// TestProjectionDecodePerStreamModeClassification documents that any
-// projection-decode divergence beyond the <=1-ULP budget is confined to frames
-// whose per-stream coding is Hybrid (SILK+CELT) or SILK, i.e. an upstream
-// per-stream-decoder residual rather than a projection (demixing / channel
-// mapping) defect.
+// TestProjectionDecodePerStreamModeClassification checks exact output for
+// mixed-mode family-3 streams and confirms the fixtures include Hybrid/SILK
+// per-stream frames. A failure reports whether an all-CELT or mixed-mode stream
+// diverged.
 //
 // For each configuration it decodes the libopus-encoded family-3 stream through
 // both gopus and the libopus projection decode oracle and asserts:
 //
-//   - every all-CELT configuration is sample-exact (the projection lock), and
-//   - any configuration that exceeds the budget contains at least one non-CELT
-//     per-stream frame (so the residual is upstream of the demix, which is
-//     itself locked bit-exact in projection_matrix_libopus_test.go).
+//   - every configuration is sample-exact against the selected C archive, and
+//   - the matrix includes non-CELT per-stream frames as well as the all-CELT
+//     cases covered by TestProjectionDecodeMatchesLibopus.
 //
 // This includes second-order ambisonics (SOA, 9 channels), whose per-stream
 // frames are predominantly Hybrid/SILK at all tested bitrates.
@@ -307,7 +294,11 @@ func TestProjectionDecodePerStreamModeClassification(t *testing.T) {
 			}
 
 			maxAbs := 0.0
+			firstIdx := -1
 			for i := range got {
+				if firstIdx < 0 && math.Float32bits(got[i]) != math.Float32bits(want[i]) {
+					firstIdx = i
+				}
 				d := math.Abs(float64(got[i] - want[i]))
 				if d > maxAbs {
 					maxAbs = d
@@ -315,15 +306,13 @@ func TestProjectionDecodePerStreamModeClassification(t *testing.T) {
 			}
 
 			allCELT := allPerStreamCELT(ref.packets, ref.streams)
-			budget := 1e-6 // <=1-ULP demix output for an all-CELT (amd64-exact) stream.
-			if maxAbs <= budget {
-				t.Logf("sample-exact within <=1-ULP budget: maxAbs=%g allCELT=%v", maxAbs, allCELT)
-				return
-			}
 			if allCELT {
-				t.Fatalf("all-CELT projection stream diverged beyond budget: maxAbs=%g (projection-layer regression)", maxAbs)
+				t.Fatal("expected this mode-classification fixture to include a non-CELT per-stream frame")
 			}
-			t.Logf("upstream per-stream Hybrid/SILK decode residual (NOT projection): maxAbs=%g; demixing application is locked bit-exact in projection_matrix_libopus_test.go", maxAbs)
+			if firstIdx >= 0 {
+				t.Fatalf("mixed-mode projection stream is not sample-exact: maxAbs=%g firstIdx=%d got=%g want=%g", maxAbs, firstIdx, got[firstIdx], want[firstIdx])
+			}
+			t.Logf("sample-exact mixed-mode stream maxAbs=%g", maxAbs)
 		})
 	}
 }

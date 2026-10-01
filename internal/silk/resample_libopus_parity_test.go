@@ -291,3 +291,51 @@ func TestSILKDecoderResamplerProcessInt16IntoMatchesLibopusOracle(t *testing.T) 
 		})
 	}
 }
+
+func TestSILKDecoderResamplerBothOutputsMatchLibopusOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
+	records := []libopusSILKResamplerRecord{
+		{fsIn: 12000, fsOut: 8000, frames: makeSILKResamplerFrames(240, 8, 0x45670123)},
+		{fsIn: 16000, fsOut: 8000, frames: makeSILKResamplerFrames(320, 8, 0x31415926)},
+		{fsIn: 16000, fsOut: 12000, frames: makeSILKResamplerFrames(320, 8, 0x27182818)},
+	}
+	want, err := probeLibopusSILKResampler(records)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "silk resampler", err)
+	}
+	for recIdx, record := range records {
+		for _, floatInput := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%d_to_%d_floatInput_%t", record.fsIn, record.fsOut, floatInput), func(t *testing.T) {
+				resampler := NewLibopusResampler(record.fsIn, record.fsOut)
+				frameOut := len(record.frames[0]) * record.fsOut / record.fsIn
+				outFloat := make([]float32, frameOut)
+				outInt := make([]int16, frameOut)
+				inputFloat := make([]float32, len(record.frames[0]))
+				process := func(frame []int16) int {
+					if !floatInput {
+						return resampler.ProcessInt16IntoBoth(frame, outFloat, outInt)
+					}
+					for i, sample := range frame {
+						inputFloat[i] = float32(sample) * (1.0 / 32768.0)
+					}
+					return resampler.ProcessIntoBoth(inputFloat, outFloat, outInt)
+				}
+				for frameIdx, frame := range record.frames {
+					if n := process(frame); n != frameOut {
+						t.Fatalf("frame%d output samples=%d want%d", frameIdx, n, frameOut)
+					}
+					for i := range frameOut {
+						expected := want[recIdx][frameIdx*frameOut+i]
+						expectedFloat := float32(expected) * (1.0 / 32768.0)
+						if outInt[i] != expected || math.Float32bits(outFloat[i]) != math.Float32bits(expectedFloat) {
+							t.Fatalf("frame%d sample%d int16=%d want%d float=%08x want%08x", frameIdx, i, outInt[i], expected, math.Float32bits(outFloat[i]), math.Float32bits(expectedFloat))
+						}
+					}
+				}
+				if allocs := testing.AllocsPerRun(100, func() { process(record.frames[0]) }); allocs != 0 {
+					t.Fatalf("warm resampler allocations=%g want0", allocs)
+				}
+			})
+		}
+	}
+}

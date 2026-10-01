@@ -26,10 +26,7 @@ func TestMonoRoundTrip_Voiced(t *testing.T) {
 	}
 
 	// Encode
-	encoded, err := Encode(pcm, BandwidthWideband, true)
-	if err != nil {
-		t.Fatalf("Encode failed: %v", err)
-	}
+	encoded := encodeTestPacket(t, BandwidthWideband, pcm)
 
 	if len(encoded) == 0 {
 		t.Fatal("Encode produced empty output")
@@ -84,10 +81,7 @@ func TestMonoRoundTrip_Unvoiced(t *testing.T) {
 	}
 
 	// Encode with VAD flag true (encoder determines signal type)
-	encoded, err := Encode(pcm, BandwidthWideband, true)
-	if err != nil {
-		t.Fatalf("Encode failed: %v", err)
-	}
+	encoded := encodeTestPacket(t, BandwidthWideband, pcm)
 
 	if len(encoded) == 0 {
 		t.Fatal("Encode produced empty output")
@@ -137,10 +131,7 @@ func TestMonoRoundTrip_AllBandwidths(t *testing.T) {
 			}
 
 			// Encode
-			encoded, err := Encode(pcm, tc.bandwidth, true)
-			if err != nil {
-				t.Fatalf("Encode failed: %v", err)
-			}
+			encoded := encodeTestPacket(t, tc.bandwidth, pcm)
 
 			if len(encoded) == 0 {
 				t.Fatal("Encode produced empty output")
@@ -179,10 +170,7 @@ func TestMonoRoundTrip_SignalRecovery(t *testing.T) {
 	}
 
 	// Encode
-	encoded, err := Encode(original, BandwidthWideband, true)
-	if err != nil {
-		t.Fatalf("Encode failed: %v", err)
-	}
+	encoded := encodeTestPacket(t, BandwidthWideband, original)
 
 	// Decode
 	decoder := NewDecoder()
@@ -215,7 +203,7 @@ func TestMonoRoundTrip_MultipleFrames(t *testing.T) {
 	frameSamples := config.SampleRate * 20 / 1000 // 20ms frame
 	numFrames := 5
 
-	encoder := NewEncoderState(BandwidthWideband)
+	encoder := newTestPacketEncoder(BandwidthWideband, 1)
 	decoder := NewDecoder()
 
 	for frame := range numFrames {
@@ -228,10 +216,7 @@ func TestMonoRoundTrip_MultipleFrames(t *testing.T) {
 		}
 
 		// Encode using stateful encoder
-		encoded, err := encoder.EncodeFrame(pcm, true)
-		if err != nil {
-			t.Fatalf("Frame %d encode failed: %v", frame, err)
-		}
+		encoded := encoder.encode(t, pcm)
 
 		if len(encoded) == 0 {
 			t.Errorf("Frame %d produced empty output", frame)
@@ -264,10 +249,7 @@ func TestMonoRoundTrip_Silence(t *testing.T) {
 	pcm := make([]float32, frameSamples)
 
 	// Encode with VAD flag false for silence
-	encoded, err := Encode(pcm, BandwidthWideband, false)
-	if err != nil {
-		t.Fatalf("Encode failed: %v", err)
-	}
+	encoded := encodeTestPacket(t, BandwidthWideband, pcm)
 
 	if len(encoded) == 0 {
 		t.Fatal("Encode produced empty output")
@@ -296,20 +278,10 @@ func TestMonoRoundTrip_Silence(t *testing.T) {
 // Stereo Round-Trip Tests
 // =============================================================================
 //
-// NOTE: Stereo round-trip uses DecodeStereoEncoded rather than DecodeStereoFrame.
-//
-// Format Mismatch Documentation:
-// - EncodeStereo outputs: [weights:4 raw bytes][mid_len:2][mid_bytes][side_len:2][side_bytes]
-//   Stereo weights are written as raw big-endian int16 (Q13 format)
-//   Mid and side channels are separately encoded SILK frames
-//
-// - DecodeStereoFrame expects: [weights via ICDF][mid frame][side frame]
-//   Stereo weights should be range-coded via ICDFStereoPredWeight tables
-//   Mid and side frames in a single range-coded bitstream
-//
-// Resolution: DecodeStereoEncoded is provided to handle the encoder's format.
-// Future work could align encoder to produce range-coded weights for full
-// compatibility with DecodeStereoFrame.
+// The stereo tests code one SILK stereo packet with PacketEncoder.Encode (VAD
+// and LBRR header bits, range-coded stereo prediction indices, then the mid
+// and side frames in one range-coded bitstream) and decode it with
+// DecodeStereoEncoded.
 // =============================================================================
 
 // TestStereoRoundTrip_Basic tests basic stereo encoding and decoding.
@@ -327,13 +299,10 @@ func TestStereoRoundTrip_Basic(t *testing.T) {
 	}
 
 	// Encode stereo
-	encoded, err := EncodeStereo(left, right, BandwidthWideband, true)
-	if err != nil {
-		t.Fatalf("EncodeStereo failed: %v", err)
-	}
+	encoded := encodeTestStereoPacket(t, BandwidthWideband, left, right)
 
 	if len(encoded) == 0 {
-		t.Fatal("EncodeStereo produced empty output")
+		t.Fatal("stereo Encode produced empty output")
 	}
 
 	t.Logf("Encoded stereo: L=%d R=%d samples -> %d bytes", len(left), len(right), len(encoded))
@@ -373,13 +342,10 @@ func TestStereoRoundTrip_CorrelatedChannels(t *testing.T) {
 	}
 
 	// Encode stereo
-	encoded, err := EncodeStereo(left, right, BandwidthWideband, true)
-	if err != nil {
-		t.Fatalf("EncodeStereo failed: %v", err)
-	}
+	encoded := encodeTestStereoPacket(t, BandwidthWideband, left, right)
 
 	if len(encoded) == 0 {
-		t.Fatal("EncodeStereo produced empty output")
+		t.Fatal("stereo Encode produced empty output")
 	}
 
 	// Decode stereo
@@ -424,13 +390,10 @@ func TestStereoRoundTrip_AllBandwidths(t *testing.T) {
 			}
 
 			// Encode
-			encoded, err := EncodeStereo(left, right, tc.bandwidth, true)
-			if err != nil {
-				t.Fatalf("EncodeStereo failed: %v", err)
-			}
+			encoded := encodeTestStereoPacket(t, tc.bandwidth, left, right)
 
 			if len(encoded) == 0 {
-				t.Fatal("EncodeStereo produced empty output")
+				t.Fatal("stereo Encode produced empty output")
 			}
 
 			// Decode
@@ -469,10 +432,7 @@ func TestStereoRoundTrip_WeightsPreserved(t *testing.T) {
 	}
 
 	// Encode stereo
-	encoded, err := EncodeStereo(left, right, BandwidthWideband, true)
-	if err != nil {
-		t.Fatalf("EncodeStereo failed: %v", err)
-	}
+	encoded := encodeTestStereoPacket(t, BandwidthWideband, left, right)
 
 	if len(encoded) == 0 {
 		t.Fatal("Encoded packet is empty")
@@ -512,13 +472,10 @@ func TestStereoRoundTrip_MonoCompatibility(t *testing.T) {
 
 	// Encode as stereo with identical channels
 	// Mid = mono, Side = 0, so side should be very small
-	encoded, err := EncodeStereo(mono, mono, BandwidthWideband, true)
-	if err != nil {
-		t.Fatalf("EncodeStereo failed: %v", err)
-	}
+	encoded := encodeTestStereoPacket(t, BandwidthWideband, mono, mono)
 
 	if len(encoded) == 0 {
-		t.Fatal("EncodeStereo produced empty output")
+		t.Fatal("stereo Encode produced empty output")
 	}
 
 	// Decode

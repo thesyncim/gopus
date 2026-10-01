@@ -42,7 +42,7 @@ func TestSILKFECFirstPacketEnablesLBRRState(t *testing.T) {
 	if !enc.lbrrCoded {
 		t.Fatal("lbrrCoded=false want true at 40 kbps WB with 20% loss")
 	}
-	if !enc.silkEncoder.LBRREnabled() {
-		t.Fatal("silk LBRR not enabled")
+	if !enc.silkMode.LBRRCoded {
+		t.Fatal("silk_mode.LBRR_coded not set")
 	}
 }

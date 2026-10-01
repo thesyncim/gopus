@@ -46,8 +46,8 @@ func TestLFEModeForcesCELTPath(t *testing.T) {
 	if len(packet) == 0 {
 		t.Fatalf("Encode returned empty packet")
 	}
-	if enc.silkEncoder != nil {
-		t.Fatalf("silkEncoder should remain nil for LFE CELT-only path")
+	if enc.silk != nil {
+		t.Fatalf("SILK encoder should remain nil for LFE CELT-only path")
 	}
 	if enc.celtEncoder == nil {
 		t.Fatalf("celtEncoder should be initialized for LFE encode")

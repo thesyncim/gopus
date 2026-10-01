@@ -33,7 +33,7 @@ body:
     attributes:
       label: Environment
       description: Go version, OS, architecture, and any external tools involved.
-      placeholder: go1.25.0 on Ubuntu 24.04 amd64
+      placeholder: go1.27.1 on Ubuntu 24.04 amd64
   - type: textarea
     id: docs_checked
     attributes:

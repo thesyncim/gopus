@@ -9,6 +9,7 @@ import (
 	"math"
 	"os"
 	"strconv"
+	"strings"
 )
 
 var window120StaticF32 = [120]float32{
@@ -45,6 +46,50 @@ func vorbisWindow(i, overlap int) float64 {
 	return math.Sin(0.5 * math.Pi * s * s)
 }
 
+// libopus's static 96 kHz mode uses the decimal literals in
+// celt/static_modes_float.h window240. Those literals are rounded to float32
+// independently of the closed-form window calculation in celt/modes.c.
+func libopusStaticWindow240() ([]float32, error) {
+	paths := []string{
+		"tmp_check/opus-1.6.1/celt/static_modes_float.h",
+		"../../tmp_check/opus-1.6.1/celt/static_modes_float.h",
+	}
+	var source []byte
+	var err error
+	for _, path := range paths {
+		source, err = os.ReadFile(path)
+		if err == nil {
+			break
+		}
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read pinned libopus static modes: %w", err)
+	}
+	const declaration = "static const celt_coef window240[240] = {"
+	start := strings.Index(string(source), declaration)
+	if start < 0 {
+		return nil, fmt.Errorf("pinned libopus window240 declaration missing")
+	}
+	body := string(source[start+len(declaration):])
+	end := strings.Index(body, "};")
+	if end < 0 {
+		return nil, fmt.Errorf("pinned libopus window240 terminator missing")
+	}
+	fields := strings.Fields(strings.ReplaceAll(body[:end], ",", " "))
+	if len(fields) != 240 {
+		return nil, fmt.Errorf("pinned libopus window240 has %d values, want 240", len(fields))
+	}
+	window := make([]float32, len(fields))
+	for i, field := range fields {
+		value, err := strconv.ParseFloat(strings.TrimSuffix(field, "f"), 32)
+		if err != nil {
+			return nil, fmt.Errorf("pinned libopus window240[%d]: %w", i, err)
+		}
+		window[i] = float32(value)
+	}
+	return window, nil
+}
+
 func emitFloat32Array(w *bufio.Writer, name, typeExpr string, vals []float32) {
 	fmt.Fprintf(w, "var %s = %s{\n", name, typeExpr)
 	for i, v := range vals {
@@ -74,6 +119,13 @@ func main() {
 			for i := 0; i < overlap; i++ {
 				f32[i] = window120StaticF32[i]
 			}
+		} else if overlap == 240 {
+			var err error
+			f32, err = libopusStaticWindow240()
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
 		} else {
 			for i := 0; i < overlap; i++ {
 				f32[i] = float32(vorbisWindow(i, overlap))
@@ -99,7 +151,7 @@ func main() {
 	emitFloat32Array(w, "windowBuffer120F32", "[Overlap]float32", f32ByOverlap[120])
 
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, "// windowBuffer240 contains precomputed window for 5ms frames.")
+	fmt.Fprintln(w, "// windowBuffer240F32 contains the pinned libopus static window240 float32 coefficients.")
 	emitFloat32Array(w, "windowBuffer240F32", "[240]float32", f32ByOverlap[240])
 
 	fmt.Fprintln(w)

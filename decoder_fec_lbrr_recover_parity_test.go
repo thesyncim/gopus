@@ -12,7 +12,7 @@ package gopus
 //     (both channels carrying LBRR), decoded through DecodeWithFEC.
 //
 // Both cases verify:
-//   - Byte-exact or quality-pass recovery against libopus oracle (when available).
+//   - Exact recovery samples against the selected libopus oracle.
 //   - Non-silent recovery output (FEC must provide audible signal).
 //   - The PLC-fallback path (no LBRR in packet) matches Decode(nil) exactly.
 //
@@ -88,9 +88,9 @@ func TestDecodeWithFECMonoFirstPacketLBRRMatchesLibopus(t *testing.T) {
 				got = append(got, buf[:n*channels]...)
 			}
 
-			cmpLen := min(len(got), len(want))
-			assertAPIRateQualityFloat32(t, got[:cmpLen], want[:cmpLen], sampleRate, channels,
+			assertAPIRateQualityFloat32(t, got, want, sampleRate, channels,
 				"mono first-packet LBRR FEC decode")
+			assertAPIRateFloat32BitsExact(t, got, want, "mono first-packet LBRR FEC decode")
 		})
 	}
 }
@@ -153,9 +153,9 @@ func TestDecodeWithFECStereoWarmLBRRMatchesLibopus(t *testing.T) {
 				got = append(got, buf[:n*channels]...)
 			}
 
-			cmpLen := min(len(got), len(want))
-			assertAPIRateQualityFloat32(t, got[:cmpLen], want[:cmpLen], sampleRate, channels,
+			assertAPIRateQualityFloat32(t, got, want, sampleRate, channels,
 				"stereo warm LBRR FEC decode")
+			assertAPIRateFloat32BitsExact(t, got, want, "stereo warm LBRR FEC decode")
 		})
 	}
 }
@@ -306,9 +306,9 @@ func TestDecodeWithFECMonoFirstPacketByteExact(t *testing.T) {
 			}
 
 			wantFEC := want[fs*channels:]
-			cmpLen := min(len(fecBuf), len(wantFEC))
-			assertAPIRateQualityFloat32(t, fecBuf[:cmpLen], wantFEC[:cmpLen], sampleRate, channels,
+			assertAPIRateQualityFloat32(t, fecBuf, wantFEC, sampleRate, channels,
 				"mono first-packet LBRR byte-exact")
+			assertAPIRateFloat32BitsExact(t, fecBuf, wantFEC, "mono first-packet LBRR byte-exact")
 		})
 	}
 }
@@ -364,7 +364,7 @@ func TestDecodeWithFECStereoHybridAfterLongLossRangeExact(t *testing.T) {
 		{"SetForceChannels", func() error { return enc.SetForceChannels(2) }},
 	} {
 		if err := set.fn(); err != nil {
-			t.Skipf("%s: %v", set.name, err)
+			t.Fatalf("%s: %v", set.name, err)
 		}
 	}
 	enc.SetFEC(true)
@@ -386,10 +386,10 @@ func TestDecodeWithFECStereoHybridAfterLongLossRangeExact(t *testing.T) {
 		}
 		pkt, err := enc.EncodeFloat32(pcm)
 		if err != nil || len(pkt) == 0 {
-			t.Skipf("encode frame %d: %v len=%d", f, err, len(pkt))
+			t.Fatalf("encode frame %d: %v len=%d", f, err, len(pkt))
 		}
 		if ParseTOC(pkt[0]).Mode != ModeHybrid {
-			t.Skipf("frame %d not hybrid", f)
+			t.Fatalf("frame %d not hybrid", f)
 		}
 		packets = append(packets, append([]byte(nil), pkt...))
 		if recoveryIdx < 0 && f > warmUp+lossBurst && packetHasInBandFEC(t, pkt) {
@@ -397,7 +397,7 @@ func TestDecodeWithFECStereoHybridAfterLongLossRangeExact(t *testing.T) {
 		}
 	}
 	if recoveryIdx < 0 {
-		t.Skip("no warm LBRR-carrying hybrid recovery packet emitted")
+		t.Fatal("no warm LBRR-carrying hybrid recovery packet emitted")
 	}
 
 	// Decode plan: warm-up normal decodes, a long PLC burst (Decode(nil)) that

@@ -10,6 +10,7 @@
 
 #include "config.h"
 #include "celt/cwrs.h"
+#include "celt/cpu_support.h"
 #include "celt/entdec.h"
 #include "celt/entenc.h"
 #include "celt/vq.h"
@@ -22,10 +23,6 @@ void celt_fatal(const char *str, const char *file, int line) {
   (void)file;
   (void)line;
   abort();
-}
-
-opus_val16 op_pvq_search_sse2(celt_norm *x, int *iy, int k, int n, int arch) {
-  return op_pvq_search_c(x, iy, k, n, arch);
 }
 
 enum {
@@ -138,7 +135,7 @@ static int eval_alg_quant_qext(void) {
   ec_enc_init(&enc, buf, (opus_uint32)storage_u);
   ec_enc_init(&ext_enc, ext_buf, (opus_uint32)ext_storage_u);
   collapse = alg_quant(x, (int)n_u, (int)k_u, (int)spread_u, (int)b_u,
-      &enc, gain, (int)resynth_u, &ext_enc, (int)extra_bits_u, 0);
+      &enc, gain, (int)resynth_u, &ext_enc, (int)extra_bits_u, opus_select_arch());
   ec_enc_done(&enc);
   ec_enc_done(&ext_enc);
   packet_len = compact_packet(&enc, packet);

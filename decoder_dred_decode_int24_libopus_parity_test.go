@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
+	silkpkg "github.com/thesyncim/gopus/internal/silk"
 )
 
 // TestDecodeDREDInt24TracksDecodeDREDFloat verifies that Decoder.DecodeDREDInt24
@@ -123,19 +124,8 @@ func TestDecodeDREDInt24OracleQuality(t *testing.T) {
 	}
 }
 
-// TestDecodeDREDInt24MatchesLibopusInt24Reference verifies that
-// Decoder.DecodeDREDInt24 matches the libopus opus_decoder_dred_decode24()
-// reference sample-for-sample.
-//
-// opus_decoder_dred_decode24() (src/opus_decoder.c:1643) runs opus_decode_native
-// in float mode and then writes pcm[i] = RES2INT24(out[i]). The libopus oracle
-// here is opus_decoder_dred_decode_float (the identical float DRED decode), so
-// the exact int24 reference is RES2INT24(oracle_float[i]) == float32ToInt24(...).
-//
-// DRED concealment is a neural PLC stream: opus_compare's Q is invalid (project
-// memory), so the gate is the documented near-exact corr/RMS bar (the same bar
-// the int24 SILK/CELT/Hybrid live-decode parity tests use), which also absorbs
-// the documented darwin/arm64 1-ULP float drift's ≤1 LSB int24 divergence.
+// TestDecodeDREDInt24MatchesLibopusInt24Reference compares the public Go
+// int24 output with opus_decoder_dred_decode24() from the selected C build.
 func TestDecodeDREDInt24MatchesLibopusInt24Reference(t *testing.T) {
 	libopustest.RequireOracle(t)
 	for _, frameSize := range []int{960, 480} {
@@ -153,9 +143,9 @@ func TestDecodeDREDInt24MatchesLibopusInt24Reference(t *testing.T) {
 			dec, n := prepareCachedDREDDecodeParityStateForPacket(t, packetInfo)
 			dred := parseCarrierDREDForExplicitDecode(t, packetInfo.sampleRate, packetInfo)
 
-			// Oracle: opus_decoder_dred_decode_float in carrier-DRED context —
-			// the exact float buffer opus_decoder_dred_decode24 feeds to RES2INT24.
-			want, err := probeLibopusDecoderDREDSequence(
+			// The helper runs the carrier decode and DRED decode through opus_decode24
+			// and opus_decoder_dred_decode24 on the same persistent decoder state.
+			want, err := probeLibopusDecoderDREDSequenceInt24(
 				nil, packetInfo.packet, nil,
 				packetInfo.maxDREDSamples, packetInfo.sampleRate,
 				n, libopusDecoderDREDSequenceSourceCarrierDRED,
@@ -180,17 +170,12 @@ func TestDecodeDREDInt24MatchesLibopusInt24Reference(t *testing.T) {
 				t.Fatalf("DecodeDREDInt24 returned %d want %d", got, n)
 			}
 
-			// libopus int24 reference: RES2INT24 on the oracle float buffer.
-			wantInt24 := make([]int32, got*channels)
-			for i := range wantInt24 {
-				wantInt24[i] = float32ToInt24(want.step0.pcm[i])
+			if len(want.step0.pcm24) != got*channels {
+				t.Fatalf("libopus int24 sample count=%d want %d", len(want.step0.pcm24), got*channels)
 			}
 
 			label := fmt.Sprintf("DRED int24 reference frame_size=%d", frameSize)
-			assertAPIRateQualityFloat32PLC(t,
-				int32Int24ToFloat32(pcmInt24[:got*channels]),
-				int32Int24ToFloat32(wantInt24),
-				packetInfo.sampleRate, channels, true, label)
+			assertInt24ParitySelectedCExact(t, pcmInt24[:got*channels], want.step0.pcm24, packetInfo.sampleRate, channels, label)
 		})
 	}
 }
@@ -201,19 +186,10 @@ func TestDecodeDREDInt24MatchesLibopusInt24Reference(t *testing.T) {
 // channel matrix already gated for the float DRED decode path: SILK-WB, CELT-FB
 // and Hybrid-SWB/FB, mono and stereo, at 48 kHz and 16 kHz decoder rates.
 //
-// For every config the gopus DecodeDREDInt24 output (decodeExplicitDREDFloat
-// followed by RES2INT24) is compared against the libopus int24 DRED reference,
-// which is opus_decoder_dred_decode24() == RES2INT24 applied to the
-// opus_decoder_dred_decode_float() oracle buffer (src/opus_decoder.c:1643-1664
-// vs :1677-1682 differ only by the trailing RES2INT24). This is the exact same
-// wiring opus_decode24 + DRED uses, so it locks the int24 DRED recovery path to
-// the libopus int24 DRED reference across the whole matrix.
-//
-// DRED concealment is a neural PLC stream (FARGAN/LPCNet float ops): opus_compare's
-// Q is invalid (project memory) and the float DRED tests gate on the documented
-// near-exact corr/RMS bar, which also absorbs the documented darwin/arm64 1-ULP
-// float drift's ≤1 LSB int24 divergence. The int24 reference gate mirrors that
-// bar exactly via assertAPIRateQualityFloat32PLC(plcDominated=true).
+// For each mode, rate, and channel combination, the same-format C helper decodes
+// the seed with opus_decode24(), parses the carrier DRED payload, and calls
+// opus_decoder_dred_decode24() without decoding the carrier. This matches the
+// explicit Go DRED path exercised here, which starts from the seeded decoder.
 func TestDecodeDREDInt24MatrixMatchesLibopusInt24Reference(t *testing.T) {
 	libopustest.RequireOracle(t)
 	tests := []struct {
@@ -290,15 +266,19 @@ func TestDecodeDREDInt24MatrixMatchesLibopusInt24Reference(t *testing.T) {
 				t.Fatalf("int24 DRED matrix got decoder channels=%d, want %d", dec.Channels(), wantChannels)
 			}
 
-			// Oracle: opus_decoder_dred_decode_float in carrier-DRED context — the
-			// exact float buffer opus_decoder_dred_decode24 feeds to RES2INT24.
-			want, err := probeLibopusDecoderDREDDecodeFloatForDecoder(seedPacket, packetInfo, tc.decoderRate, -1, n, n)
+			maxDRED, oracleRate := libopusDREDRequestForDecoder(packetInfo, tc.decoderRate)
+			want, err := probeLibopusDecoderDREDSequenceInt24WithoutCarrierDecode(
+				seedPacket, packetInfo.packet, nil,
+				maxDRED, oracleRate, n,
+				libopusDecoderDREDSequenceSourceCarrierDRED, n,
+				libopusDecoderDREDSequenceSourceNone, 0, false,
+			)
 			if err != nil {
-				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
+				libopustest.HelperUnavailable(t, "decoder DRED int24 decode", err)
 			}
-			requireLibopusDREDDecodeParsed(t, want, "libopus int24 DRED matrix")
-			if want.ret != n {
-				t.Fatalf("libopus int24 DRED matrix decode ret=%d want %d", want.ret, n)
+			requireLibopusDREDSequenceParsed(t, want, "libopus int24 DRED matrix")
+			if want.step0.ret != n {
+				t.Fatalf("libopus int24 DRED matrix decode ret=%d want %d", want.step0.ret, n)
 			}
 			if want.channels != wantChannels {
 				t.Fatalf("libopus int24 DRED matrix channels=%d want %d", want.channels, wantChannels)
@@ -315,18 +295,101 @@ func TestDecodeDREDInt24MatrixMatchesLibopusInt24Reference(t *testing.T) {
 				t.Fatalf("DecodeDREDInt24 returned %d want %d", got, n)
 			}
 
-			// libopus int24 reference: RES2INT24 on the oracle float buffer.
-			wantInt24 := make([]int32, got*channels)
-			for i := range wantInt24 {
-				wantInt24[i] = float32ToInt24(want.pcm[i])
-			}
-
 			label := "DRED int24 matrix reference " + tc.name
-			assertAPIRateQualityFloat32PLC(t,
-				int32Int24ToFloat32(pcmInt24[:got*channels]),
-				int32Int24ToFloat32(wantInt24),
-				tc.decoderRate, channels, true, label)
+			if len(want.step0.pcm24) != got*channels {
+				t.Fatalf("%s sample count=%d want %d", label, len(want.step0.pcm24), got*channels)
+			}
+			for i, sample := range pcmInt24[:got*channels] {
+				if sample != want.step0.pcm24[i] {
+					t.Fatalf("%s sample[%d]=%d want selected C %d", label, i, sample, want.step0.pcm24[i])
+				}
+			}
+			assertInt24ParitySelectedCExact(t, pcmInt24[:got*channels], want.step0.pcm24, tc.decoderRate, channels, label)
 		})
+	}
+}
+
+func TestDecodeDREDCarrierHistoryCodecStateMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	cfg := libopusDREDPacketConfig{FrameSize: 960, ForceMode: ModeSILK, Bandwidth: BandwidthWideband}
+	dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityStateForDecoderRateAndPacketConfig(t, 48000, cfg)
+	maxDRED, oracleRate := libopusDREDRequestForDecoder(packetInfo, 48000)
+	before, err := probeLibopusDecoderDREDSequence(seedPacket, packetInfo.packet, nil,
+		maxDRED, oracleRate, n,
+		libopusDecoderDREDSequenceSourceNone, 0,
+		libopusDecoderDREDSequenceSourceNone, 0, false)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "DRED carrier pre-state", err)
+	}
+	requireLibopusDREDSequenceParsed(t, before, "libopus carrier pre-state")
+	want, err := probeLibopusDecoderDREDSequenceWithSampleFormats(seedPacket, packetInfo.packet, nil,
+		maxDRED, oracleRate, n,
+		libopusDecoderDREDSequenceSourceCarrierDRED, n,
+		libopusDecoderDREDSequenceSourceNone, 0, false,
+		libopusDecoderDREDSequenceSampleFormatInt24,
+		libopusDecoderDREDSequenceSampleFormatFloat32,
+		libopusDecoderDREDSequenceSampleFormatFloat32,
+		true)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "DRED carrier history state", err)
+	}
+	pcm := make([]float32, dec.maxPacketSamples*dec.Channels())
+	if _, err := dec.Decode(packetInfo.packet, pcm); err != nil {
+		t.Fatalf("Decode(carrier packet): %v", err)
+	}
+	if got := dec.FinalRange(); got != before.step0.finalRange {
+		t.Fatalf("carrier pre-DRED final range=%08x want selected C %08x", got, before.step0.finalRange)
+	}
+	assertDecoderDREDCELT48kBridgeBitsMatch(t, dec, before.step0.celt48k, "carrier pre-DRED CELT")
+	assertDecoderDREDSILKStateBitsMatch(t, dec, before.step0.silk, silkpkg.BandwidthWideband, "carrier pre-DRED SILK")
+	if !dec.dredNeuralConcealmentReady() {
+		t.Fatal("DRED neural runtime did not initialize")
+	}
+	dec.primeExplicitSILKDREDEntryHistory()
+	primed := requireDecoderDREDState(t, dec)
+	assertDecoderDREDPLCStateBitsMatch(t, primed.dredPLC.Snapshot(), before.step0.state, "carrier primed pre-queue PLC")
+	assertDecoderDREDFARGANStateBitsMatch(t, primed.dredFARGAN.Snapshot(), before.step0.fargan, "carrier primed pre-queue FARGAN")
+	queued, err := probeLibopusDecoderDREDSequenceWithSampleFormats(seedPacket, packetInfo.packet, nil,
+		maxDRED, oracleRate, n,
+		libopusDecoderDREDSequenceSourceQueueCarrierDRED, n,
+		libopusDecoderDREDSequenceSourceNone, 0, false,
+		libopusDecoderDREDSequenceSampleFormatInt24,
+		libopusDecoderDREDSequenceSampleFormatFloat32,
+		libopusDecoderDREDSequenceSampleFormatFloat32,
+		true)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "DRED queued carrier state", err)
+	}
+	dec.queueExplicitDREDRecovery(dred, n, n)
+	queuedState := requireDecoderDREDState(t, dec)
+	gotQueued := queuedState.dredPLC.Snapshot()
+	assertDecoderDREDPLCStateBitsMatch(t, gotQueued, queued.step0.state, "carrier queued PLC")
+	assertDecoderDREDFARGANStateBitsMatch(t, queuedState.dredFARGAN.Snapshot(), queued.step0.fargan, "carrier queued FARGAN")
+	if gotQueued.FECFillPos != queued.step0.state.FECFillPos || gotQueued.FECSkip != queued.step0.state.FECSkip {
+		t.Fatalf("carrier queued feature counts Go(fill=%d skip=%d) C(fill=%d skip=%d)", gotQueued.FECFillPos, gotQueued.FECSkip, queued.step0.state.FECFillPos, queued.step0.state.FECSkip)
+	}
+	for i := 0; i < gotQueued.FECFillPos; i++ {
+		assertFloat32BitsEqual(t, gotQueued.FEC[i][:], queued.step0.state.FEC[i][:], fmt.Sprintf("carrier queued feature[%d]", i))
+	}
+	pcm24 := make([]int32, n*dec.Channels())
+	if _, err := dec.DecodeDREDInt24(dred, n, pcm24, n); err != nil {
+		t.Fatalf("DecodeDREDInt24 after carrier: %v", err)
+	}
+	state := requireDecoderDREDState(t, dec)
+	assertDecoderDREDPLCStateBitsMatch(t, state.dredPLC.Snapshot(), want.step0.state, "carrier-history DRED PLC")
+	assertDecoderDREDFARGANStateBitsMatch(t, state.dredFARGAN.Snapshot(), want.step0.fargan, "carrier-history DRED FARGAN")
+	assertDecoderDREDCELT48kBridgeBitsMatch(t, dec, want.step0.celt48k, "carrier history CELT")
+	assertDecoderDREDSILKStateBitsMatch(t, dec, want.step0.silk, silkpkg.BandwidthWideband, "carrier history SILK")
+	if got := dec.FinalRange(); got != want.step0.finalRange {
+		t.Fatalf("carrier DRED final range=%08x want selected C %08x", got, want.step0.finalRange)
+	}
+	if len(want.step0.pcm24) != len(pcm24) {
+		t.Fatalf("carrier DRED int24 sample count=%d want %d", len(pcm24), len(want.step0.pcm24))
+	}
+	for i := range pcm24 {
+		if pcm24[i] != want.step0.pcm24[i] {
+			t.Fatalf("carrier DRED int24 sample[%d]=%d want selected C %d", i, pcm24[i], want.step0.pcm24[i])
+		}
 	}
 }
 

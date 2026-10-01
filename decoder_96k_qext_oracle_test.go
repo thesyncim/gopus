@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"testing"
 
 	"github.com/thesyncim/gopus"
@@ -18,50 +17,23 @@ import (
 	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
-// hd96kDecodeArm64Tol bounds the documented darwin/arm64 CELT cosine/rsqrt
-// kernel residual (project_arm64_celt_1ulp_drift.md) on the native 96 kHz
-// decode output. On amd64 (CI hard gate) the native decode must match the
-// QEXT libopus reference sample-for-sample; arm64 logs a bounded residual.
-const hd96kDecodeArm64Tol = float32(2e-4)
-
 // compareNative96kDecodeRange compares a half-open sample range of a gopus
-// native 96 kHz decode against the QEXT libopus reference, enforcing exact
-// equality on amd64 and a bounded residual on arm64. It returns the max abs
-// difference observed.
-func compareNative96kDecodeRange(t *testing.T, got, want []float32, lo, hi int, strict bool) float32 {
+// native 96 kHz decode with every raw float32 bit from the selected QEXT
+// libopus decoder.
+func compareNative96kDecodeRange(t *testing.T, got, want []float32, lo, hi int) {
 	t.Helper()
 	if len(got) != len(want) {
 		t.Fatalf("sample count: got %d want %d", len(got), len(want))
 	}
-	if hi > len(got) {
-		hi = len(got)
+	if lo < 0 || hi < lo || hi > len(got) {
+		t.Fatalf("invalid comparison range [%d,%d) for %d samples", lo, hi, len(got))
 	}
-	isArm64 := runtime.GOARCH == "arm64"
-	var maxResidual float32
-	maxIdx := -1
 	for i := lo; i < hi; i++ {
-		if got[i] == want[i] {
-			continue
-		}
-		diff := got[i] - want[i]
-		if diff < 0 {
-			diff = -diff
-		}
-		if strict && !isArm64 {
-			t.Fatalf("sample[%d]: got %v want %v (diff %v, amd64 must be exact)", i, got[i], want[i], got[i]-want[i])
-		}
-		if diff > maxResidual {
-			maxResidual = diff
-			maxIdx = i
+		if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
+			t.Fatalf("sample[%d]: got %08x want %08x", i,
+				math.Float32bits(got[i]), math.Float32bits(want[i]))
 		}
 	}
-	if strict && isArm64 && maxResidual > 0 {
-		if maxResidual > hd96kDecodeArm64Tol {
-			t.Fatalf("arm64 residual %v at index %d exceeds budget %v", maxResidual, maxIdx, hd96kDecodeArm64Tol)
-		}
-		t.Logf("RESIDUAL arm64 CELT-kernel drift on native 96k decode: max %v at index %d (<= %v, project_arm64_celt_1ulp_drift.md)", maxResidual, maxIdx, hd96kDecodeArm64Tol)
-	}
-	return maxResidual
 }
 
 // TestNative96kDecodeMatchesQEXTOracleMono drives a real native 96 kHz QEXT
@@ -81,14 +53,14 @@ func testNative96kDecodeMatchesQEXTOracle(t *testing.T, channels int) {
 	libopustest.RequireOracle(t)
 	opusDemo, err := benchutil.QEXTOpusDemoPath()
 	if err != nil {
-		t.Skipf("QEXT-enabled opus_demo unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "QEXT-enabled opus_demo", err)
 	}
 
 	const frames = 6
 	pcm96 := native96kSine(channels, frames)
 	packets := encodeNative96kQEXTPackets(t, opusDemo, channels, pcm96, 320000)
 
-	ref, err := libopustest.ProbeQEXTDecode96k(libopustest.QEXTDecode96kParams{
+	ref, err := probeQEXTDecodePublicReference(libopustest.QEXTDecode96kParams{
 		SampleFormat: libopustest.QEXTDecode96kFormatFloat32,
 		Channels:     channels,
 		MaxFrameSize: 1920,
@@ -99,6 +71,10 @@ func testNative96kDecodeMatchesQEXTOracle(t *testing.T, channels int) {
 	}
 	if len(ref.PCM) == 0 {
 		t.Fatal("oracle returned no PCM")
+	}
+	if len(ref.FinalRanges) != len(packets) || len(ref.PCM) != len(packets)*1920*channels {
+		t.Fatalf("oracle output geometry: ranges=%d PCM=%d packets=%d channels=%d",
+			len(ref.FinalRanges), len(ref.PCM), len(packets), channels)
 	}
 
 	dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(96000, channels))
@@ -113,6 +89,12 @@ func testNative96kDecodeMatchesQEXTOracle(t *testing.T, channels int) {
 		if err != nil {
 			t.Fatalf("packet %d decode: %v", pi, err)
 		}
+		if n != 1920 {
+			t.Fatalf("packet %d decoded %d samples/channel, want 1920", pi, n)
+		}
+		if got := dec.FinalRange(); got != ref.FinalRanges[pi] {
+			t.Fatalf("packet %d final range: got %08x want %08x", pi, got, ref.FinalRanges[pi])
+		}
 		out = append(out, buf[:n*channels]...)
 	}
 
@@ -121,16 +103,15 @@ func testNative96kDecodeMatchesQEXTOracle(t *testing.T, channels int) {
 	// with overlap=240, and the 2-tap HD de-emphasis) with a clean (zero)
 	// comb-filter history.
 	firstFrame := 1920 * channels
-	compareNative96kDecodeRange(t, out, ref.PCM, 0, firstFrame, true)
+	compareNative96kDecodeRange(t, out, ref.PCM, 0, firstFrame)
 
 	// Remaining frames additionally exercise the cross-frame comb-filter
 	// postfilter and the cross-frame QEXT extension-band allocation balance,
 	// which carries forward the (signed) leftover ext-coder budget into the
 	// next frame's band bit allocation. These frames are a strict sample-parity
-	// gate: amd64 must match the QEXT libopus reference exactly, arm64 within
-	// the documented CELT-kernel residual budget.
+	// gate for every float32 bit and packet final range.
 	if len(out) > firstFrame {
-		compareNative96kDecodeRange(t, out, ref.PCM, firstFrame, len(out), true)
+		compareNative96kDecodeRange(t, out, ref.PCM, firstFrame, len(out))
 	}
 	t.Logf("native 96k decode parity: %d ch, %d packets, %d samples (all frames strict)", channels, len(packets), len(out))
 }
@@ -202,6 +183,20 @@ func native96kSine(channels, frames int) []float32 {
 	return pcm
 }
 
+// native96kPostfilterTone is a periodic stereo-compatible signal whose CELT
+// packets carry an active pitch postfilter after the first frame.
+func native96kPostfilterTone(channels, frames int) []float32 {
+	pcm := make([]float32, 1920*frames*channels)
+	for i := 0; i < 1920*frames; i++ {
+		v := float32(0.4 * math.Sin(2*math.Pi*6000*float64(i)/96000))
+		pcm[i*channels] = v
+		if channels == 2 {
+			pcm[i*channels+1] = 0.9 * v
+		}
+	}
+	return pcm
+}
+
 // TestQEXTDecode96kOracleProducesNative96k validates the new native 96 kHz QEXT
 // full-packet decode oracle end-to-end: a real native 96 kHz QEXT bitstream
 // (produced by the QEXT opus_demo at Fs=96000, 1920-sample frames) is decoded
@@ -211,7 +206,7 @@ func TestQEXTDecode96kOracleProducesNative96k(t *testing.T) {
 	libopustest.RequireOracle(t)
 	opusDemo, err := benchutil.QEXTOpusDemoPath()
 	if err != nil {
-		t.Skipf("QEXT-enabled opus_demo unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "QEXT-enabled opus_demo", err)
 	}
 
 	const channels = 1
@@ -268,9 +263,8 @@ func TestQEXTDecode96kOracleProducesNative96k(t *testing.T) {
 // the decoded stream to genuinely exercise an active pitch comb (postfilter flag
 // set on at least one frame after the first, so the cross-frame comb history is
 // loaded) and then enforces that every frame after the first matches the QEXT
-// libopus reference sample-for-sample on amd64 (the documented arm64 CELT-kernel
-// budget otherwise). A non-zero comb-filter scale defect shows up here as a
-// large cross-frame residual once a prior frame's pitch comb is active.
+// libopus reference bit-for-bit on each selected ISA lane. A comb-filter scale
+// defect shows up across frames once a prior frame's pitch comb is active.
 func TestNative96kDecodeCrossFramePostfilterParity(t *testing.T) {
 	for _, ch := range []int{1, 2} {
 		ch := ch
@@ -278,29 +272,31 @@ func TestNative96kDecodeCrossFramePostfilterParity(t *testing.T) {
 			libopustest.RequireOracle(t)
 			opusDemo, err := benchutil.QEXTOpusDemoPath()
 			if err != nil {
-				t.Skipf("QEXT-enabled opus_demo unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "QEXT-enabled opus_demo", err)
 			}
 
 			const frames = 6
-			pcm96 := native96kSine(ch, frames)
+			pcm96 := native96kPostfilterTone(ch, frames)
 			packets := encodeNative96kQEXTPackets(t, opusDemo, ch, pcm96, 320000)
 
 			// Confirm the comb is actually exercised: at least one frame after the
 			// first must carry an active postfilter, otherwise this test would pass
 			// trivially without touching comb_filter_qext.
 			activeAfterFirst := 0
+			var activePacket []byte
 			for i, pkt := range packets {
 				if celtFramePostfilterActive(pkt) {
 					if i > 0 {
 						activeAfterFirst++
+						activePacket = pkt
 					}
 				}
 			}
 			if activeAfterFirst == 0 {
-				t.Skipf("no cross-frame active postfilter in %d packets; comb path not exercised", len(packets))
+				t.Fatalf("no cross-frame active postfilter in %d packets; comb path not exercised", len(packets))
 			}
 
-			ref, err := libopustest.ProbeQEXTDecode96k(libopustest.QEXTDecode96kParams{
+			ref, err := probeQEXTDecodePublicReference(libopustest.QEXTDecode96kParams{
 				SampleFormat: libopustest.QEXTDecode96kFormatFloat32,
 				Channels:     ch,
 				MaxFrameSize: 1920,
@@ -311,6 +307,10 @@ func TestNative96kDecodeCrossFramePostfilterParity(t *testing.T) {
 			}
 			if len(ref.PCM) == 0 {
 				t.Fatal("oracle returned no PCM")
+			}
+			if len(ref.FinalRanges) != len(packets) || len(ref.PCM) != len(packets)*1920*ch {
+				t.Fatalf("oracle output geometry: ranges=%d PCM=%d packets=%d channels=%d",
+					len(ref.FinalRanges), len(ref.PCM), len(packets), ch)
 			}
 
 			dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(96000, ch))
@@ -324,6 +324,12 @@ func TestNative96kDecodeCrossFramePostfilterParity(t *testing.T) {
 				if derr != nil {
 					t.Fatalf("packet %d decode: %v", pi, derr)
 				}
+				if n != 1920 {
+					t.Fatalf("packet %d decoded %d samples/channel, want 1920", pi, n)
+				}
+				if got := dec.FinalRange(); got != ref.FinalRanges[pi] {
+					t.Fatalf("packet %d final range: got %08x want %08x", pi, got, ref.FinalRanges[pi])
+				}
 				out = append(out, buf[:n*ch]...)
 			}
 
@@ -331,9 +337,38 @@ func TestNative96kDecodeCrossFramePostfilterParity(t *testing.T) {
 			if len(out) <= firstFrame {
 				t.Fatalf("decoded only %d samples; need cross-frame coverage", len(out))
 			}
-			res := compareNative96kDecodeRange(t, out, ref.PCM, firstFrame, len(out), true)
-			t.Logf("cross-frame postfilter parity: %d ch, %d active-comb frames after first, max residual %v",
-				ch, activeAfterFirst, res)
+			compareNative96kDecodeRange(t, out, ref.PCM, firstFrame, len(out))
+			// The active QEXT decode path reuses its refinement, IMDCT, and comb
+			// scratch after the packet history has warmed the decoder.
+			for i := 0; i < 2; i++ {
+				if n, err := dec.Decode(activePacket, buf); err != nil || n != 1920 {
+					t.Fatalf("warm active packet: n=%d err=%v", n, err)
+				}
+			}
+			var warmN int
+			var warmErr error
+			allocs := testing.AllocsPerRun(20, func() {
+				warmN, warmErr = dec.Decode(activePacket, buf)
+			})
+			if warmErr != nil || warmN != 1920 {
+				t.Fatalf("measured active packet: n=%d err=%v", warmN, warmErr)
+			}
+			if allocs != 0 {
+				t.Fatalf("active native 96k decode allocations: %v", allocs)
+			}
+			activeSignal := false
+			for _, sample := range buf {
+				bits := math.Float32bits(sample)
+				if bits&0x7f800000 != 0x7f800000 && bits&0x7fffffff != 0 {
+					activeSignal = true
+					break
+				}
+			}
+			if !activeSignal {
+				t.Fatal("measured active QEXT packet produced no finite nonzero PCM")
+			}
+			t.Logf("cross-frame postfilter parity: %d ch, %d active-comb frames after first",
+				ch, activeAfterFirst)
 		})
 	}
 }

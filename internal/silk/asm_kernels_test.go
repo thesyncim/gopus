@@ -1,11 +1,12 @@
 package silk
 
 import (
+	"math"
 	"reflect"
 	"testing"
 )
 
-func TestSilkAssemblyKernelsMatchReference(t *testing.T) {
+func TestSilkKernelsMatchReference(t *testing.T) {
 	lengths := []int{1, 2, 3, 4, 5, 7, 8, 15, 16, 17, 31, 32, 33, 80, 120}
 	for _, n := range lengths {
 		for offset := range 4 {
@@ -14,7 +15,166 @@ func TestSilkAssemblyKernelsMatchReference(t *testing.T) {
 	}
 }
 
-func FuzzSilkAssemblyKernelsMatchReference(f *testing.F) {
+func TestFIRInterpol21846CoreZeroAlloc(t *testing.T) {
+	const nOut = 240
+	buf := make([]int16, (nOut-1)/3+8)
+	for i := range buf {
+		buf[i] = int16((i*7919)%60001 - 30000)
+	}
+	dst := make([]int16, nOut)
+	firInterpol21846Core(dst, buf, nOut)
+	if allocs := testing.AllocsPerRun(100, func() { firInterpol21846Core(dst, buf, nOut) }); allocs != 0 {
+		t.Fatalf("got %g allocations per FIR core call, want 0", allocs)
+	}
+}
+
+func TestFIRInterpol32768CoreZeroAlloc(t *testing.T) {
+	const nOut = 240
+	buf := make([]int16, (nOut-1)/2+8)
+	for i := range buf {
+		buf[i] = int16((i*7919)%60001 - 30000)
+	}
+	dst := make([]int16, nOut)
+	firInterpol32768Core(dst, buf, nOut)
+	want := make([]int16, nOut)
+	firInterpol32768CoreGo(want, buf, nOut)
+	if !reflect.DeepEqual(dst, want) {
+		t.Fatal("firInterpol32768Core differs from Go reference at N=240")
+	}
+	if allocs := testing.AllocsPerRun(100, func() { firInterpol32768Core(dst, buf, nOut) }); allocs != 0 {
+		t.Fatalf("got %g allocations per FIR core call, want 0", allocs)
+	}
+}
+
+func TestFIRInterpol32768CoreCanaries(t *testing.T) {
+	for _, nOut := range []int{1, 2, 3, 15, 16, 17, 239, 240, 241} {
+		const guard = int16(0x5a5a)
+		bufLen := (nOut-1)/2 + 8
+		bufStorage := make([]int16, bufLen+2)
+		bufStorage[0], bufStorage[len(bufStorage)-1] = guard, guard
+		buf := bufStorage[1 : len(bufStorage)-1]
+		for i := range buf {
+			buf[i] = int16((i*7919)%60001 - 30000)
+		}
+		dstStorage := make([]int16, nOut+2)
+		dstStorage[0], dstStorage[len(dstStorage)-1] = guard, guard
+		dst := dstStorage[1 : len(dstStorage)-1]
+		firInterpol32768Core(dst, buf, nOut)
+		want := make([]int16, nOut)
+		firInterpol32768CoreGo(want, buf, nOut)
+		if !reflect.DeepEqual(dst, want) {
+			t.Fatalf("nOut=%d differs from Go reference", nOut)
+		}
+		if dstStorage[0] != guard || dstStorage[len(dstStorage)-1] != guard {
+			t.Fatalf("nOut=%d overwrote destination canary", nOut)
+		}
+		if bufStorage[0] != guard || bufStorage[len(bufStorage)-1] != guard {
+			t.Fatalf("nOut=%d overwrote input canary", nOut)
+		}
+	}
+}
+
+func TestFIRInterpol43691CoreZeroAlloc(t *testing.T) {
+	const nOut = 240
+	buf := make([]int16, 2*(nOut-1)/3+8)
+	for i := range buf {
+		buf[i] = int16((i*7919)%60001 - 30000)
+	}
+	dst := make([]int16, nOut)
+	firInterpol43691Core(dst, buf, nOut)
+	want := make([]int16, nOut)
+	firInterpol43691CoreGo(want, buf, nOut)
+	if !reflect.DeepEqual(dst, want) {
+		t.Fatal("firInterpol43691Core differs from Go reference at N=240")
+	}
+	if allocs := testing.AllocsPerRun(100, func() { firInterpol43691Core(dst, buf, nOut) }); allocs != 0 {
+		t.Fatalf("got %g allocations per FIR core call, want 0", allocs)
+	}
+}
+
+func TestFIRInterpol43691CoreCanaries(t *testing.T) {
+	for _, nOut := range []int{1, 2, 3, 15, 16, 17, 239, 240, 241} {
+		const guard = int16(0x5a5a)
+		bufLen := 2*(nOut-1)/3 + 8
+		bufStorage := make([]int16, bufLen+2)
+		bufStorage[0], bufStorage[len(bufStorage)-1] = guard, guard
+		buf := bufStorage[1 : len(bufStorage)-1]
+		for i := range buf {
+			buf[i] = int16((i*7919)%60001 - 30000)
+		}
+		dstStorage := make([]int16, nOut+2)
+		dstStorage[0], dstStorage[len(dstStorage)-1] = guard, guard
+		dst := dstStorage[1 : len(dstStorage)-1]
+		firInterpol43691Core(dst, buf, nOut)
+		want := make([]int16, nOut)
+		firInterpol43691CoreGo(want, buf, nOut)
+		if !reflect.DeepEqual(dst, want) {
+			t.Fatalf("nOut=%d differs from Go reference", nOut)
+		}
+		if dstStorage[0] != guard || dstStorage[len(dstStorage)-1] != guard {
+			t.Fatalf("nOut=%d overwrote destination canary", nOut)
+		}
+		if bufStorage[0] != guard || bufStorage[len(bufStorage)-1] != guard {
+			t.Fatalf("nOut=%d overwrote input canary", nOut)
+		}
+	}
+}
+
+func TestWriteInt16AsFloat32CoreZeroAlloc(t *testing.T) {
+	const n = 480
+	src := make([]int16, n)
+	for i := range src {
+		src[i] = asmInt16(0x243f6a8885a308d3, i)
+	}
+	dst := make([]float32, n)
+	writeInt16AsFloat32Core(dst, src, n)
+	want := make([]float32, n)
+	for i := range src {
+		want[i] = float32(src[i]) * (1.0 / 32768.0)
+	}
+	for i := range dst {
+		if math.Float32bits(dst[i]) != math.Float32bits(want[i]) {
+			t.Fatalf("writeInt16AsFloat32Core output %d differs: got %08x want %08x", i, math.Float32bits(dst[i]), math.Float32bits(want[i]))
+		}
+	}
+	if allocs := testing.AllocsPerRun(100, func() { writeInt16AsFloat32Core(dst, src, n) }); allocs != 0 {
+		t.Fatalf("got %g allocations per conversion core call, want 0", allocs)
+	}
+}
+
+func TestWriteInt16AsFloat32CoreCanaries(t *testing.T) {
+	for _, n := range []int{1, 7, 8, 9, 15, 16, 17, 479, 480, 481} {
+		const guard = int16(0x5a5a)
+		srcStorage := make([]int16, n+2)
+		srcStorage[0], srcStorage[len(srcStorage)-1] = guard, guard
+		src := srcStorage[1 : len(srcStorage)-1]
+		for i := range src {
+			src[i] = asmInt16(0x243f6a8885a308d3, i+n)
+		}
+		const floatGuard = float32(123.25)
+		dstStorage := make([]float32, n+2)
+		dstStorage[0], dstStorage[len(dstStorage)-1] = floatGuard, floatGuard
+		dst := dstStorage[1 : len(dstStorage)-1]
+		writeInt16AsFloat32Core(dst, src, n)
+		want := make([]float32, n)
+		for i, v := range src {
+			want[i] = float32(v) * (1.0 / 32768.0)
+		}
+		for i := range dst {
+			if math.Float32bits(dst[i]) != math.Float32bits(want[i]) {
+				t.Fatalf("n=%d output %d differs: got %08x want %08x", n, i, math.Float32bits(dst[i]), math.Float32bits(want[i]))
+			}
+		}
+		if dstStorage[0] != floatGuard || dstStorage[len(dstStorage)-1] != floatGuard {
+			t.Fatalf("n=%d overwrote destination canary", n)
+		}
+		if srcStorage[0] != guard || srcStorage[len(srcStorage)-1] != guard {
+			t.Fatalf("n=%d overwrote source canary", n)
+		}
+	}
+}
+
+func FuzzSilkKernelsMatchReference(f *testing.F) {
 	for _, seed := range []struct {
 		length uint8
 		offset uint8

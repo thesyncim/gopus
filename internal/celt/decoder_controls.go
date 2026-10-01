@@ -72,6 +72,12 @@ func (d *Decoder) Bandwidth() CELTBandwidth {
 	return d.bandwidth
 }
 
+// SetCustomEndBand selects an explicit CELT end band from a custom frame
+// header. A non-positive value restores the mode's configured/default end.
+func (d *Decoder) SetCustomEndBand(endBand int) {
+	d.customEndBand = int32(endBand)
+}
+
 // SetComplexity sets decoder complexity (0-10).
 func (d *Decoder) SetComplexity(complexity int) error {
 	if complexity < 0 || complexity > 10 {

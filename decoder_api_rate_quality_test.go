@@ -7,38 +7,30 @@ import (
 	"github.com/thesyncim/gopus/internal/qualitycompare"
 )
 
-// API-rate decoded-PCM quality gates.
+// API-rate decoded-PCM quality diagnostics.
 //
-// These tests decode the SAME packets through gopus and through the libopus
-// reference, so the two streams are sample-aligned (no resampling delay) and we
-// compare with maxDelay=0. The former gates asserted a raw per-sample tolerance
-// (assertAPIRateFloat32Close) or 1-LSB int16 exactness (assertAPIRateInt16Equal);
-// those over-strict gates are replaced here by the trusted opus_compare-based
-// comparator. The historical arm64 1-LSB int16 mismatches are sub-perceptual
-// int16 rounding, not a correctness divergence, and are now measured as quality.
+// These helpers compare gopus output with the selected libopus reference. They
+// choose a useful waveform metric for each sample rate and signal type, and
+// supplement exact PCM assertions in their callers. A quality pass alone does
+// not establish sample equality.
 //
 // Gate selection follows the opus_compare applicability rule:
 //   - 48 kHz output with >=480 samples/channel (>=10 ms) of mostly real decoded
-//     content: opus_compare applies, so we gate on the trusted near-exact Q bar
-//     (QualityBarNearExact, MinQ=20, in practice Q ~= 99-100 vs libopus) and LOG
-//     the measured Q.
+//     content: opus_compare applies, so the quality helper checks the
+//     QualityBarNearExact Q and waveform bars and logs the measured metrics.
 //   - sub-48 kHz (8/12/16/24 kHz) or short (2.5/5 ms) output: opus_compare returns
-//     -Inf, so we gate on the comparator's waveform correlation / RMS ratio with a
-//     documented near-exact corr/RMS bar (MinQ=0). corr/RMS stay valid in this case.
+//     -Inf, so the quality helper checks waveform correlation and RMS ratio;
+//     opus_compare Q does not gate these cases.
 //   - PLC-dominated 48 kHz streams (a short real frame followed by a longer
 //     requested/overlong PLC tail): opus_compare's psychoacoustic Q is not a valid
 //     quality metric on extrapolated (concealed) audio -- e.g. the multistream
-//     hybrid requested-PLC stream is 67% PLC and scores Q<0 even though gopus
-//     matches libopus to within 3.3e-3 abs (corr~=0.99996, rms~=1.0). For these we
-//     gate on the same near-exact corr/RMS bar (still proving libopus parity) and
-//     LOG the measured Q for transparency.
+//     hybrid requested-PLC stream contains a substantial concealed tail. For
+//     these streams the quality helper checks correlation and RMS and logs Q
+//     when opus_compare can still calculate it.
 //
-// The sub-48k / PLC-dominated corr/RMS bar below is anchored to the same
-// "near-exact vs libopus" intent as QualityBarNearExact (corr>=0.997, RMS in
-// [0.98,1.02]): these decodes previously passed an absolute per-sample tolerance
-// of <=8e-3 (SILK) / <=3e-3 (CELT) / <=1e-2 (Hybrid), i.e. they are essentially
-// identical waveforms, so a 0.997 correlation floor is the trusted near-exact
-// threshold, not a loosened number.
+// The waveform bar uses corr >= 0.997 and RMS ratio in [0.98, 1.02]. Exact
+// libopus comparisons remain separate assertions; these thresholds measure
+// waveform similarity and do not authorize a sample mismatch.
 var apiRateSubRateBar = qualitycompare.QualityBar{
 	MinQ:    math.Inf(-1), // opus_compare N/A here; Q is logged, not gated.
 	MinCorr: 0.997,
@@ -53,28 +45,26 @@ func opusCompareApplies(sampleRate, channels, totalSamples int) bool {
 	return sampleRate == 48000 && channels > 0 && totalSamples/channels >= 480
 }
 
-// assertAPIRateQualityFloat32 replaces assertAPIRateFloat32Close for decoded-PCM
-// streams that are NOT PLC-dominated (the common case). See the variant for the
-// PLC-dominated rule.
+// assertAPIRateQualityFloat32 checks the quality metrics for a decoded PCM
+// stream with no PLC-dominated tail.
 func assertAPIRateQualityFloat32(t *testing.T, got, want []float32, sampleRate, channels int, label string) {
 	t.Helper()
 	assertAPIRateQualityFloat32PLC(t, got, want, sampleRate, channels, false, label)
 }
 
-// assertAPIRateQualityFloat32PLC gates a decoded-PCM stream on the trusted
-// comparator instead of a raw sample tolerance. got/want are interleaved
+// assertAPIRateQualityFloat32PLC checks decoded-PCM quality metrics. got/want are interleaved
 // 48 kHz-or-lower PCM that are sample-aligned vs libopus. plcDominated must be
 // true when the requested output is mostly packet-loss concealment (a short real
-// frame followed by a longer PLC tail), in which case opus_compare's Q is not a
-// valid metric and the gate falls back to corr/RMS (see file header).
+// frame followed by a longer PLC tail), in which case the quality check uses
+// correlation and RMS instead of opus_compare Q (see file header).
 func assertAPIRateQualityFloat32PLC(t *testing.T, got, want []float32, sampleRate, channels int, plcDominated bool, label string) {
 	t.Helper()
 	if len(got) != len(want) {
 		t.Fatalf("%s len=%d want %d", label, len(got), len(want))
 	}
 	if opusCompareApplies(sampleRate, channels, len(got)) && !plcDominated {
-		// 48 kHz, >=10 ms, real content: opus_compare applies. Gate on the trusted
-		// Q bar and log the measured Q (expected ~99-100 vs libopus).
+		// 48 kHz, >=10 ms, real content: opus_compare applies. Check its quality
+		// bar and log the measured metrics.
 		cmp, err := qualitycompare.CompareDecodedFloat32(got, want, sampleRate, channels, 0)
 		if err != nil {
 			t.Fatalf("%s CompareDecodedFloat32: %v", label, err)
@@ -82,11 +72,9 @@ func assertAPIRateQualityFloat32PLC(t *testing.T, got, want []float32, sampleRat
 		qualitycompare.AssertQuality(t, cmp, qualitycompare.QualityBarNearExact, label)
 		return
 	}
-	// sub-48 kHz, short, or PLC-dominated output: opus_compare is N/A. Build a
-	// comparator-style QualityComparison from the rate-independent waveform corr/RMS
-	// diagnostics and gate on the documented near-exact corr/RMS bar (MinQ=0). For
-	// 48 kHz PLC-dominated streams we also measure Q (for the log) to keep the
-	// libopus comparison visible even though it is not the gate.
+	// Sub-48 kHz, short, or PLC-dominated output uses the rate-independent
+	// waveform corr/RMS metrics. For 48 kHz PLC-dominated streams, also measure
+	// Q for the log; it does not affect the quality bar.
 	corr, rms := apiRateWaveformCorrelationRMS(got, want)
 	q := 0.0
 	if opusCompareApplies(sampleRate, channels, len(got)) {
@@ -138,10 +126,9 @@ func apiRateWaveformCorrelationRMS(a, b []float32) (corr, rmsRatio float64) {
 	return corr, rmsRatio
 }
 
-// assertAPIRateQualityInt16 is the int16 counterpart: it converts both int16
-// streams to float32 (scaled by 1/32768) and applies the same trusted gate. This
-// is where the former arm64 1-LSB int16 "exactness" failures are now correctly
-// quality-gated as sub-perceptual rounding.
+// assertAPIRateQualityInt16 converts both int16 streams to float32, scaled by
+// 1/32768, and checks their waveform quality. Call assertAPIRateInt16Exact when
+// the test also requires exact sample equality.
 func assertAPIRateQualityInt16(t *testing.T, got, want []int16, sampleRate, channels int, label string) {
 	t.Helper()
 	assertAPIRateQualityInt16PLC(t, got, want, sampleRate, channels, false, label)
@@ -163,4 +150,44 @@ func int16SliceToFloat32(in []int16) []float32 {
 		out[i] = float32(v) / 32768.0
 	}
 	return out
+}
+
+// assertAPIRateInt16Exact compares integer PCM samples with the selected C
+// reference. Quality metrics alone do not establish sample equality.
+func assertAPIRateInt16Exact(t *testing.T, got, want []int16, label string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("%s len=%d want %d", label, len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("%s sample[%d]=%d want %d", label, i, got[i], want[i])
+		}
+	}
+}
+
+func assertAPIRateFloat32BitsExact(t *testing.T, got, want []float32, label string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("%s len=%d want %d", label, len(got), len(want))
+	}
+	for i := range want {
+		if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
+			t.Fatalf("%s sample[%d]=%08x want %08x", label, i, math.Float32bits(got[i]), math.Float32bits(want[i]))
+		}
+	}
+}
+
+// The public API-rate reference helper selects the active libopus feature and
+// instruction lane, then checks both quality metrics and every output bit.
+// Call this only when want comes from decodeWithLibopusReferenceAPIRateFloat32.
+func assertSelectedPublicAPIRateFloat32(t *testing.T, got, want []float32, sampleRate, channels int, label string) {
+	t.Helper()
+	assertSelectedPublicAPIRateFloat32PLC(t, got, want, sampleRate, channels, false, label)
+}
+
+func assertSelectedPublicAPIRateFloat32PLC(t *testing.T, got, want []float32, sampleRate, channels int, plcDominated bool, label string) {
+	t.Helper()
+	assertAPIRateQualityFloat32PLC(t, got, want, sampleRate, channels, plcDominated, label)
+	assertAPIRateFloat32BitsExact(t, got, want, label)
 }

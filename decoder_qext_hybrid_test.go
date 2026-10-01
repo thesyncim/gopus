@@ -109,9 +109,10 @@ func TestDecodeHybridLibopusQEXTPacketIgnoreExtensionsMatchesInactiveHybrid(t *t
 				t.Fatalf("NewDecoder(want): %v", err)
 			}
 			want := make([]float32, 960*channels)
-			wantN, err := wantDec.decodeOpusFrameIntoWithQEXT(want, frames[0], info.TOC.FrameSize, info.TOC.FrameSize, info.TOC.Mode, info.TOC.Bandwidth, info.TOC.Stereo, nil)
+			wantPacket := qextSingleFramePacketForTest(t, packet[0]&0xfc, frames[0], nil)
+			wantN, err := wantDec.Decode(wantPacket, want)
 			if err != nil {
-				t.Fatalf("decodeOpusFrameIntoWithQEXT(nil): %v", err)
+				t.Fatalf("Decode(inactive QEXT packet): %v", err)
 			}
 
 			gotDec, err := NewDecoder(DefaultDecoderConfig(48000, channels))
@@ -127,7 +128,7 @@ func TestDecodeHybridLibopusQEXTPacketIgnoreExtensionsMatchesInactiveHybrid(t *t
 			if gotN != wantN {
 				t.Fatalf("Decode samples=%d want %d", gotN, wantN)
 			}
-			if gotRange, wantRange := gotDec.FinalRange(), wantDec.mainDecodeRng; gotRange != wantRange {
+			if gotRange, wantRange := gotDec.FinalRange(), wantDec.FinalRange(); gotRange != wantRange {
 				t.Fatalf("FinalRange()=0x%08x want inactive Hybrid range 0x%08x", gotRange, wantRange)
 			}
 			for i := 0; i < gotN*channels; i++ {
@@ -169,9 +170,10 @@ func TestDecodeHybridLibopusQEXTOpaquePaddingMatchesInactiveHybrid(t *testing.T)
 				t.Fatalf("NewDecoder(want): %v", err)
 			}
 			want := make([]float32, 960*channels)
-			wantN, err := wantDec.decodeOpusFrameIntoWithQEXT(want, frames[0], info.TOC.FrameSize, info.TOC.FrameSize, info.TOC.Mode, info.TOC.Bandwidth, info.TOC.Stereo, nil)
+			wantPacket := qextSingleFramePacketForTest(t, packet[0]&0xfc, frames[0], nil)
+			wantN, err := wantDec.Decode(wantPacket, want)
 			if err != nil {
-				t.Fatalf("decodeOpusFrameIntoWithQEXT(nil): %v", err)
+				t.Fatalf("Decode(inactive QEXT packet): %v", err)
 			}
 
 			for _, ignore := range []bool{false, true} {
@@ -188,7 +190,7 @@ func TestDecodeHybridLibopusQEXTOpaquePaddingMatchesInactiveHybrid(t *testing.T)
 				if gotN != wantN {
 					t.Fatalf("Decode samples=%d want %d (ignore=%v)", gotN, wantN, ignore)
 				}
-				if gotRange, wantRange := gotDec.FinalRange(), wantDec.mainDecodeRng; gotRange != wantRange {
+				if gotRange, wantRange := gotDec.FinalRange(), wantDec.FinalRange(); gotRange != wantRange {
 					t.Fatalf("FinalRange()=0x%08x want inactive Hybrid range 0x%08x (ignore=%v)", gotRange, wantRange, ignore)
 				}
 				for i := 0; i < gotN*channels; i++ {
@@ -211,10 +213,8 @@ func TestDecodeHybridLibopusQEXTIgnoreExtensionsToggleSequenceMatchesExplicitPay
 		packet      []byte
 		rawFrame    []byte
 		qextPayload []byte
+		tocBase     byte
 		frameSize   int
-		mode        Mode
-		bandwidth   Bandwidth
-		stereo      bool
 		ignore      bool
 	}
 
@@ -243,10 +243,8 @@ func TestDecodeHybridLibopusQEXTIgnoreExtensionsToggleSequenceMatchesExplicitPay
 					packet:      packet,
 					rawFrame:    frames[0],
 					qextPayload: ext.Data,
+					tocBase:     packet[0] & 0xfc,
 					frameSize:   info.TOC.FrameSize,
-					mode:        info.TOC.Mode,
-					bandwidth:   info.TOC.Bandwidth,
-					stereo:      info.TOC.Stereo,
 					ignore:      ignore,
 				})
 			}
@@ -265,11 +263,11 @@ func TestDecodeHybridLibopusQEXTIgnoreExtensionsToggleSequenceMatchesExplicitPay
 					payload = nil
 				}
 				want := make([]float32, tc.frameSize*channels)
-				wantN, err := wantDec.decodeOpusFrameIntoWithQEXT(want, tc.rawFrame, tc.frameSize, tc.frameSize, tc.mode, tc.bandwidth, tc.stereo, payload)
+				wantPacket := qextSingleFramePacketForTest(t, tc.tocBase, tc.rawFrame, payload)
+				wantN, err := wantDec.Decode(wantPacket, want)
 				if err != nil {
-					t.Fatalf("decodeOpusFrameIntoWithQEXT[%d]: %v", i, err)
+					t.Fatalf("Decode(explicit payload)[%d]: %v", i, err)
 				}
-				wantDec.prevPacketStereo = tc.stereo
 
 				gotDec.SetIgnoreExtensions(tc.ignore)
 				got := make([]float32, tc.frameSize*channels)
@@ -280,7 +278,7 @@ func TestDecodeHybridLibopusQEXTIgnoreExtensionsToggleSequenceMatchesExplicitPay
 				if gotN != wantN {
 					t.Fatalf("Decode[%d] samples=%d want %d", i, gotN, wantN)
 				}
-				if gotRange, wantRange := gotDec.FinalRange(), wantDec.mainDecodeRng; gotRange != wantRange {
+				if gotRange, wantRange := gotDec.FinalRange(), wantDec.FinalRange(); gotRange != wantRange {
 					t.Fatalf("Decode[%d] FinalRange()=0x%08x want 0x%08x", i, gotRange, wantRange)
 				}
 				for j := 0; j < gotN*channels; j++ {

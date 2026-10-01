@@ -59,34 +59,19 @@ func requireLibopusEncoderNeuralModelBlob(t *testing.T) []byte {
 	return blob
 }
 
-// assertCarriedDREDPayloadParity compares a gopus-emitted carried DRED payload
-// against the libopus reference payload at the build's correct fidelity tier.
-//
-// On the bit-exact tier (amd64 and the purego build, dredPayloadByteExactTier ==
-// true) the emitted DRED extension bytes must equal the reference exactly.
-//
-// On the fused/SIMD non-amd64 build (default arm64 NEON) byte-exactness is not
-// achievable across runners: DRED RDOVAE feature extraction is float and the
-// quality-gated kernels round differently than the scalar reference, so a 1-ULP
-// drift can select a different latent quantization and thus different payload
-// bytes. There the comparison drops to a weaker but still meaningful invariant —
-// the emitted payload parses, carries the same chunk/latent structure as
-// libopus, and round-trips cleanly through the DRED decoder.
+// assertCarriedDREDPayloadParity compares every carried DRED payload byte with
+// the instruction-paired libopus DRED reference, then exercises the public
+// decoder on that same carrier packet.
 func assertCarriedDREDPayloadParity(t *testing.T, gotPacket []byte, gotPayload, wantPayload []byte, gotOffset int) {
 	t.Helper()
-	if dredPayloadByteExactTier {
-		if !bytes.Equal(gotPayload, wantPayload) {
-			t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
-		}
-		return
+	if !bytes.Equal(gotPayload, wantPayload) {
+		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
 	}
 	assertCarriedDREDPayloadStructuralParity(t, gotPacket, gotPayload, wantPayload, gotOffset)
 }
 
-// assertCarriedDREDPayloadStructuralParity is the fused-tier weaker invariant:
-// the gopus payload is a valid DRED extension that parses to the same chunk
-// structure as the libopus reference and decodes back to PCM through the
-// standalone DRED decoder + Decoder.DecodeDRED path.
+// assertCarriedDREDPayloadStructuralParity validates the exact payload's chunk
+// structure and decodes it through the standalone and public DRED paths.
 func assertCarriedDREDPayloadStructuralParity(t *testing.T, gotPacket []byte, gotPayload, wantPayload []byte, gotOffset int) {
 	t.Helper()
 
@@ -249,6 +234,12 @@ type encoderDREDPacketSettings struct {
 }
 
 func encodeUntilDREDPacketWithSettings(t *testing.T, settings encoderDREDPacketSettings) ([]byte, []byte, int, int) {
+	return scanDREDEmissionWithSettings(t, settings, true)
+}
+
+// scanDREDEmissionWithSettings checks the same 640-frame window as the C emit
+// oracle. requireEmission controls only whether absence is an expected result.
+func scanDREDEmissionWithSettings(t *testing.T, settings encoderDREDPacketSettings, requireEmission bool) ([]byte, []byte, int, int) {
 	t.Helper()
 	if settings.frameSize <= 0 {
 		settings.frameSize = 960
@@ -307,7 +298,7 @@ func encodeUntilDREDPacketWithSettings(t *testing.T, settings encoderDREDPacketS
 	}
 
 	packet := make([]byte, maxPacketBytesPerStream)
-	for frameIdx := 0; frameIdx < 640; frameIdx++ {
+	for frameIdx := 0; frameIdx < libopusDREDPacketMaxFramesToTry; frameIdx++ {
 		pcm := encoderDREDFrame(frameIdx, settings.frameSize, cfg.SampleRate, cfg.Channels)
 		n, err := enc.Encode(pcm, packet)
 		if err != nil {
@@ -329,6 +320,9 @@ func encodeUntilDREDPacketWithSettings(t *testing.T, settings encoderDREDPacketS
 		if ok {
 			return gotPacket, append([]byte(nil), payload...), frameOffset, frameIdx
 		}
+	}
+	if !requireEmission {
+		return nil, nil, 0, libopusDREDPacketMaxFramesToTry
 	}
 	t.Fatalf("no DRED packet emitted for mode=%v bandwidth=%v frameSize=%d", settings.mode, settings.bandwidth, settings.frameSize)
 	return nil, nil, 0, 0

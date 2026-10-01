@@ -6,6 +6,7 @@ import (
 	"errors"
 
 	"github.com/thesyncim/gopus/internal/celt"
+	"github.com/thesyncim/gopus/internal/opusmath"
 )
 
 // decoderErrors for the CustomDecoder.
@@ -18,12 +19,23 @@ var (
 // Created via NewDecoder; must not be shared across concurrent goroutines.
 // Mirror of libopus OpusCustomDecoder.
 type CustomDecoder struct {
-	mode     *CustomMode
-	channels int
-	dec      *celt.Decoder
+	mode       *CustomMode
+	channels   int
+	dec        *celt.Decoder
+	fixed      fixedCustomDecoder
+	signalling bool
 
 	// CTL state.
 	complexity int
+}
+
+type fixedCustomDecoder interface {
+	decodeFloat([]byte, int, int) ([]float32, error)
+	decodeShort([]byte, int, int) ([]int16, error)
+	setEndBand(int)
+	setQEXTPayload([]byte)
+	reset()
+	finalRange() uint32
 }
 
 // NewDecoder creates a new CustomDecoder for the given mode and channel count.
@@ -38,12 +50,15 @@ func NewDecoder(mode *CustomMode, channels int) (*CustomDecoder, error) {
 	if channels < 1 || channels > 2 {
 		return nil, ErrInvalidChannels
 	}
-	// Decline modes whose band layout exceeds the native data-plane capacity
-	// (nbEBands > maxNativeBands). The static history buffers are sized by
-	// MaxBands, so a wider per-mode layout would index them out of range and the
-	// decode would diverge; returning ErrNonStandard keeps the boundary clean.
 	if !mode.nativeSupported() {
-		return nil, ErrNonStandard
+		return nil, ErrInvalidBandCount
+	}
+	fixed, err := newFixedCustomDecoder(mode, channels)
+	if err != nil {
+		return nil, err
+	}
+	if fixed != nil {
+		return &CustomDecoder{mode: mode, channels: channels, fixed: fixed, signalling: true}, nil
 	}
 
 	dec := celt.NewDecoder(channels)
@@ -58,7 +73,7 @@ func NewDecoder(mode *CustomMode, channels int) (*CustomDecoder, error) {
 		mode:       mode,
 		channels:   channels,
 		dec:        dec,
-		complexity: 9,
+		signalling: true,
 	}
 	// Non-standard modes in the Fs==400*shortMdctSize family drive the native
 	// CELT decode data plane parameterized by the mode overlap, short-MDCT
@@ -71,9 +86,9 @@ func NewDecoder(mode *CustomMode, channels int) (*CustomDecoder, error) {
 	// machinery PLUS the per-mode band tables (edges, widths, logN, allocVectors,
 	// pulse cache) installed via EnablePerModeTables.
 	if mode.InScaledBandFamily() {
-		dec.EnableScaledCustomMode(mode.Fs, mode.Overlap, mode.ShortMdctSize, mode.EffEBands, mode.Preemph)
+		dec.EnableScaledCustomMode(mode.Fs, mode.Overlap, mode.ShortMdctSize, mode.FrameSize, mode.EffEBands, mode.Preemph, mode.transforms)
 	} else if !mode.isStandard {
-		dec.EnableScaledCustomMode(mode.Fs, mode.Overlap, mode.ShortMdctSize, mode.EffEBands, mode.Preemph)
+		dec.EnableScaledCustomMode(mode.Fs, mode.Overlap, mode.ShortMdctSize, mode.FrameSize, mode.EffEBands, mode.Preemph, mode.transforms)
 		dec.EnablePerModeTables(mode.NbEBands, mode.ShortMdctSize, mode.EBands, mode.LogN, mode.AllocVectors, mode.CacheIndex, mode.CacheBits, mode.CacheCaps)
 	}
 	return cd, nil
@@ -82,6 +97,10 @@ func NewDecoder(mode *CustomMode, channels int) (*CustomDecoder, error) {
 // Reset resets the decoder state (equivalent to OPUS_RESET_STATE CTL).
 func (cd *CustomDecoder) Reset() {
 	if cd == nil {
+		return
+	}
+	if cd.fixed != nil {
+		cd.fixed.reset()
 		return
 	}
 	cd.dec.Reset()
@@ -93,30 +112,73 @@ func (cd *CustomDecoder) Mode() *CustomMode { return cd.mode }
 // Channels returns the channel count.
 func (cd *CustomDecoder) Channels() int { return cd.channels }
 
+// SetSignalling enables or disables parsing the one-byte frame header. The
+// header form depends on the build and mode.
+// NewDecoder enables it by default, matching opus_custom_decoder_create().
+// Disable it only when decoding a raw CELT payload whose frame size and
+// channel count are supplied out of band.
+func (cd *CustomDecoder) SetSignalling(enabled bool) error {
+	if cd == nil {
+		return ErrDecoderNil
+	}
+	cd.signalling = enabled
+	return nil
+}
+
+// Signalling reports whether DecodeFloat and Decode parse the custom frame
+// header.
+func (cd *CustomDecoder) Signalling() bool {
+	return cd != nil && cd.signalling
+}
+
 // DecodeFloat decodes a compressed frame and returns float32 PCM samples.
-// data is the compressed payload (nil or len ≤ 1 triggers PLC).
-// frameSize is the expected number of output samples per channel; it must equal
-// the mode's FrameSize (or a valid on-the-fly smaller multiple).
+// data is a signalled custom packet by default; nil or len ≤ 1 triggers PLC.
+// SetSignalling(false) selects raw CELT payloads instead. For signalled packets,
+// frameSize is the output capacity per channel and the header selects the
+// decoded frame size. For raw payloads, frameSize must be the mode's FrameSize
+// or a valid on-the-fly smaller multiple.
 //
-// Returns frameSize*channels float32 samples, interleaved for stereo.
+// Returns the decoded frame's samples, interleaved for stereo. A signalled
+// frame can be shorter than frameSize, which is the output capacity per
+// channel.
 //
-// DecodeFloat decodes sample-identically to libopus --enable-custom-modes
-// (within the documented arm64 1-ULP CELT drift) for the standard 48 kHz modes
-// and every non-standard mode within the native band-cap (NbEBands <= 21): the
-// per-mode band tables (eBands, allocVectors, compute_pulse_cache) computed by
-// NewMode are threaded through the CELT decode data plane. Modes with a wider
-// band layout are declined at NewDecoder time with ErrNonStandard.
+// Decoding and concealment use the mode's band edges, window, and history
+// stride. The returned samples borrow decoder scratch and remain valid until
+// the next decode call. Oracle tests check exact PCM and final ranges against
+// the selected libopus --enable-custom-modes build.
 //
 // Reference: libopus include/opus_custom.h opus_custom_decode_float().
 func (cd *CustomDecoder) DecodeFloat(data []byte, frameSize int) ([]float32, error) {
 	if cd == nil {
 		return nil, ErrDecoderNil
 	}
-	if frameSize <= 0 {
+	if (!cd.signalling || len(data) == 0) && !cd.mode.isValidDecodeSize(frameSize) {
 		return nil, ErrInvalidFrameSize
 	}
-	if !cd.mode.isValidDecodeSize(frameSize) {
-		return nil, ErrInvalidFrameSize
+	if cd.fixed != nil {
+		if cd.signalling && len(data) > 0 {
+			frame, err := parseCustomSignallingPacket(cd.mode, data, frameSize)
+			if frame.endBand > 0 {
+				cd.fixed.setEndBand(frame.endBand)
+			}
+			if err != nil {
+				return nil, err
+			}
+			cd.fixed.setQEXTPayload(frame.qextPayload(data))
+			return cd.fixed.decodeFloat(frame.payload(data), frame.frameSize, frame.channels)
+		}
+		return cd.fixed.decodeFloat(data, frameSize, cd.channels)
+	}
+	if cd.signalling && len(data) > 0 {
+		frame, err := parseCustomSignallingPacket(cd.mode, data, frameSize)
+		if frame.endBand > 0 {
+			cd.dec.SetCustomEndBand(frame.endBand)
+		}
+		if err != nil {
+			return nil, err
+		}
+		setCustomQEXTPayload(cd.dec, frame.qextPayload(data))
+		return cd.dec.DecodeFrameWithPacketStereo(frame.payload(data), frame.frameSize, frame.channels == 2)
 	}
 	return cd.dec.DecodeFrame(data, frameSize)
 }
@@ -126,20 +188,35 @@ func (cd *CustomDecoder) DecodeFloat(data []byte, frameSize int) ([]float32, err
 //
 // Reference: libopus include/opus_custom.h opus_custom_decode().
 func (cd *CustomDecoder) Decode(data []byte, frameSize int) ([]int16, error) {
+	if cd == nil {
+		return nil, ErrDecoderNil
+	}
+	if (!cd.signalling || len(data) == 0) && !cd.mode.isValidDecodeSize(frameSize) {
+		return nil, ErrInvalidFrameSize
+	}
+	if cd.fixed != nil {
+		if cd.signalling && len(data) > 0 {
+			frame, err := parseCustomSignallingPacket(cd.mode, data, frameSize)
+			if frame.endBand > 0 {
+				cd.fixed.setEndBand(frame.endBand)
+			}
+			if err != nil {
+				return nil, err
+			}
+			cd.fixed.setQEXTPayload(frame.qextPayload(data))
+			return cd.fixed.decodeShort(frame.payload(data), frame.frameSize, frame.channels)
+		}
+		return cd.fixed.decodeShort(data, frameSize, cd.channels)
+	}
 	f, err := cd.DecodeFloat(data, frameSize)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]int16, len(f))
 	for i, v := range f {
-		// Soft-clip to [-1, 1] then scale to int16.
-		s := v
-		if s > 1.0 {
-			s = 1.0
-		} else if s < -1.0 {
-			s = -1.0
-		}
-		out[i] = int16(s * 32767.0)
+		// opus_custom_decode applies RES2INT16: scale by 32768, saturate,
+		// and round to even (celt/celt_decoder.c, celt/float_cast.h).
+		out[i] = opusmath.Float32ToInt16(v)
 	}
 	return out, nil
 }
@@ -167,6 +244,9 @@ func (cd *CustomDecoder) SetComplexity(c int) error {
 		return ErrBadArg
 	}
 	cd.complexity = c
+	if cd.fixed != nil {
+		return nil
+	}
 	return cd.dec.SetComplexity(c)
 }
 
@@ -183,6 +263,9 @@ func (cd *CustomDecoder) Complexity() int {
 func (cd *CustomDecoder) FinalRange() uint32 {
 	if cd == nil {
 		return 0
+	}
+	if cd.fixed != nil {
+		return cd.fixed.finalRange()
 	}
 	return cd.dec.FinalRange()
 }

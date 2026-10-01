@@ -3,22 +3,13 @@
 package gopus
 
 import (
+	"bytes"
 	"fmt"
-	"runtime"
 	"testing"
 
+	"github.com/thesyncim/gopus/internal/extsupport"
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
-
-// armEncodeFloatDriftPublic mirrors the documented darwin/arm64 CELT-encode
-// float-composition drift budget: the pre-CELT float front-end (dc_reject, MDCT,
-// analysis) uses Go's arm64 FMA contraction, which can flip a single coarse-energy
-// Laplace symbol versus Apple clang on a tight-budget frame and cascade. CI
-// (linux/amd64) stays strict-green; the check is strict on every other platform so
-// a real logic regression still fails.
-func armEncodeFloatDriftPublic() bool {
-	return runtime.GOOS == "darwin" && runtime.GOARCH == "arm64"
-}
 
 func xorshift32Pub(state *uint32) uint32 {
 	s := *state
@@ -53,12 +44,9 @@ func genPCMInt16Pub(seed uint32, channels, frameSize, nframes int, transient boo
 // routed through Encoder.Encode produces a byte-exact CELT packet versus the
 // FIXED_POINT libopus celt_encode_with_ec reference.
 //
-// The public path applies opus_encoder-level dc_reject + LSB quantization before
-// the integer CELT encoder, which the bare celt_encode_with_ec reference does
-// not. To compare against libopus the test feeds the reference the exact int16
-// frame the integer encoder consumed (captured via LastFixedCELTInput16), so both
-// encoders operate on identical samples; only the gopus plumbing (config mapping,
-// VBR/CBR routing, TOC/packet wrapping) is under test here.
+// The selected C reference receives the exact opus_res Q8 input and per-frame
+// analysis consumed by the integer CELT encoder. The test keeps C state across
+// the same five-frame sequence and compares every complete payload and range.
 func TestPublicEncodeFixedCELTLibopusParity(t *testing.T) {
 	libopustest.RequireOracle(t)
 
@@ -118,14 +106,24 @@ func TestPublicEncodeFixedCELTLibopusParity(t *testing.T) {
 		if err := enc.SetFrameSize(frameSize); err != nil {
 			t.Fatalf("SetFrameSize: %v", err)
 		}
+		// The standalone C CELT reference fixes its coded channels and end
+		// band; use the same public controls before capturing the inner input.
+		if err := enc.SetForceChannels(c.channels); err != nil {
+			t.Fatalf("SetForceChannels: %v", err)
+		}
+		if err := enc.SetBandwidth(BandwidthFullband); err != nil {
+			t.Fatalf("SetBandwidth: %v", err)
+		}
 
-		// Drive every frame through the public encoder, capturing the int16 the
-		// integer CELT encoder consumed and the CELT payload (packet minus TOC).
+		// Drive every frame through the public encoder, capturing the Q8 input,
+		// analysis, and CELT payload before the next encode reuses scratch.
 		perFrame := c.channels * frameSize
-		fed := make([]int16, 0, perFrame*nframes)
+		fed := make([]libopustest.CELTFixedQ8Frame, nframes)
 		payloads := make([][]byte, nframes)
+		ranges := make([]uint32, nframes)
 		f32 := make([]float32, perFrame)
 		out := make([]byte, 4000)
+		innerBitrate, lsbDepth := 0, 0
 		for f := 0; f < nframes; f++ {
 			for i := 0; i < perFrame; i++ {
 				f32[i] = float32(pcm16[f*perFrame+i]) / 32768.0
@@ -134,64 +132,67 @@ func TestPublicEncodeFixedCELTLibopusParity(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Encode frame %d: %v", f, err)
 			}
-			in16 := enc.enc.LastFixedCELTInput16()
-			if len(in16) != perFrame {
-				t.Fatalf("ch=%d lm=%d frame=%d: integer CELT path not taken (LastFixedCELTInput16 len=%d want %d)",
-					c.channels, c.lm, f, len(in16), perFrame)
+			input := enc.enc.LastFixedCELTInputQ8()
+			if len(input) != perFrame {
+				t.Fatalf("ch=%d lm=%d frame=%d: integer CELT Q8 input len=%d want %d",
+					c.channels, c.lm, f, len(input), perFrame)
 			}
-			fed = append(fed, in16...)
+			rate, maxBytes, depth := enc.enc.LastFixedCELTControls()
+			if f == 0 {
+				innerBitrate, lsbDepth = rate, depth
+			} else if rate != innerBitrate || depth != lsbDepth {
+				t.Fatalf("frame %d: inner controls changed bitrate=%d/%d depth=%d/%d", f, rate, innerBitrate, depth, lsbDepth)
+			}
+			analysis := enc.enc.LastFixedCELTAnalysis()
+			fed[f] = libopustest.CELTFixedQ8Frame{
+				PCM: append([]int32(nil), input...), MaxBytes: maxBytes,
+				Analysis: libopustest.CELTFixedQ8Analysis{
+					Valid: analysis.Valid, Tonality: analysis.Tonality,
+					TonalitySlope: analysis.TonalitySlope, Noisiness: analysis.NoisySpeech,
+					Activity: analysis.Activity, MusicProb: analysis.MusicProb,
+					MusicProbMin: analysis.MusicProbMin, MusicProbMax: analysis.MusicProbMax,
+					Bandwidth: analysis.BandwidthIndex, ActivityProbability: analysis.VADProb,
+					MaxPitchRatio: analysis.MaxPitchRatio, LeakBoost: analysis.LeakBoost,
+				},
+			}
 			if n < 1 {
 				t.Fatalf("Encode frame %d: short packet %d", f, n)
 			}
 			payloads[f] = append([]byte(nil), out[1:n]...)
+			ranges[f] = enc.FinalRange()
 		}
 
-		// VBR/CVBR per-frame caps mirror the float CELT vbr ceiling; CBR uses the
-		// exact rate-derived byte count. Pass a generous max so the integer
-		// encoder's internal CBR formula governs (matching the public path).
-		maxBytes := 1275
 		vbr := c.mode != BitrateModeCBR
 		constrained := c.mode == BitrateModeCVBR
 
-		want, err := libopustest.ProbeCELTFixedEncodeSeq(fed, c.channels, frameSize, start, end,
-			c.bitrate, c.complexity, vbr, constrained, maxBytes, nframes)
+		probe := libopustest.ProbeCELTFixedRawQ8
+		if extsupport.QEXT {
+			probe = libopustest.ProbeCELTFixedQEXTQ8
+		}
+		want, err := probe(libopustest.CELTFixedQ8Params{
+			SampleRate: 48000, Channels: c.channels, FrameSize: frameSize,
+			Start: start, End: end, Bitrate: innerBitrate, Complexity: c.complexity,
+			LSBDepth: lsbDepth, VBR: vbr, ConstrainedVBR: constrained, Frames: fed,
+		})
 		if err != nil {
-			libopustest.HelperUnavailable(t, "celt fixed encode seq", err)
+			libopustest.HelperUnavailable(t, "celt fixed encode raw Q8", err)
 			return
+		}
+		if len(want) != nframes {
+			t.Fatalf("raw Q8 oracle records=%d want %d", len(want), nframes)
 		}
 
 		for f := 0; f < nframes; f++ {
 			label := fmt.Sprintf("ch=%d lm=%d br=%d cx=%d mode=%v frame=%d",
 				c.channels, c.lm, c.bitrate, c.complexity, c.mode, f)
 			got := payloads[f]
-			// CBR pads the packet to the target size; compare only the coded
-			// CELT bytes the reference produced (the leading len(want[f])).
-			diverged := false
-			mismatch := -1
-			if len(got) < len(want[f]) {
-				diverged = true
-			} else {
-				for i := 0; i < len(want[f]); i++ {
-					if got[i] != want[f][i] {
-						mismatch = i
-						diverged = true
-						break
-					}
+			if !bytes.Equal(got, want[f].Packet) || ranges[f] != want[f].FinalRange {
+				mismatch := 0
+				for mismatch < min(len(got), len(want[f].Packet)) && got[mismatch] == want[f].Packet[mismatch] {
+					mismatch++
 				}
-			}
-			if diverged {
-				if armEncodeFloatDriftPublic() {
-					t.Logf("%s: documented darwin/arm64 encode float-composition drift "+
-						"(gopus payload len=%d libopus len=%d firstMismatch=%d)",
-						label, len(got), len(want[f]), mismatch)
-					break
-				}
-				if len(got) < len(want[f]) {
-					t.Errorf("%s: gopus payload len %d < libopus %d", label, len(got), len(want[f]))
-				} else {
-					t.Errorf("%s: first byte divergence at %d: gopus=0x%02x libopus=0x%02x (len=%d)",
-						label, mismatch, got[mismatch], want[f][mismatch], len(want[f]))
-				}
+				t.Errorf("%s: CELT payload/range mismatch at byte %d (gopus len=%d libopus len=%d range=%08x/%08x)",
+					label, mismatch, len(got), len(want[f].Packet), ranges[f], want[f].FinalRange)
 				break
 			}
 		}

@@ -138,9 +138,31 @@ func TestDecoderOSCELACEState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDecoderDefault error: %v", err)
 	}
+	if err := dec.SetComplexity(0); err != nil {
+		t.Fatalf("SetComplexity(0): %v", err)
+	}
 
 	if dec.OSCELACE() {
 		t.Fatal("fresh decoder unexpectedly reports OSCE LACE enabled")
+	}
+	for _, tc := range []struct {
+		complexity int
+		want       bool
+	}{
+		{complexity: 0, want: false},
+		{complexity: 5, want: false},
+		{complexity: 6, want: true},
+		{complexity: 7, want: true},
+	} {
+		if err := dec.SetComplexity(tc.complexity); err != nil {
+			t.Fatalf("SetComplexity(%d): %v", tc.complexity, err)
+		}
+		if got := dec.OSCELACE(); got != tc.want {
+			t.Fatalf("OSCELACE() at complexity %d=%v want %v", tc.complexity, got, tc.want)
+		}
+	}
+	if err := dec.SetComplexity(0); err != nil {
+		t.Fatalf("SetComplexity(0): %v", err)
 	}
 
 	dec.SetOSCELACE(true)

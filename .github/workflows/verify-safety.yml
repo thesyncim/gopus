@@ -16,7 +16,7 @@ env:
   GOPUS_SAFETY_FUZZTIME: "10s"
   GOPUS_SAFETY_SOAK_DURATION: "30s"
   GOPUS_SAFETY_PLATFORMS: "linux/amd64-v1,linux/amd64-v3,macos/arm64,windows/amd64"
-  GOPUS_SAFETY_GO_VERSIONS: "go1.26.0,go1.25.0"
+  GOPUS_SAFETY_GO_VERSIONS: "go1.27.1,go1.27.0"
 
 jobs:
   verify-safety-linux:
@@ -27,8 +27,8 @@ jobs:
       fail-fast: false
       matrix:
         go-version:
-          - "1.26.0"
-          - "1.25.0"
+          - "1.27.1"
+          - "1.27.0"
     steps:
       - name: Checkout
         uses: actions/checkout@v5

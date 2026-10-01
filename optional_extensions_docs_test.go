@@ -36,10 +36,10 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 		ext    gopus.OptionalExtension
 		status string
 	}{
-		{name: "DNN blob loading", ext: gopus.OptionalExtensionDNNBlob, status: "Supported under `gopus_dred` / `gopus_osce`"},
-		{name: "QEXT", ext: gopus.OptionalExtensionQEXT, status: "Supported under `gopus_qext`"},
-		{name: "DRED", ext: gopus.OptionalExtensionDRED, status: "Supported under `gopus_dred` (control + standalone)"},
-		{name: "OSCE BWE", ext: gopus.OptionalExtensionOSCEBWE, status: "Supported under `gopus_osce`"},
+		{name: "DNN blob loading", ext: gopus.OptionalExtensionDNNBlob, status: "Available under `gopus_dred` / `gopus_osce`"},
+		{name: "QEXT", ext: gopus.OptionalExtensionQEXT, status: "Available under `gopus_qext`"},
+		{name: "DRED", ext: gopus.OptionalExtensionDRED, status: "Available under `gopus_dred` (control + standalone)"},
+		{name: "OSCE BWE", ext: gopus.OptionalExtensionOSCEBWE, status: "Extra controls under `gopus_osce`; support probe returns false"},
 	} {
 		wantLine := fmt.Sprintf("| %s | %s | `%s` |", tc.name, tc.status, optionalExtensionDocSymbol(tc.ext))
 		if !containsDocText(optionalDoc, wantLine) {
@@ -47,30 +47,37 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 		}
 	}
 
+	// The matrix above locks feature availability; these checks preserve the
+	// default-build error and the validation boundary without fixing prose layout.
 	for _, needle := range []string{
-		"Default builds expose no optional extensions; `SetDNNBlob(...)` is a no-op returning `ErrOptionalExtensionUnavailable`.",
-		"DNN blob loading (USE_WEIGHTS_FILE model loading) requires `-tags gopus_dred` or",
-		"`-tags gopus_osce`; QEXT requires `-tags gopus_qext`; DRED",
-		"control/standalone surfaces require `-tags gopus_dred`; OSCE BWE/LACE/NoLACE",
-		"require `-tags gopus_osce`.",
-		"parity-complete and supported, exactly as libopus exposes them behind the",
-		"corresponding compile flag.",
-		"make test-dnn-blob-parity",
-		"make test-qext-parity",
-		"make test-dred-tag",
-		"make test-extra-controls-parity",
-		"enables the OSCE and deep-PLC family exactly as",
-		"link zero code into the default build",
+		"`SetDNNBlob(...)`", "`ErrOptionalExtensionUnavailable`",
+		"`USE_WEIGHTS_FILE`", "deep PLC", "excluded from the default",
+		"does not establish parity", "reports/validation.md#coverage",
+		"`SupportsOptionalExtension(OptionalExtensionOSCEBWE)` reports false",
 	} {
 		if !containsDocText(optionalDoc, needle) {
 			t.Fatalf("README.md missing %q", needle)
 		}
 	}
+	contributing := mustReadDocForTest(t, "CONTRIBUTING.md")
+	for _, command := range []string{
+		"make test-dnn-blob-parity", "make test-qext-parity",
+		"make test-dred-tag", "make test-extra-controls-parity",
+	} {
+		if !strings.Contains(contributing, command) {
+			t.Fatalf("CONTRIBUTING.md missing %q", command)
+		}
+	}
 	assertOptionalExtensionDocsMatchSupport(t, optionalDoc)
 
 	examples := mustReadDocForTest(t, "examples/README.md")
-	if !strings.Contains(examples, "These examples target the supported default build. QEXT examples require `-tags gopus_qext`; DRED examples require `-tags gopus_dred`; OSCE BWE remains extra-controls parity only.") {
-		t.Fatal("examples/README.md missing default-build note")
+	for _, needle := range []string{
+		"Most examples use the default build. Optional APIs require their matching build tag: QEXT uses `-tags gopus_qext`, DRED uses `-tags gopus_dred`, and OSCE uses `-tags gopus_osce`.",
+		"These runnable examples demonstrate API usage; they do not imply that every optional feature and architecture has completed parity validation.",
+	} {
+		if !containsDocText(examples, needle) {
+			t.Fatalf("examples/README.md missing %q", needle)
+		}
 	}
 }
 
@@ -92,7 +99,7 @@ func optionalExtensionDocSymbol(ext gopus.OptionalExtension) string {
 func assertOptionalExtensionDocsMatchSupport(t *testing.T, optionalDoc string) {
 	t.Helper()
 
-	// DNN blob loading is now tag-gated exactly like libopus's USE_WEIGHTS_FILE
+	// DNN blob loading is tag-gated like libopus's USE_WEIGHTS_FILE
 	// loaders (built only under ENABLE_DRED/ENABLE_OSCE/ENABLE_DEEP_PLC). The
 	// default build reports no support; -tags gopus_dred / gopus_osce
 	// turn it on alongside the DRED/OSCE runtime hooks.

@@ -4,6 +4,7 @@ package gopus
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -21,10 +22,17 @@ const (
 	dredQualitySampleRate = 48000
 	dredQualityFrameSize  = 960
 	dredQualityChannels   = 1
+	// OPUS_GET_LOOKAHEAD returns Fs/400 for RESTRICTED_LOWDELAY; the quality
+	// reference follows the C decoder output timeline after this encoder delay.
+	dredQualityLookaheadSamples = dredQualitySampleRate / 400
 )
 
 type dredQualityRun struct {
 	decoded        []float32
+	frameIndices   []int
+	frameKinds     []uint32
+	frameSamples   []int
+	frameRanges    []uint32
 	lossReference  []float32
 	lossDecoded    []float32
 	lossFrames     int
@@ -69,6 +77,10 @@ func TestExplicitDREDImprovesConcealedAudioQualityAtSixtyPercentLoss(t *testing.
 
 	plc := decodeDREDQualityPackets(t, packets, reference, decoderBlob, false)
 	dred := decodeDREDQualityPackets(t, packets, reference, decoderBlob, true)
+	zeroOffsetReference := dredQualityLossReferenceAtOffset(t, reference, len(packets), 0)
+	t.Logf("uncompensated zero-offset envelope diagnostic: PLC=%.5f DRED=%.5f",
+		dredQualityEnvelope(zeroOffsetReference, plc.lossDecoded, dredQualitySampleRate),
+		dredQualityEnvelope(zeroOffsetReference, dred.lossDecoded, dredQualitySampleRate))
 	if dred.dredFrames == 0 {
 		t.Fatal("explicit DRED did not recover any lost frames")
 	}
@@ -157,6 +169,11 @@ func encodeDREDQualityPackets(t *testing.T, encoderBlob []byte) ([]float32, [][]
 
 func decodeDREDQualityPackets(t *testing.T, packets [][]byte, reference []float32, decoderBlob []byte, useDRED bool) dredQualityRun {
 	t.Helper()
+	return decodeDREDQualityPacketsWithTrailingPLC(t, packets, reference, decoderBlob, useDRED, false)
+}
+
+func decodeDREDQualityPacketsWithTrailingPLC(t *testing.T, packets [][]byte, reference []float32, decoderBlob []byte, useDRED, flushTrailing bool) dredQualityRun {
+	t.Helper()
 
 	dec, err := NewDecoder(DefaultDecoderConfig(dredQualitySampleRate, dredQualityChannels))
 	if err != nil {
@@ -208,7 +225,7 @@ func decodeDREDQualityPackets(t *testing.T, packets [][]byte, reference []float3
 					if err != nil {
 						t.Fatalf("decode loss frame=%d useDRED=%v: %v", originalFrame, useDRED, err)
 					}
-					run.appendDecodedFrame(reference, originalFrame, pcm[:n*dredQualityChannels], true, kindDRED)
+					run.appendDecodedFrame(reference, originalFrame, pcm[:n*dredQualityChannels], dec.FinalRange(), true, kindDRED)
 				}
 			}
 		}
@@ -217,7 +234,7 @@ func decodeDREDQualityPackets(t *testing.T, packets [][]byte, reference []float3
 		if err != nil {
 			t.Fatalf("Decode(frame=%d useDRED=%v) error: %v", frame, useDRED, err)
 		}
-		run.appendDecodedFrame(reference, frame, pcm[:n*dredQualityChannels], false, false)
+		run.appendDecodedFrame(reference, frame, pcm[:n*dredQualityChannels], dec.FinalRange(), false, false)
 		if payload, _, ok, err := findDREDPayload(packet); err != nil {
 			t.Fatalf("findDREDPayload(frame=%d): %v", frame, err)
 		} else if ok && len(payload) > 0 {
@@ -226,18 +243,36 @@ func decodeDREDQualityPackets(t *testing.T, packets [][]byte, reference []float3
 		expected = frame + 1
 		haveExpected = true
 	}
+	if flushTrailing && haveExpected {
+		for frame := expected; frame < len(packets); frame++ {
+			n, err := dec.Decode(nil, pcm)
+			if err != nil {
+				t.Fatalf("decode trailing loss frame=%d: %v", frame, err)
+			}
+			run.appendDecodedFrame(reference, frame, pcm[:n*dredQualityChannels], dec.FinalRange(), true, false)
+		}
+	}
 	return run
 }
 
-func (r *dredQualityRun) appendDecodedFrame(reference []float32, frame int, decoded []float32, lost, dred bool) {
+func (r *dredQualityRun) appendDecodedFrame(reference []float32, frame int, decoded []float32, finalRange uint32, lost, dred bool) {
 	r.decoded = append(r.decoded, decoded...)
+	r.frameIndices = append(r.frameIndices, frame)
+	kind := uint32(0)
+	if lost {
+		kind = 2
+		if dred {
+			kind = 1
+		}
+	}
+	r.frameKinds = append(r.frameKinds, kind)
+	r.frameSamples = append(r.frameSamples, len(decoded))
+	r.frameRanges = append(r.frameRanges, finalRange)
 	if !lost {
 		return
 	}
-	start := frame * dredQualityFrameSize * dredQualityChannels
-	end := start + dredQualityFrameSize*dredQualityChannels
-	if start >= 0 && end <= len(reference) {
-		r.lossReference = append(r.lossReference, reference[start:end]...)
+	if refFrame, ok := dredQualityFrameReference(reference, frame); ok {
+		r.lossReference = append(r.lossReference, refFrame...)
 		r.lossDecoded = append(r.lossDecoded, decoded...)
 		r.lossFrames++
 		if dred {
@@ -246,6 +281,19 @@ func (r *dredQualityRun) appendDecodedFrame(reference []float32, frame int, deco
 			r.fallbackFrames++
 		}
 	}
+}
+
+func dredQualityFrameReference(reference []float32, frame int) ([]float32, bool) {
+	return dredQualityFrameReferenceWithOffset(reference, frame, dredQualityLookaheadSamples)
+}
+
+func dredQualityFrameReferenceWithOffset(reference []float32, frame, offset int) ([]float32, bool) {
+	start := (frame*dredQualityFrameSize - offset) * dredQualityChannels
+	end := start + dredQualityFrameSize*dredQualityChannels
+	if start < 0 || end > len(reference) {
+		return nil, false
+	}
+	return reference[start:end], true
 }
 
 func dredQualityPacketDelivered(frame int) bool {
@@ -424,8 +472,12 @@ func dredPearson(x, y []float64) float64 {
 
 func runDREDOpusCompare(t *testing.T, reference, decoded []float32) (float64, bool) {
 	t.Helper()
-	opusCompare, ok := libopustooling.FindOrEnsureOpusCompare(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots())
-	if !ok {
+	opusCompare, err := libopustooling.FindOrEnsureOpusCompare(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots())
+	if err != nil {
+		var configErr *libopustooling.LibopusReferenceConfigError
+		if errors.As(err, &configErr) {
+			t.Fatalf("libopus opus_compare reference configuration is invalid: %v", err)
+		}
 		t.Log("opus_compare unavailable; using in-process quality metrics only")
 		return 0, false
 	}

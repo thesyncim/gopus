@@ -33,32 +33,35 @@ func TestQuantizePLCPCM16kFrameMatchesLibopusFARGANIntGrid(t *testing.T) {
 	}
 }
 
-func TestUpdateStereoDREDNeuralHistoryMirrorsPreservedPrefix(t *testing.T) {
+func TestCommitStereoNeuralToDecodeMemMirrorsPreservedPrefix(t *testing.T) {
 	d := NewDecoder(2)
-	const history = 6
-	const frameSize = 2
-	hist := make([]celtSig, history*2)
-	for i := 0; i < history; i++ {
+	n := d.decodeMemHistoryLen()
+	hist := make([]celtSig, 2*n)
+	for i := range n {
 		hist[i] = celtSig(10 + i)
-		hist[history+i] = celtSig(20 + i)
+		hist[n+i] = celtSig(-10 - i)
 	}
-	samples := []float32{
-		100, 200,
-		101, 201,
+	d.setDecodeHistory(hist)
+	const frameSize = 2
+	samples := make([]float32, 2*(frameSize+Overlap))
+	for i := range frameSize + Overlap {
+		samples[2*i] = float32(1000 + i)
+		samples[2*i+1] = float32(2000 + i)
 	}
 
-	d.updateStereoDREDNeuralHistory(hist, frameSize, history, samples)
+	d.commitStereoNeuralToDecodeMem(samples, frameSize)
 
-	wantL := []celtSig{12, 13, 14, 15, 100, 101}
-	wantR := []celtSig{12, 13, 14, 15, 200, 201}
-	for i, want := range wantL {
-		if hist[i] != want {
-			t.Fatalf("left[%d]=%v want %v", i, hist[i], want)
+	for c := range 2 {
+		mem := d.DecodeMem(c)
+		for i := range n - frameSize {
+			if want := celtSig(10 + frameSize + i); mem[i] != want {
+				t.Fatalf("ch%d history[%d]=%v want %v", c, i, mem[i], want)
+			}
 		}
-	}
-	for i, want := range wantR {
-		if hist[history+i] != want {
-			t.Fatalf("right[%d]=%v want %v", i, hist[history+i], want)
+		for i := range frameSize + Overlap {
+			if want := samples[2*i+c]; mem[n-frameSize+i] != want {
+				t.Fatalf("ch%d new[%d]=%v want %v", c, i, mem[n-frameSize+i], want)
+			}
 		}
 	}
 }

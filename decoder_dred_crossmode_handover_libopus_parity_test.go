@@ -12,7 +12,7 @@ package gopus
 //  1. The DRED payload is retained in the sidecar after the carrier decode.
 //  2. The recovery window / availability calculation matches the libopus oracle.
 //  3. The explicit DRED decode returns the correct frame count.
-//  4. The PCM quality is measured and logged (cross-mode residual noted below).
+//  4. The recovered PCM matches the selected-C decoder bit for bit.
 //
 // Reference: opus_decoder.c (libopus 1.6.1) opus_decoder_dred_decode_float,
 // tools/csrc/libopus_decoder_dred_sequence_info.c cases 1 (seed), 3 (DRED).
@@ -23,23 +23,14 @@ package gopus
 // schedule come from the carrier packet's DRED extension (opus_dred_process,
 // dred_decoder.c), not from the prior mode's state.
 //
-// Cross-mode PCM parity (bit-exact):
-// After a SILK/Hybrid→CELT mode handover, gopus's recovered DRED PCM is
-// bit-exact (corr=1.0) against the libopus oracle.
-//
-// Root cause of the prior corr≈0.97 residual (now fixed): on a SILK/Hybrid→CELT
-// switch libopus decodes a 5 ms transition PLC frame via opus_decode_frame(NULL)
-// in the previous (SILK/Hybrid) mode (opus_decoder.c:387-390). When deep PLC /
-// DRED is enabled, that transition PLC frame runs silk_PLC_conceal, which
-// advances the LPCNet PLC state by one lpcnet_plc_conceal() frame
-// (silk/PLC.c:400-405, run_deep_plc = enable_deep_plc). gopus previously ran the
-// transition PLC frame without driving the DRED neural concealment hook, leaving
-// the LPCNet PCM history / continuity state one concealed frame behind, which
-// surfaced as a one-frame buffer shift (corr≈0.97). The transition decode now
-// installs the DRED deep-PLC hook so the LPCNet state is advanced identically.
+// On a SILK/Hybrid→CELT switch the decoder runs a 5 ms transition PLC frame in
+// the previous mode (opus_decoder.c:387-390). With deep PLC enabled, that frame
+// advances the LPCNet state through silk_PLC_conceal (silk/PLC.c:400-405). The
+// selected-C DRED recovery and gopus output are compared bit for bit below.
 
 import (
 	"fmt"
+	"math"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -52,7 +43,7 @@ import (
 //   - Returns the correct frame count (matches libopus oracle ret).
 //   - Retains the DRED payload in the sidecar (cache not empty).
 //   - Sets blend=1 after the first loss (PLC-mode bit via oracle).
-//   - Logs PCM quality evidence with the relaxed cross-mode bar.
+//   - Checks recovered PCM bits against selected C and logs quality diagnostics.
 func assertCrossModeHandoverDecodeRouting(t *testing.T, label string, seedMode Mode, seedBW Bandwidth, seedFrameSize int, carrierFrameSize int, decoderRate int, lossCount int) {
 	t.Helper()
 	libopustest.RequireOracle(t)
@@ -71,7 +62,7 @@ func assertCrossModeHandoverDecodeRouting(t *testing.T, label string, seedMode M
 	seedPacket := makeValidMonoPacketForModeBandwidthFrameSizeForDREDTest(t, seedMode, seedBW, seedFrameSize)
 	toc := ParseTOC(seedPacket[0])
 	if toc.Mode != seedMode {
-		t.Skipf("%s seed packet mode=%v want %v", label, toc.Mode, seedMode)
+		t.Fatalf("%s seed packet mode=%v want %v", label, toc.Mode, seedMode)
 	}
 
 	decoderBlob := requireLibopusDecoderNeuralModelBlob(t)
@@ -155,7 +146,7 @@ func assertCrossModeHandoverDecodeRouting(t *testing.T, label string, seedMode M
 	}
 
 	// PCM quality: log as cross-mode residual evidence
-	logCrossModeHandoverPCMQuality(t, pcm[:n], want.step0.pcm[:n], decoderRate, label+" first-loss PCM")
+	assertCrossModeHandoverPCMExact(t, pcm[:n], want.step0.pcm[:n], label+" first-loss PCM")
 
 	if lossCount < 2 {
 		return
@@ -177,35 +168,30 @@ func assertCrossModeHandoverDecodeRouting(t *testing.T, label string, seedMode M
 	if gotState2.LossCount != want.step1.state.LossCount {
 		t.Fatalf("%s loss_count after second loss=%d want %d", label, gotState2.LossCount, want.step1.state.LossCount)
 	}
-	logCrossModeHandoverPCMQuality(t, pcm1[:n], want.step1.pcm[:n], decoderRate, label+" second-loss PCM")
+	assertCrossModeHandoverPCMExact(t, pcm1[:n], want.step1.pcm[:n], label+" second-loss PCM")
 }
 
-// logCrossModeHandoverPCMQuality compares gopus and libopus cross-mode
-// concealed audio and logs the quality.  Cross-mode DRED recovery is bit-exact
-// against the libopus oracle (corr=1.0); the gate enforces corr≥0.997.
-func logCrossModeHandoverPCMQuality(t *testing.T, got, want []float32, sampleRate int, label string) {
+// assertCrossModeHandoverPCMExact compares gopus and libopus cross-mode
+// concealed audio exactly and logs the quality diagnostic.
+func assertCrossModeHandoverPCMExact(t *testing.T, got, want []float32, label string) {
 	t.Helper()
 	if len(got) != len(want) || len(got) == 0 {
-		t.Logf("%s: skip PCM quality (empty or mismatched)", label)
-		return
+		t.Fatalf("%s PCM len=%d want %d", label, len(got), len(want))
+	}
+	for i := range want {
+		if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
+			t.Fatalf("%s PCM[%d]=%08x want %08x", label, i, math.Float32bits(got[i]), math.Float32bits(want[i]))
+		}
 	}
 	// Use 48 kHz upsampled comparison matching assertConcealedAudioMatchesLibopus
 	gotUp := upsample16kTo48k(got, 1)
 	wantUp := upsample16kTo48k(want, 1)
 	n := len(wantUp)
-	if n <= 0 {
-		n = 480
-	}
 	cmp, err := qualitycompare.CompareDecodedFloat32(gotUp, wantUp, 48000, 1, n)
 	if err != nil {
-		t.Logf("%s: compare error: %v", label, err)
-		return
+		t.Fatalf("%s CompareDecodedFloat32: %v", label, err)
 	}
 	t.Logf("%s: Q=%.2f delay=%d corr=%.6f rms=%.4f (cross-mode DRED recovery is bit-exact vs libopus oracle)", label, cmp.Q, cmp.BestDelay, cmp.Corr, cmp.RMSRatio)
-	// Cross-mode DRED recovery matches the libopus oracle bit-exactly (corr=1.0).
-	if cmp.Corr < 0.997 {
-		t.Errorf("%s: corr=%.5f below gate 0.997 (cross-mode DRED recovery is bit-exact)", label, cmp.Corr)
-	}
 }
 
 // TestDREDCrossModeHandoverSILKtoCELTFirstLoss verifies DRED decode routing

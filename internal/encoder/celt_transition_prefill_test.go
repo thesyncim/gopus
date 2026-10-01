@@ -1,8 +1,12 @@
 package encoder
 
 import (
+	"bytes"
 	"math"
 	"testing"
+
+	"github.com/thesyncim/gopus/internal/rangecoding"
+	"github.com/thesyncim/gopus/internal/silk"
 )
 
 func makeTransitionPCM(frameSize, channels int) []opusRes {
@@ -16,74 +20,67 @@ func makeTransitionPCM(frameSize, channels int) []opusRes {
 	return pcm
 }
 
-func TestCELTTransitionPrefillForcesOneIntraFrame(t *testing.T) {
+// stageCELTFrame runs the part of opus_encode_frame_native ahead of the CELT
+// prefill for a frame: pcm_buf, the delay buffer update and the CELT
+// controls.
+func stageCELTFrame(enc *Encoder, frame []opusRes, frameSize int) {
+	enc.pcmBuf(frame, frameSize)
+	enc.updateDelayBuffer(frame, frameSize)
+	enc.ensureCELTEncoder()
+}
+
+// TestCELTTransitionPrefillDisablesPrediction pins CELT_SET_PREDICTION(0)
+// after the transition prefill: the frame that follows codes without
+// prediction until the next frame sets the stream's prediction again.
+func TestCELTTransitionPrefillDisablesPrediction(t *testing.T) {
 	enc := NewEncoder(48000, 1)
-	enc.prevMode = ModeHybrid
-
 	frameSize := 480
-	frame := makeTransitionPCM(frameSize, 1)
-	celtPCM := enc.prepareCELTPCM(frame, frameSize)
+	stageCELTFrame(enc, makeTransitionPCM(frameSize, 1), frameSize)
+	enc.celtEncoder.SetPrediction(enc.celtPredictionMode())
 
-	enc.maybePrefillCELTOnModeTransition(ModeCELT, celtPCM, frameSize)
-
-	if !enc.celtForceIntra {
-		t.Fatal("expected celtForceIntra after mode-transition prefill")
+	if !enc.prefillCELTOnModeSwitch(ModeCELT, ModeHybrid) {
+		t.Fatal("expected a CELT prefill after a hybrid frame")
 	}
-	if enc.celtEncoder == nil {
-		t.Fatal("expected CELT encoder to be initialized for prefill")
+	if got := enc.celtEncoder.FrameCount(); got != 1 {
+		t.Fatalf("CELT frames after prefill = %d, want 1", got)
 	}
-
-	if got := enc.celtPredictionModeForFrame(); got != 0 {
-		t.Fatalf("celtPredictionModeForFrame() first call = %d, want 0", got)
-	}
-	if enc.celtForceIntra {
-		t.Fatal("expected celtForceIntra to be consumed after first frame mode query")
-	}
-	if got := enc.celtPredictionModeForFrame(); got != enc.celtPredictionMode() {
-		t.Fatalf("celtPredictionModeForFrame() second call = %d, want default prediction mode", got)
+	if got := enc.celtEncoder.Prediction(); got != 0 {
+		t.Fatalf("CELT prediction after prefill = %d, want 0", got)
 	}
 }
 
 func TestCELTTransitionPrefillSkippedInLowDelay(t *testing.T) {
 	enc := NewEncoder(48000, 1)
 	enc.lowDelay = true
-	enc.prevMode = ModeHybrid
-
 	frameSize := 480
-	frame := makeTransitionPCM(frameSize, 1)
-	celtPCM := enc.prepareCELTPCM(frame, frameSize)
+	stageCELTFrame(enc, makeTransitionPCM(frameSize, 1), frameSize)
 
-	enc.maybePrefillCELTOnModeTransition(ModeCELT, celtPCM, frameSize)
-
-	if enc.celtForceIntra {
-		t.Fatal("did not expect celtForceIntra in low-delay mode")
+	if enc.prefillCELTOnModeSwitch(ModeCELT, ModeHybrid) {
+		t.Fatal("did not expect a CELT prefill in low-delay mode")
 	}
-	if enc.celtEncoder != nil && enc.celtEncoder.FrameCount() != 0 {
+	if enc.celtEncoder.FrameCount() != 0 {
 		t.Fatal("did not expect CELT prefill frame in low-delay mode")
 	}
 }
 
 func TestCELTTransitionPrefillSkippedWithoutModeChange(t *testing.T) {
 	enc := NewEncoder(48000, 1)
-	enc.prevMode = ModeCELT
-
 	frameSize := 480
-	frame := makeTransitionPCM(frameSize, 1)
-	celtPCM := enc.prepareCELTPCM(frame, frameSize)
+	stageCELTFrame(enc, makeTransitionPCM(frameSize, 1), frameSize)
 
-	enc.maybePrefillCELTOnModeTransition(ModeCELT, celtPCM, frameSize)
-
-	if enc.celtForceIntra {
-		t.Fatal("did not expect celtForceIntra when mode is unchanged")
+	if enc.prefillCELTOnModeSwitch(ModeCELT, ModeCELT) {
+		t.Fatal("did not expect a CELT prefill when the mode is unchanged")
 	}
-	if enc.celtEncoder != nil && enc.celtEncoder.FrameCount() != 0 {
+	if enc.prefillCELTOnModeSwitch(ModeCELT, ModeAuto) {
+		t.Fatal("did not expect a CELT prefill for the first frame")
+	}
+	if enc.celtEncoder.FrameCount() != 0 {
 		t.Fatal("did not expect CELT prefill frame when mode is unchanged")
 	}
 }
 
 func TestCELTTransitionPrefillSnapshotsLibopusDelayHistoryWindow(t *testing.T) {
 	enc := NewEncoder(48000, 1)
-	enc.prevMode = ModeHybrid
 
 	frameSize := 480
 	encoderBuffer := int(enc.sampleRate) / 100
@@ -103,7 +100,7 @@ func TestCELTTransitionPrefillSnapshotsLibopusDelayHistoryWindow(t *testing.T) {
 	for i := range frame {
 		frame[i] = opusRes(10000 + i)
 	}
-	celtPCM := enc.applyDelayCompensation(frame, frameSize)
+	stageCELTFrame(enc, frame, frameSize)
 
 	wantStart := encoderBuffer - delayComp - prefillFrameSize
 	if wantStart < 0 {
@@ -120,18 +117,30 @@ func TestCELTTransitionPrefillSnapshotsLibopusDelayHistoryWindow(t *testing.T) {
 		}
 	}
 
-	enc.maybePrefillCELTOnModeTransition(ModeCELT, celtPCM, frameSize)
-	if !enc.celtForceIntra {
-		t.Fatal("expected celtForceIntra after transition prefill")
+	src := enc.celtTransitionPrefillSource(prefillFrameSize)
+	if len(src) != prefillFrameSize {
+		t.Fatalf("prefill source len=%d want=%d", len(src), prefillFrameSize)
 	}
-	if enc.celtEncoder == nil || enc.celtEncoder.FrameCount() != 1 {
+	for i := range prefillFrameSize {
+		if want := origDelay[wantStart+i]; src[i] != want {
+			t.Fatalf("prefill source[%d]=%.0f want delay history %.0f", i, src[i], want)
+		}
+	}
+
+	if !enc.prefillCELTOnModeSwitch(ModeCELT, ModeHybrid) {
+		t.Fatal("expected a CELT prefill after a hybrid frame")
+	}
+	if enc.celtEncoder.FrameCount() != 1 {
 		t.Fatal("expected one CELT prefill frame")
 	}
 }
 
-func TestCELTTransitionPrefillResyncsAnalysisAfterReset(t *testing.T) {
+// TestCELTTransitionPrefillClearsAnalysis pins OPUS_RESET_STATE ahead of the
+// prefill: it clears the analysis CELT_SET_ANALYSIS handed CELT for the
+// frame, so the prefill and the frame code without it
+// (src/opus_encoder.c:2416 and 2477-2486, celt/celt_encoder.c:3074-3092).
+func TestCELTTransitionPrefillClearsAnalysis(t *testing.T) {
 	enc := NewEncoder(48000, 1)
-	enc.prevMode = ModeCELT
 	enc.lastAnalysisValid = true
 	enc.lastAnalysisInfo = AnalysisInfo{
 		BandwidthIndex: 13,
@@ -141,37 +150,16 @@ func TestCELTTransitionPrefillResyncsAnalysisAfterReset(t *testing.T) {
 	}
 
 	frameSize := 480
-	frame := makeTransitionPCM(frameSize, 1)
-	celtPCM := enc.prepareCELTPCM(frame, frameSize)
-
-	enc.maybePrefillCELTOnModeTransition(ModeHybrid, celtPCM, frameSize)
-
-	if enc.celtEncoder == nil {
-		t.Fatal("expected CELT encoder to be initialized for prefill")
-	}
+	stageCELTFrame(enc, makeTransitionPCM(frameSize, 1), frameSize)
+	enc.syncCELTAnalysisToCELT()
 	if got := enc.celtEncoder.AnalysisBandwidth(); got != 13 {
-		t.Fatalf("AnalysisBandwidth() after prefill = %d, want 13", got)
+		t.Fatalf("AnalysisBandwidth() before prefill = %d, want 13", got)
 	}
-}
 
-func TestCELTTransitionPrefillSkipsWhenDelayedTransitionAlreadyAdvancedPrevMode(t *testing.T) {
-	enc := NewEncoder(48000, 1)
-	// After a long hybrid->CELT transition packet, libopus advances prev_mode to
-	// CELT even though the previous packet TOC still says hybrid.
-	enc.prevMode = ModeCELT
-	enc.prevPacketMode = ModeHybrid
+	enc.prefillCELTOnModeSwitch(ModeHybrid, ModeCELT)
 
-	frameSize := 960
-	frame := makeTransitionPCM(frameSize, 1)
-	celtPCM := enc.prepareCELTPCM(frame, frameSize)
-
-	enc.maybePrefillCELTOnModeTransition(ModeCELT, celtPCM, frameSize)
-
-	if enc.celtForceIntra {
-		t.Fatal("did not expect celtForceIntra after delayed transition already completed")
-	}
-	if enc.celtEncoder != nil && enc.celtEncoder.FrameCount() != 0 {
-		t.Fatal("did not expect CELT prefill when prevMode is already CELT")
+	if got := enc.celtEncoder.AnalysisBandwidth(); got == 13 {
+		t.Fatal("analysis survived the transition reset")
 	}
 }
 
@@ -186,7 +174,7 @@ func TestSilkTransitionPrefillLongPacketKeepsFirstCELTSnapshot(t *testing.T) {
 		enc.delayBuffer[i] = opusRes(i + 1)
 	}
 
-	enc.maybePrefillSILKOnModeTransitionWithOptions(ModeHybrid, false, true)
+	enc.maybePrefillSILKOnModeTransition(ModeHybrid, true, true)
 
 	if !enc.hasCELTPrefill {
 		t.Fatal("expected first long-packet prefill to capture CELT transition history")
@@ -200,7 +188,7 @@ func TestSilkTransitionPrefillLongPacketKeepsFirstCELTSnapshot(t *testing.T) {
 		enc.delayBuffer[i] = opusRes(1000 + i)
 	}
 
-	enc.maybePrefillSILKOnModeTransitionWithOptions(ModeHybrid, true, false)
+	enc.maybePrefillSILKOnModeTransition(ModeHybrid, false, false)
 
 	if !enc.hasCELTPrefill {
 		t.Fatal("expected later long-packet prefill to keep prior CELT snapshot")
@@ -216,44 +204,64 @@ func TestSilkTransitionPrefillLongPacketKeepsFirstCELTSnapshot(t *testing.T) {
 }
 
 func TestSilkTransitionPrefillStereoPrimesMidAndSide(t *testing.T) {
-	enc := NewEncoder(48000, 2)
-	enc.prevMode = ModeCELT
-	enc.prevPacketMode = ModeCELT
-	enc.SetBitrate(64000)
-
-	prefillSamples := int(enc.sampleRate) / 100
-	enc.delayBuffer = make([]opusRes, prefillSamples*2)
-	for i := range prefillSamples {
-		left := 0.45 * math.Sin(2*math.Pi*440*float64(i)/48000.0)
-		right := 0.20 * math.Sin(2*math.Pi*660*float64(i)/48000.0)
-		enc.delayBuffer[2*i] = opusRes(left)
-		enc.delayBuffer[2*i+1] = opusRes(right)
-	}
-
-	enc.maybePrefillSILKOnModeTransitionWithOptions(ModeHybrid, false, false)
-
-	if enc.silkEncoder == nil {
-		t.Fatal("expected mid SILK encoder after stereo transition prefill")
-	}
-	if enc.silkSideEncoder == nil {
-		t.Fatal("expected side SILK encoder after stereo transition prefill")
-	}
-	if !hasNonZeroFloat32(enc.silkEncoder.InputBuffer()) {
-		t.Fatal("expected stereo transition prefill to prime mid SILK history")
-	}
-	if !hasNonZeroFloat32(enc.silkSideEncoder.InputBuffer()) {
-		t.Fatal("expected stereo transition prefill to prime side SILK history")
-	}
-	if enc.silkVADMidFeedback == nil || enc.silkVADSide == nil {
-		t.Fatal("expected stereo transition prefill to run mid and side VAD")
-	}
-}
-
-func hasNonZeroFloat32(v []float32) bool {
-	for _, x := range v {
-		if x != 0 {
-			return true
+	newEnc := func() *Encoder {
+		enc := NewEncoder(48000, 2)
+		enc.prevMode = ModeCELT
+		enc.prevPacketMode = ModeCELT
+		enc.SetBitrate(64000)
+		prefillSamples := int(enc.sampleRate) / 100
+		enc.delayBuffer = make([]opusRes, prefillSamples*2)
+		for i := range prefillSamples {
+			left := 0.45 * math.Sin(2*math.Pi*440*float64(i)/48000.0)
+			right := 0.20 * math.Sin(2*math.Pi*660*float64(i)/48000.0)
+			enc.delayBuffer[2*i] = opusRes(left)
+			enc.delayBuffer[2*i+1] = opusRes(right)
 		}
+		return enc
 	}
-	return false
+
+	primed := newEnc()
+	primed.maybePrefillSILKOnModeTransition(ModeHybrid, true, false)
+	if primed.silk == nil || !primed.silkPrefillPending {
+		t.Fatal("expected a staged SILK prefill after the CELT->Hybrid transition")
+	}
+	plain := newEnc()
+	plain.ensureSILKEncoder()
+
+	// Code the same stereo frame after the prefill and without it: the
+	// prefill primes both SILK channels, so the packets differ.
+	frame := make([]opusRes, 960*2)
+	for i := range 960 {
+		frame[2*i] = opusRes(0.3 * math.Sin(2*math.Pi*220*float64(i)/48000.0))
+		frame[2*i+1] = opusRes(0.2 * math.Sin(2*math.Pi*330*float64(i)/48000.0))
+	}
+	var packets [2][]byte
+	for i, enc := range []*Encoder{primed, plain} {
+		enc.configureSILKMode(ModeHybrid, 960, 1276, 32000, 1275*8, false)
+		prefill := 0
+		if enc.silkPrefillPending {
+			prefill = 1
+		}
+		if err := enc.runPendingSILKPrefill(prefill, silk.VADNoDecision); err != nil {
+			t.Fatalf("prefill: %v", err)
+		}
+		if enc.silkPrefillPending {
+			t.Fatal("prefill still pending after runPendingSILKPrefill")
+		}
+		if got := enc.silkMode.NChannelsInternal; got != 2 {
+			t.Fatalf("SILK codes %d channels, want 2", got)
+		}
+		buf := make([]byte, 1275)
+		var re rangecoding.Encoder
+		re.Init(buf)
+		if _, err := enc.silk.Encode(&enc.silkMode, frame, 960, &re, 0, 1); err != nil {
+			t.Fatalf("Encode: %v", err)
+		}
+		n := (re.Tell() + 7) >> 3
+		re.Done()
+		packets[i] = buf[:n]
+	}
+	if bytes.Equal(packets[0], packets[1]) {
+		t.Fatal("expected the stereo transition prefill to prime the SILK history")
+	}
 }

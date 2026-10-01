@@ -342,15 +342,16 @@ func probeLibopusMult32_32Q31(cases []mult32OracleCase) ([]float32, error) {
 }
 
 func buildLibopusCELTVQHelper() (string, error) {
-	return libopustest.BuildCHelper(libopustest.CHelperConfig{
+	cfg := libopustest.CHelperConfig{
 		Label:       "celt vq",
 		OutputBase:  "gopus_libopus_celt_vq",
 		SourceFile:  "libopus_celt_vq_info.c",
 		CFlags:      []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"},
 		RefIncludes: []string{"celt", "silk"},
-		Libs:        []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
 		DeadStrip:   true,
-	})
+	}
+	configureCELTOracleReference(&cfg)
+	return libopustest.BuildCHelper(cfg)
 }
 
 func buildLibopusCELTQEXTVQHelper() (string, error) {
@@ -867,31 +868,78 @@ func probeLibopusRenormaliseVector(cases []renormaliseOracleCase) ([][]float32, 
 
 func TestExpRotationMatchesLibopusFloatPath(t *testing.T) {
 	libopustest.RequireOracle(t)
+	// These sparse vectors are the normalized pulses from two CELT frames.
+	// They exercise the rounded theta/complement boundary in celt/vq.c's
+	// exp_rotation before the band transform spreads each nonzero pulse.
+	pulses48 := make([]int32, 48)
+	pulses48[26], pulses48[27], pulses48[29] = -1, 1, 1
+	pulses48[31], pulses48[32] = -1, -1
+	shape48 := make([]celtNorm, len(pulses48))
+	normalizeResidualKnownEnergyIntoAndCollapse32(shape48, pulses48, 1, 5, 4)
+	actual48 := make([]float32, len(shape48))
+	for i, sample := range shape48 {
+		actual48[i] = float32(sample)
+	}
+	pulses18 := make([]int32, 18)
+	pulses18[16], pulses18[17] = 1, 1
+	shape18 := make([]celtNorm, len(pulses18))
+	normalizeResidualKnownEnergyIntoAndCollapse32(shape18, pulses18, opusVal16(math.Float32frombits(0x3dbd1c75)), 2, 2)
+	actual18 := make([]float32, len(shape18))
+	for i, sample := range shape18 {
+		actual18[i] = float32(sample)
+	}
+	if _, _, cached := expRotationCoefficients(192, 20, spreadNormal); cached {
+		t.Fatal("192-sample rotation should use the runtime coefficient fallback")
+	}
 	cases := []expRotationOracleCase{
+		{fixtureExpRotationVector(13, 0x9b6a3124), -1, 1, 1, spreadLight},
 		{fixtureExpRotationVector(16, 0x12345678), -1, 1, 2, spreadNormal},
 		{fixtureExpRotationVector(32, 0x31415926), 1, 1, 5, spreadAggressive},
 		{fixtureExpRotationVector(48, 0xabcdef01), -1, 3, 4, spreadLight},
 		{fixtureExpRotationVector(96, 0xdecafbad), 1, 4, 7, spreadNormal},
 		{fixtureExpRotationVector(176, 0x0badf00d), -1, 8, 11, spreadAggressive},
 	}
+	for _, tc := range []struct {
+		x      []float32
+		stride int
+		k      int
+	}{
+		{actual48, 4, 5},
+		{actual18, 2, 2},
+		{fixtureExpRotationVector(192, 0x7abf219c), 4, 20},
+	} {
+		for _, dir := range []int{-1, 1} {
+			cases = append(cases, expRotationOracleCase{tc.x, dir, tc.stride, tc.k, spreadNormal})
+		}
+	}
 	want, err := probeLibopusExpRotation(cases)
 	if err != nil {
 		libopustest.HelperUnavailable(t, "celt vq", err)
 	}
 	for ci, tc := range cases {
-		got := make([]celtNorm, len(tc.x))
-		for i, sample := range tc.x {
-			got[i] = celtNorm(sample)
-		}
-		expRotation(got, len(got), tc.dir, tc.stride, tc.k, tc.spread)
-		for i := range got {
-			gotSample := float32(got[i])
-			if math.Float32bits(gotSample) != math.Float32bits(want[ci][i]) {
-				t.Fatalf("case %d x[%d]=%08x %.10g want %08x %.10g",
-					ci, i,
-					math.Float32bits(gotSample), gotSample,
-					math.Float32bits(want[ci][i]), want[ci][i])
-			}
+		for _, impl := range []struct {
+			name string
+			run  func([]celtNorm, int, int, int, int, int)
+		}{
+			{"rotation", expRotation},
+			{"norm_rotation", expRotationNorm},
+		} {
+			t.Run(fmt.Sprintf("case%d_%s", ci, impl.name), func(t *testing.T) {
+				got := make([]celtNorm, len(tc.x))
+				for i, sample := range tc.x {
+					got[i] = celtNorm(sample)
+				}
+				impl.run(got, len(got), tc.dir, tc.stride, tc.k, tc.spread)
+				for i := range got {
+					gotSample := float32(got[i])
+					if math.Float32bits(gotSample) != math.Float32bits(want[ci][i]) {
+						t.Fatalf("case %d x[%d]=%08x %.10g want %08x %.10g",
+							ci, i,
+							math.Float32bits(gotSample), gotSample,
+							math.Float32bits(want[ci][i]), want[ci][i])
+					}
+				}
+			})
 		}
 	}
 }
@@ -921,7 +969,6 @@ func TestDecoderGLogStateMatchesLibopusFloatSize(t *testing.T) {
 		size uintptr
 	}{
 		{"prevEnergy", unsafe.Sizeof(dec.prevEnergy[0])},
-		{"prevEnergy2", unsafe.Sizeof(dec.prevEnergy2[0])},
 		{"prevLogE", unsafe.Sizeof(dec.prevLogE[0])},
 		{"prevLogE2", unsafe.Sizeof(dec.prevLogE2[0])},
 		{"backgroundEnergy", unsafe.Sizeof(dec.backgroundEnergy[0])},
@@ -944,10 +991,8 @@ func TestDecoderSigStateMatchesLibopusFloatSize(t *testing.T) {
 		name string
 		size uintptr
 	}{
-		{"overlapBuffer", unsafe.Sizeof(dec.overlapBuffer[0])},
+		{"decodeMem", unsafe.Sizeof(dec.decodeMem[0])},
 		{"preemphState", unsafe.Sizeof(dec.preemphState[0])},
-		{"postfilterMem", unsafe.Sizeof(dec.postfilterMem[0])},
-		{"plcDecodeMem", unsafe.Sizeof(dec.plcDecodeMem[0])},
 	}
 	for _, tc := range got {
 		if tc.size != uintptr(sizes.celtSig) {
@@ -997,7 +1042,6 @@ func TestEncoderGLogStateMatchesLibopusFloatSize(t *testing.T) {
 		{"energyError", unsafe.Sizeof(enc.energyError[0])},
 		{"energyMask", unsafe.Sizeof(enc.energyMask[0])},
 		{"specAvg", unsafe.Sizeof(enc.specAvg)},
-		{"surroundTrim", unsafe.Sizeof(enc.surroundTrim)},
 		{"lastTemporalVBR", unsafe.Sizeof(enc.lastTemporalVBR)},
 		{"lastBandLogE", unsafe.Sizeof(enc.lastBandLogE[0])},
 		{"lastBandLogE2", unsafe.Sizeof(enc.lastBandLogE2[0])},
@@ -1235,6 +1279,7 @@ func TestAlgQuantQEXTMatchesLibopusSource(t *testing.T) {
 	if err != nil {
 		libopustest.HelperUnavailable(t, "celt qext vq", err)
 	}
+	var scratch bandEncodeScratch
 	for ci, tc := range cases {
 		x := make([]celtNorm, len(tc.x))
 		for i, sample := range tc.x {
@@ -1246,7 +1291,7 @@ func TestAlgQuantQEXTMatchesLibopusSource(t *testing.T) {
 		var extEnc rangecoding.Encoder
 		extBuf := make([]byte, 128)
 		extEnc.Init(extBuf)
-		gotCollapse := algQuantScratch(&enc, 0, x, len(x), tc.k, tc.spread, tc.b, opusVal16(tc.gain), tc.resynth, &extEnc, tc.extraBits, nil)
+		gotCollapse := algQuantScratch(&enc, 0, x, len(x), tc.k, tc.spread, tc.b, opusVal16(tc.gain), tc.resynth, &extEnc, tc.extraBits, &scratch)
 		gotPacket := enc.Done()
 		gotExtPacket := extEnc.Done()
 		if gotCollapse != want[ci].collapse {
@@ -1358,7 +1403,7 @@ func TestStereoIthetaMatchesLibopusFloatPath(t *testing.T) {
 
 func TestThetaRDODistortionMatchesLibopusFloatPath(t *testing.T) {
 	libopustest.RequireOracle(t)
-	requireBitExactFloat(t)
+	requirePairedCELTOracleMode(t)
 	cases := []thetaDistOracleCase{
 		{
 			ex: 1, ey: 1,
@@ -1421,7 +1466,7 @@ func TestThetaRDODistortionMatchesLibopusFloatPath(t *testing.T) {
 
 func TestRenormalizeVectorMatchesLibopusFloatPath(t *testing.T) {
 	libopustest.RequireOracle(t)
-	requireBitExactFloat(t)
+	requireRenormalizeVectorOracleMode(t)
 	cases := []renormaliseOracleCase{
 		{fixtureExpRotationVector(8, 0x10203040), 1},
 		{fixtureExpRotationVector(21, 0x50607080), 0.5},
@@ -1618,7 +1663,7 @@ func TestAlgUnquantMatchesLibopusFloatPath(t *testing.T) {
 					var dec rangecoding.Decoder
 					dec.Init(tc.payload)
 					got := make([]celtNorm, tc.n)
-					gotCollapse := algUnquantNoExtInto(got, &dec, tc.n, tc.k, tc.spread, tc.b, opusVal16(tc.gain), sc.scratch)
+					gotCollapse := algUnquantNoExtInto(got, &dec, tc.k, tc.spread, tc.b, opusVal16(tc.gain), sc.scratch)
 					if gotCollapse != want[ci].collapse {
 						t.Fatalf("collapse=%d want %d", gotCollapse, want[ci].collapse)
 					}

@@ -20,14 +20,13 @@
 //
 //   (1) ENCODE soak: feed identical float PCM to the gopus Encoder and the
 //       persistent libopus opus_encode_float oracle; assert every emitted packet
-//       is byte-identical and the post-encode final_range matches. amd64 is the
-//       bit-exact CI gate; the documented darwin/arm64 <=1-ULP CELT/Hybrid float
-//       boundary (project_arm64_celt_1ulp_drift) is logged, not failed, on arm64.
+//       is byte-identical and the post-encode final_range matches the selected
+//       same-ISA libopus reference.
 //
 //   (2) DECODE soak of the gopus-encoded stream: decode the WHOLE gopus packet
 //       stream through one persistent gopus Decoder AND one persistent libopus
 //       decoder (libopus_refdecode_single.c v6, which also reports per-frame
-//       OPUS_GET_FINAL_RANGE); assert per-frame PCM parity and decoder final_range
+//       OPUS_GET_FINAL_RANGE); assert per-frame PCM and decoder final_range
 //       parity. This locks decoder cross-frame state (CELT overlap/energy memory,
 //       SILK LPC/LTP history, PLC loss_duration, stereo predictor) over the run.
 //
@@ -49,17 +48,13 @@ package gopus
 import (
 	"bytes"
 	"fmt"
+	"math"
 	"runtime"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
 	"github.com/thesyncim/gopus/internal/testsignal"
 )
-
-// soakResidualLogCap bounds the per-frame arm64 <=1-ULP residual log lines per
-// phase so a thousands-frame soak does not flood the output; the aggregate
-// residual count and the first-divergence index carry the full signal.
-const soakResidualLogCap = 5
 
 // soakFrames returns the per-config frame count: a long stream by default
 // (cross-frame drift needs depth), shrunk under -short so CI stays fast. At
@@ -217,7 +212,7 @@ func runEncodeSoak(t *testing.T, spec soakSpec, pcm []float32, frames, fs int) s
 
 	enc, ok := configureEncDiff(t, spec.enc)
 	if !ok {
-		t.Skipf("gopus rejected config %s", spec.name)
+		t.Fatalf("gopus rejected soak config %s", spec.name)
 	}
 
 	res := soakEncodeResult{
@@ -229,7 +224,6 @@ func runEncodeSoak(t *testing.T, spec soakSpec, pcm []float32, frames, fs int) s
 	var (
 		byteFails  int
 		rangeFails int
-		residuals  int // arm64 documented float-boundary frames
 		emitMis    int
 	)
 
@@ -258,72 +252,33 @@ func runEncodeSoak(t *testing.T, spec soakSpec, pcm []float32, frames, fs int) s
 		if !gHas {
 			continue // both emitted nothing (DTX no-output)
 		}
-
-		if bytes.Equal(gPkt, oPkt) {
-			if enc.FinalRange() != recs[f].FinalRange {
-				if runtime.GOARCH == "amd64" {
-					rangeFails++
-					if res.firstDiverge < 0 {
-						res.firstDiverge = f
-					}
-					t.Errorf("%s frame %d: packets byte-equal but final_range differs gopus=%08x libopus=%08x (UNEXPECTED on amd64)",
-						spec.name, f, enc.FinalRange(), recs[f].FinalRange)
-				} else {
-					residuals++
-					if res.firstDiverge < 0 {
-						res.firstDiverge = f
-					}
-				}
-			}
+		packetEqual := bytes.Equal(gPkt, oPkt)
+		rangeEqual := enc.FinalRange() == recs[f].FinalRange
+		if packetEqual && rangeEqual {
 			continue
 		}
-
-		// Byte divergence. Classify per the established arch policy.
-		fb := firstByteDiff(gPkt, oPkt)
-		gClass := tocModeClass(byte0(gPkt), true)
-		oClass := tocModeClass(byte0(oPkt), true)
 		if res.firstDiverge < 0 {
 			res.firstDiverge = f
 		}
-		if runtime.GOARCH == "amd64" {
+		if !packetEqual {
 			byteFails++
-			// Classify so a maintainer can tell a genuine slow state drift apart from
-			// the documented platform-divergent CELT/Hybrid float pipeline. SILK is
-			// integer/range-coded and cross-arch deterministic, so a SILK byte
-			// mismatch on amd64 is unambiguously a real bug. CELT/Hybrid float
-			// analysis is known arch-unstable on knife-edge signals
-			// (project_amd64_encoder_precision_regression: amd64-libopus and
-			// arm64-libopus produce different bitstreams for such content, diverging
-			// at the same early byte every frame); a CELT/Hybrid amd64 mismatch is
-			// therefore EITHER a real slow drift (late first-divergence, varying
-			// byte) OR that maintainer-owned arch instability. Both are surfaced as a
-			// hard failure here — the soak's job is to flag them; adjudication is the
-			// maintainer's. A LATE first-divergence frame is the slow-drift tell.
-			diag := "SILK is integer/cross-arch-deterministic — this is a real same-arch encoder state bug"
-			if gClass != 0 || oClass != 0 {
-				diag = "CELT/Hybrid float path — distinguish slow drift (late first-divergence) from " +
-					"documented amd64-libopus knife-edge arch instability (project_amd64_encoder_precision_regression)"
-			}
-			t.Errorf("%s frame %d: PACKET BYTE MISMATCH at byte %d gopus=%s(toc=%02x,len=%d) libopus=%s(toc=%02x,len=%d) "+
-				"range g=%08x o=%08x first-divergence=%s — %s (UNEXPECTED on amd64; bit-exact required)",
-				spec.name, f, fb, modeClassName(gClass), byte0(gPkt), len(gPkt),
-				modeClassName(oClass), byte0(oPkt), len(oPkt), enc.FinalRange(), recs[f].FinalRange,
-				divergenceLabel(res.firstDiverge), diag)
-		} else {
-			residuals++
-			// arm64: the documented float boundary; log only the first few diverging
-			// frames (the aggregate count + first-divergence index carry the signal)
-			// to avoid flooding a thousands-frame soak.
-			if residuals <= soakResidualLogCap {
-				t.Logf("%s frame %d: payload differs at byte %d (g=%s len=%d, o=%s len=%d) — documented arm64 "+
-					"<=1-ULP float boundary (project_arm64_celt_1ulp_drift), not a same-arch state bug",
-					spec.name, f, fb, modeClassName(gClass), len(gPkt), modeClassName(oClass), len(oPkt))
-			}
+		}
+		if !rangeEqual {
+			rangeFails++
+		}
+		if byteFails+rangeFails <= 5 {
+			t.Logf("%s frame %d: exact encode mismatch byteEqual=%t range g=%08x C=%08x firstByte=%d lengths=%d/%d",
+				spec.name, f, packetEqual, enc.FinalRange(), recs[f].FinalRange,
+				firstByteDiff(gPkt, oPkt), len(gPkt), len(oPkt))
 		}
 	}
 
-	t.Logf("%s ENCODE soak: %d frames; arch=%s; byte-fails=%d range-fails=%d emit-mismatch=%d arm64-residual-frames=%d first-divergence=%s",
-		spec.name, frames, runtime.GOARCH, byteFails, rangeFails, emitMis, residuals, divergenceLabel(res.firstDiverge))
+	t.Logf("%s ENCODE soak: %d frames; arch=%s; byte-fails=%d range-fails=%d emit-mismatch=%d first-divergence=%s",
+		spec.name, frames, runtime.GOARCH, byteFails, rangeFails, emitMis, divergenceLabel(res.firstDiverge))
+	if byteFails != 0 || rangeFails != 0 || emitMis != 0 {
+		t.Errorf("%s ENCODE soak failed exact parity: byte-fails=%d range-fails=%d emission-mismatches=%d first-divergence=%s",
+			spec.name, byteFails, rangeFails, emitMis, divergenceLabel(res.firstDiverge))
+	}
 	return res
 }
 
@@ -350,17 +305,19 @@ func runDecodeSoak(t *testing.T, spec soakSpec, packets [][]byte, label string) 
 		stepIdx = append(stepIdx, i)
 	}
 	if len(steps) == 0 {
-		t.Logf("%s DECODE soak (%s): no non-empty packets to decode", spec.name, label)
-		return
+		t.Fatalf("%s DECODE soak (%s): stream has no non-empty packets", spec.name, label)
 	}
 
-	refPCM, ranges, err := decodeWithLibopusReferenceAPIRateFloat32StepsRanges(sampleRate, ch, fs, steps)
+	refPCM, refSamples, ranges, err := decodeLongstreamReferenceSteps(sampleRate, ch, fs, steps)
 	if err != nil {
 		libopustest.HelperUnavailable(t, "persistent decode oracle", err)
 		return
 	}
 	if len(ranges) != len(steps) {
 		t.Fatalf("%s DECODE soak (%s): oracle returned %d ranges, want %d", spec.name, label, len(ranges), len(steps))
+	}
+	if len(refSamples) != len(steps) {
+		t.Fatalf("%s DECODE soak (%s): oracle returned %d sample counts, want %d", spec.name, label, len(refSamples), len(steps))
 	}
 
 	dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, ch))
@@ -374,11 +331,10 @@ func runDecodeSoak(t *testing.T, spec soakSpec, packets [][]byte, label string) 
 		pcmFails   int
 		rangeFails int
 		cntFails   int
-		residuals  int
 	)
-	// refPCM is the concatenation of every step's decoded samples; walk it with a
-	// running offset using each step's gopus-decoded sample count (which must
-	// match the oracle count, asserted below).
+	// The v8 selected-C helper reports each opus_decode return count and PCM
+	// offset. This fixture encodes one full fixed-duration frame per non-empty
+	// packet, so check C's result before using it to align the PCM comparison.
 	refOff := 0
 	for s, step := range steps {
 		clear(buf)
@@ -398,53 +354,133 @@ func runDecodeSoak(t *testing.T, spec soakSpec, packets [][]byte, label string) 
 			if firstDiverge < 0 {
 				firstDiverge = stepIdx[s]
 			}
-			if runtime.GOARCH == "amd64" {
-				t.Errorf("%s DECODE soak (%s) frame %d: decoder final_range gopus=%08x libopus=%08x (UNEXPECTED on amd64) — decoder state drift",
-					spec.name, label, stepIdx[s], gRange, ranges[s])
-			}
 		}
-		// The oracle PCM segment for this step is gn*ch samples (the oracle and
-		// gopus must agree on the count; the range/PCM checks below catch a
-		// mismatch). Guard the slice in case a count divergence shortens refPCM.
-		segLen := gn * ch
+		if refSamples[s] != fs {
+			cntFails++
+			if firstDiverge < 0 {
+				firstDiverge = stepIdx[s]
+			}
+			t.Errorf("%s DECODE soak (%s) frame %d: selected C returned %d samples, want %d",
+				spec.name, label, stepIdx[s], refSamples[s], fs)
+			break
+		}
+		segLen := refSamples[s] * ch
 		if refOff+segLen > len(refPCM) {
 			cntFails++
 			if firstDiverge < 0 {
 				firstDiverge = stepIdx[s]
 			}
-			t.Errorf("%s DECODE soak (%s) frame %d: gopus sample count %d overruns oracle PCM (refOff=%d, total=%d) — count drift",
-				spec.name, label, stepIdx[s], gn, refOff, len(refPCM))
+			t.Errorf("%s DECODE soak (%s) frame %d: requested oracle segment overruns PCM (frame=%d channels=%d refOff=%d total=%d)",
+				spec.name, label, stepIdx[s], fs, ch, refOff, len(refPCM))
 			break
 		}
 		want := refPCM[refOff : refOff+segLen]
 		refOff += segLen
-
-		toc := byte0(step.packet)
-		worst, worstIdx, tol, ok := pcmDiffWorst(toc, libopustest.DecodeDiffFormatFloat32, buf[:segLen], want)
-		if !ok {
+		if gn != fs {
+			cntFails++
 			if firstDiverge < 0 {
 				firstDiverge = stepIdx[s]
 			}
-			if runtime.GOARCH == "amd64" {
-				pcmFails++
-				t.Errorf("%s DECODE soak (%s) frame %d: PCM diverges worst|Δ|=%g at %d (tol=%g, toc=%02x mode=%d) — decoder state drift (UNEXPECTED on amd64)",
-					spec.name, label, stepIdx[s], worst, worstIdx, tol, toc, tocMode(toc))
-			} else {
-				residuals++
-				if residuals <= soakResidualLogCap {
-					t.Logf("%s DECODE soak (%s) frame %d: PCM worst|Δ|=%g at %d (tol=%g, toc=%02x) — documented arm64 <=1-ULP boundary",
-						spec.name, label, stepIdx[s], worst, worstIdx, tol, toc)
-				}
+			t.Logf("%s DECODE soak (%s) frame %d: sample count Go=%d C/request=%d",
+				spec.name, label, stepIdx[s], gn, fs)
+			continue
+		}
+		worst, worstIdx := float32(0), -1
+		firstBitDiff := -1
+		for i := range want {
+			if math.Float32bits(buf[i]) != math.Float32bits(want[i]) && firstBitDiff < 0 {
+				firstBitDiff = i
+			}
+			if diff := absF32(buf[i] - want[i]); diff > worst {
+				worst, worstIdx = diff, i
+			}
+		}
+		if firstBitDiff >= 0 {
+			pcmFails++
+			if firstDiverge < 0 {
+				firstDiverge = stepIdx[s]
+			}
+			if pcmFails <= 5 {
+				t.Logf("%s DECODE soak (%s) frame %d: exact PCM mismatch first=%d got=%08x want=%08x worst|delta|=%g at=%d",
+					spec.name, label, stepIdx[s], firstBitDiff,
+					math.Float32bits(buf[firstBitDiff]), math.Float32bits(want[firstBitDiff]), worst, worstIdx)
 			}
 		}
 	}
-	if refOff != len(refPCM) && pcmFails == 0 && cntFails == 0 && firstDiverge < 0 {
+	if refOff != len(refPCM) {
 		t.Errorf("%s DECODE soak (%s): consumed %d of %d oracle PCM samples — sample-count drift",
 			spec.name, label, refOff, len(refPCM))
 	}
 
-	t.Logf("%s DECODE soak (%s): %d steps; arch=%s; pcm-fails=%d range-fails=%d count-fails=%d arm64-residual-frames=%d first-divergence=%s",
-		spec.name, label, len(steps), runtime.GOARCH, pcmFails, rangeFails, cntFails, residuals, divergenceLabel(firstDiverge))
+	t.Logf("%s DECODE soak (%s): %d steps; arch=%s; pcm-fails=%d range-fails=%d count-fails=%d first-divergence=%s",
+		spec.name, label, len(steps), runtime.GOARCH, pcmFails, rangeFails, cntFails, divergenceLabel(firstDiverge))
+	if pcmFails != 0 || rangeFails != 0 || cntFails != 0 {
+		t.Errorf("%s DECODE soak (%s) failed exact parity: pcm-fails=%d range-fails=%d count-fails=%d first-divergence=%s",
+			spec.name, label, pcmFails, rangeFails, cntFails, divergenceLabel(firstDiverge))
+	}
+}
+
+// decodeLongstreamReferenceSteps uses the selected-C helper's per-step result
+// records so the soak checks each opus_decode return count and PCM offset, not
+// just the length of its flattened output buffer.
+func decodeLongstreamReferenceSteps(sampleRate, channels, frameSize int, steps []libopusAPIRateDecodeStep) ([]float32, []int, []uint32, error) {
+	binPath, err := getLibopusAPIRateRefdecodeHelperPath()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	payload := libopustest.NewOraclePayloadVersion("GOSI", 8,
+		libopusRefdecodeSingleFormatFloat32, uint32(sampleRate), 0,
+		uint32(channels), uint32(frameSize), uint32(len(steps)))
+	for _, step := range steps {
+		fec := uint32(0)
+		if step.fec {
+			fec = 1
+		}
+		stepFrameSize := step.frameSize
+		if stepFrameSize == 0 {
+			stepFrameSize = frameSize
+		}
+		payload.U32(fec)
+		payload.U32(uint32(stepFrameSize))
+		payload.U32(uint32(len(step.packet)))
+		payload.Raw(step.packet)
+	}
+	reader, err := libopustest.RunOracleVersion(binPath, payload.Bytes(), "longstream selected-C decode", "GOSO", 3)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	pcmCount := reader.Count(-1)
+	reader.ExpectRemaining(pcmCount*4 + 4 + len(steps)*16)
+	pcm := make([]float32, pcmCount)
+	for i := range pcm {
+		pcm[i] = reader.Float32()
+	}
+	if count := reader.Count(len(steps)); count != len(steps) {
+		return nil, nil, nil, fmt.Errorf("selected C returned %d step records, want %d", count, len(steps))
+	}
+	samples := make([]int, len(steps))
+	ranges := make([]uint32, len(steps))
+	pcmOffset := 0
+	for i := range steps {
+		status := reader.U32()
+		samples[i] = int(reader.U32())
+		ranges[i] = reader.U32()
+		gotOffset := int(reader.U32())
+		if status != 0 || gotOffset != pcmOffset {
+			return nil, nil, nil, fmt.Errorf("selected C step %d: status=%d PCM offset=%d, want status=0 offset=%d", i, status, gotOffset, pcmOffset)
+		}
+		pcmOffset += samples[i] * channels
+	}
+	if pcmOffset != len(pcm) {
+		return nil, nil, nil, fmt.Errorf("selected C step records cover %d PCM samples, output contains %d", pcmOffset, len(pcm))
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, nil, nil, err
+	}
+	if err := reader.Err(); err != nil {
+		return nil, nil, nil, err
+	}
+	return pcm, samples, ranges, nil
 }
 
 func divergenceLabel(idx int) string {

@@ -162,7 +162,7 @@ func TestEncodeCELTPacketCarriesQEXTPayload(t *testing.T) {
 		t.Fatalf("count byte=0x%02x missing padding flag", packet[1])
 	}
 
-	payload := enc.celtEncoder.LastQEXTPayload()
+	payload := enc.lastQEXTPayload()
 	if len(payload) == 0 {
 		t.Fatal("CELT encoder retained empty QEXT payload")
 	}
@@ -213,7 +213,7 @@ func TestEncodeLongCELTPacketCarriesQEXTPayloads(t *testing.T) {
 	if !bytes.Contains(padding, []byte{0x04}) {
 		t.Fatalf("padding missing libopus repeat-final marker: %x", padding)
 	}
-	if payload := enc.celtEncoder.LastQEXTPayload(); len(payload) == 0 || !bytes.Contains(padding, payload) {
+	if payload := enc.lastQEXTPayload(); len(payload) == 0 || !bytes.Contains(padding, payload) {
 		t.Fatalf("padding missing retained last QEXT payload:\npadding=%x\npayload=%x", padding, payload)
 	}
 }
@@ -278,7 +278,7 @@ func TestEncodeCELTPacketCarriesQEXTPayloadLibopusDecode(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Encode: %v", err)
 			}
-			payload := enc.celtEncoder.LastQEXTPayload()
+			payload := enc.lastQEXTPayload()
 			if len(payload) == 0 {
 				t.Fatal("CELT encoder retained empty QEXT payload")
 			}

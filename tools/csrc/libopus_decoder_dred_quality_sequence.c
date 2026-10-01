@@ -76,9 +76,38 @@ static int append_pcm(float *dst, uint32_t *offset, const float *src, int sample
   return 1;
 }
 
+typedef struct {
+  uint32_t frame;
+  uint32_t kind; /* 0=received, 1=DRED, 2=PLC */
+  int32_t samples;
+  uint32_t final_range;
+  uint32_t pcm_offset;
+} frame_record;
+
+static int append_frame_record(OpusDecoder *dec, frame_record *records,
+    uint32_t *record_count, uint32_t record_capacity, float *all_pcm,
+    uint32_t *all_pcm_samples, uint32_t pcm_capacity, uint32_t frame,
+    uint32_t kind, const float *pcm, int samples) {
+  opus_uint32 final_range = 0;
+  if (samples < 0 || *record_count >= record_capacity ||
+      *all_pcm_samples > pcm_capacity ||
+      (uint32_t)samples > pcm_capacity - *all_pcm_samples ||
+      opus_decoder_ctl(dec, OPUS_GET_FINAL_RANGE(&final_range)) != OPUS_OK) {
+    return 0;
+  }
+  records[*record_count].frame = frame;
+  records[*record_count].kind = kind;
+  records[*record_count].samples = (int32_t)samples;
+  records[*record_count].final_range = (uint32_t)final_range;
+  records[*record_count].pcm_offset = *all_pcm_samples;
+  (*record_count)++;
+  return append_pcm(all_pcm, all_pcm_samples, pcm, samples);
+}
+
 int main(void) {
   unsigned char magic[4];
   uint32_t version = 0;
+  uint32_t pcm_capacity = 0;
   uint32_t sample_rate = 0;
   uint32_t channels = 0;
   uint32_t frame_size = 0;
@@ -93,6 +122,10 @@ int main(void) {
   OpusDRED *dred = NULL;
   float *pcm = NULL;
   float *loss_pcm = NULL;
+  float *all_pcm = NULL;
+  frame_record *records = NULL;
+  uint32_t all_pcm_samples = 0;
+  uint32_t record_count = 0;
   uint32_t loss_pcm_samples = 0;
   uint32_t loss_frames = 0;
   uint32_t dred_frames = 0;
@@ -110,7 +143,7 @@ int main(void) {
     fprintf(stderr, "invalid input magic\n");
     return 1;
   }
-  if (!read_u32(&version) || version != 1 ||
+  if (!read_u32(&version) || (version != 1 && version != 2) ||
       !read_u32(&sample_rate) ||
       !read_u32(&channels) ||
       !read_u32(&frame_size) ||
@@ -124,6 +157,16 @@ int main(void) {
   if (sample_rate == 0 || channels == 0 || frame_size == 0 || packet_count == 0) {
     fprintf(stderr, "invalid sequence parameters\n");
     return 1;
+  }
+  {
+    uint64_t capacity = (uint64_t)packet_count * frame_size * channels;
+    if (packet_count > INT32_MAX || frame_size > INT32_MAX ||
+        channels > INT32_MAX || (uint64_t)frame_size * channels > INT32_MAX ||
+        capacity > INT32_MAX || capacity > SIZE_MAX / sizeof(float)) {
+      fprintf(stderr, "sequence dimensions exceed helper capacity\n");
+      return 1;
+    }
+    pcm_capacity = (uint32_t)capacity;
   }
 
   if (decoder_model_blob_len > 0) {
@@ -185,8 +228,12 @@ int main(void) {
   }
 
   pcm = (float *)calloc((size_t)frame_size * channels, sizeof(float));
-  loss_pcm = (float *)calloc((size_t)packet_count * frame_size * channels, sizeof(float));
-  if (pcm == NULL || loss_pcm == NULL) {
+  loss_pcm = (float *)calloc(pcm_capacity, sizeof(float));
+  if (version == 2) {
+    all_pcm = (float *)calloc(pcm_capacity, sizeof(float));
+    records = (frame_record *)calloc(packet_count, sizeof(frame_record));
+  }
+  if (pcm == NULL || loss_pcm == NULL || (version == 2 && (all_pcm == NULL || records == NULL))) {
     fprintf(stderr, "pcm buffer alloc failed\n");
     goto cleanup_fail;
   }
@@ -253,6 +300,14 @@ int main(void) {
               free(packet);
               goto cleanup_fail;
             }
+            if (version == 2 && !append_frame_record(dec, records, &record_count,
+                packet_count, all_pcm, &all_pcm_samples, pcm_capacity,
+                frame - (uint32_t)lost_ago, used_dred ? 1u : 2u,
+                pcm, ret * (int)channels)) {
+              fprintf(stderr, "failed to record concealed frame\n");
+              free(packet);
+              goto cleanup_fail;
+            }
             loss_frames++;
             if (used_dred) {
               dred_frames++;
@@ -270,13 +325,37 @@ int main(void) {
       free(packet);
       goto cleanup_fail;
     }
+    if (version == 2 && !append_frame_record(dec, records, &record_count,
+        packet_count, all_pcm, &all_pcm_samples, pcm_capacity,
+        frame, 0, pcm, ret * (int)channels)) {
+      fprintf(stderr, "failed to record received frame\n");
+      free(packet);
+      goto cleanup_fail;
+    }
     expected = (int)frame + 1;
     have_expected = 1;
     free(packet);
   }
 
+  /* V2 also decodes losses after the final carrier. With no future packet,
+     these frames use ordinary PLC and remain separate from v1 quality output. */
+  if (version == 2 && have_expected) {
+    for (frame = (uint32_t)expected; frame < packet_count; frame++) {
+      int ret = opus_decode_float(dec, NULL, 0, pcm, (int)frame_size, 0);
+      if (ret < 0 || !append_pcm(loss_pcm, &loss_pcm_samples, pcm, ret * (int)channels) ||
+          !append_frame_record(dec, records, &record_count, packet_count, all_pcm,
+              &all_pcm_samples, pcm_capacity,
+              frame, 2, pcm, ret * (int)channels)) {
+        fprintf(stderr, "failed to decode trailing loss frame %u: %d\n", frame, ret);
+        goto cleanup_fail;
+      }
+      loss_frames++;
+      fallback_frames++;
+    }
+  }
+
   if (!write_exact(OUTPUT_MAGIC, 4) ||
-      !write_u32(1) ||
+      !write_u32(version) ||
       !write_i32((int32_t)loss_frames) ||
       !write_i32((int32_t)dred_frames) ||
       !write_i32((int32_t)fallback_frames) ||
@@ -296,7 +375,31 @@ int main(void) {
       }
     }
   }
+  if (version == 2) {
+    uint32_t i;
+    if (!write_u32(record_count)) {
+      fprintf(stderr, "failed to write record count\n");
+      goto cleanup_fail;
+    }
+    for (i = 0; i < record_count; i++) {
+      const frame_record *record = &records[i];
+      int32_t j;
+      if (!write_u32(record->frame) || !write_u32(record->kind) ||
+          !write_i32(record->samples) || !write_u32(record->final_range)) {
+        fprintf(stderr, "failed to write frame record\n");
+        goto cleanup_fail;
+      }
+      for (j = 0; j < record->samples; j++) {
+        if (!write_f32(all_pcm[record->pcm_offset + (uint32_t)j])) {
+          fprintf(stderr, "failed to write frame PCM\n");
+          goto cleanup_fail;
+        }
+      }
+    }
+  }
 
+  free(records);
+  free(all_pcm);
   free(loss_pcm);
   free(pcm);
   opus_dred_free(dred);
@@ -307,6 +410,8 @@ int main(void) {
   return 0;
 
 cleanup_fail:
+  free(records);
+  free(all_pcm);
   free(loss_pcm);
   free(pcm);
   if (dred != NULL) opus_dred_free(dred);

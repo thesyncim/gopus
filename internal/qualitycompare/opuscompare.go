@@ -38,9 +38,9 @@ var (
 
 func getOpusComparePath() (string, error) {
 	opusCompareOnce.Do(func() {
-		path, ok := libopustooling.FindOrEnsureOpusCompare(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots())
-		if !ok {
-			opusCompareErr = fmt.Errorf("opus_compare not found in pinned libopus tree")
+		path, err := libopustooling.FindOrEnsureOpusCompare(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots())
+		if err != nil {
+			opusCompareErr = err
 			return
 		}
 		opusComparePath = path

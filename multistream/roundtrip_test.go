@@ -253,7 +253,7 @@ func TestRoundTrip_Mono(t *testing.T) {
 	t.Logf("Mono input: %d samples, energy=%.4f", len(input), inputEnergy)
 
 	// Encode
-	packet, err := enc.Encode(input, frameSize)
+	packet, err := encodePacket(enc, input, frameSize)
 	if err != nil {
 		t.Fatalf("Encode failed: %v", err)
 	}
@@ -318,7 +318,7 @@ func TestRoundTrip_Stereo(t *testing.T) {
 	t.Logf("Stereo input: %d samples, energy=%.4f", len(input), inputEnergy)
 
 	// Encode
-	packet, err := enc.Encode(input, frameSize)
+	packet, err := encodePacket(enc, input, frameSize)
 	if err != nil {
 		t.Fatalf("Encode failed: %v", err)
 	}
@@ -411,7 +411,7 @@ func TestRoundTrip_51Surround(t *testing.T) {
 		len(input), channels, frameSize, inputEnergy)
 
 	// Encode
-	packet, err := enc.Encode(input, frameSize)
+	packet, err := encodePacket(enc, input, frameSize)
 	if err != nil {
 		t.Fatalf("Encode failed: %v", err)
 	}
@@ -505,7 +505,7 @@ func TestRoundTrip_71Surround(t *testing.T) {
 		len(input), channels, frameSize, inputEnergy)
 
 	// Encode
-	packet, err := enc.Encode(input, frameSize)
+	packet, err := encodePacket(enc, input, frameSize)
 	if err != nil {
 		t.Fatalf("Encode failed: %v", err)
 	}
@@ -605,7 +605,7 @@ func TestRoundTrip_MultipleFrames(t *testing.T) {
 				totalInputEnergy += inputEnergy
 
 				// Encode
-				packet, err := enc.Encode(input, frameSize)
+				packet, err := encodePacket(enc, input, frameSize)
 				if err != nil {
 					t.Fatalf("Frame %d encode failed: %v", f, err)
 				}
@@ -725,7 +725,7 @@ func TestRoundTrip_ChannelIsolation(t *testing.T) {
 			inputEnergies := computeEnergyPerChannel(input, channels)
 
 			// Encode
-			packet, err := enc.Encode(input, frameSize)
+			packet, err := encodePacket(enc, input, frameSize)
 			if err != nil {
 				t.Fatalf("Encode failed: %v", err)
 			}
@@ -821,7 +821,7 @@ func TestRoundTrip(t *testing.T) {
 			input := generateTestSignal(tc.channels, frameSize, sampleRate, baseFreq)
 
 			// Encode
-			packet, err := enc.Encode(input, frameSize)
+			packet, err := encodePacket(enc, input, frameSize)
 			if err != nil {
 				t.Fatalf("Encode failed: %v", err)
 			}

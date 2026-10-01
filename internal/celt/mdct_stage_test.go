@@ -40,6 +40,38 @@ func TestMDCTFMALikeMixUsesFusedSourceShape(t *testing.T) {
 	}
 }
 
+func TestMDCTNegativeForwardFoldUsesTargetContractionOrder(t *testing.T) {
+	if !mdctUseFMALikeMixEnabled {
+		t.Skip("contracted MDCT fold is arch-specific")
+	}
+
+	a := float32(861792.375)
+	b := float32(-8019820.5)
+	c := float32(0.598416567)
+	d := float32(0.441076219)
+	v3Want := float32(math.FMA(float64(b), float64(d), -float64(mdctMul(a, c))))
+	armWant := float32(math.FMA(-float64(a), float64(c), float64(mdctMul(b, d))))
+	if math.Float32bits(v3Want) == math.Float32bits(armWant) {
+		t.Fatal("fixture does not distinguish the AMD64 and arm64 contraction orders")
+	}
+	want := armWant
+	if mdctUseNegFoldSecondProduct {
+		want = v3Want
+	}
+	if got := mdctNegMulAddMixEncodeForTest(a, b, c, d); math.Float32bits(got) != math.Float32bits(want) {
+		t.Fatalf("negative fold=%08x want %08x", math.Float32bits(got), math.Float32bits(want))
+	}
+}
+
+// mdctNegMulAddMixEncodeForTest keeps fixture inputs runtime-opaque so the
+// assertion exercises the contraction order in libopus celt/mdct.c's
+// clt_mdct_forward_c instead of a constant-folded expression.
+//
+//go:noinline
+func mdctNegMulAddMixEncodeForTest(a, b, c, d float32) float32 {
+	return mdctNegMulAddMixEncode(a, b, c, d)
+}
+
 func mdctForwardOverlapLegacyStagedReference(samples []float32, overlap int) []float32 {
 	if len(samples) == 0 {
 		return nil
@@ -111,7 +143,7 @@ func mdctForwardOverlapLegacyStagedReference(samples []float32, overlap int) []f
 	}
 
 	for ; i < n4; i++ {
-		f[2*i] = mdctMulSubMixAlt(samples[xp2], samples[xp1-n2], window[wp2], window[wp1])
+		f[2*i] = mdctNegMulAddMixEncode(samples[xp1-n2], samples[xp2], window[wp1], window[wp2])
 		f[2*i+1] = mdctMulAddMix(samples[xp1], samples[xp2+n2], window[wp2], window[wp1])
 		xp1 += 2
 		xp2 -= 2

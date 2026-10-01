@@ -7,14 +7,14 @@
 //   - signal class: OPUS_SIGNAL_VOICE / OPUS_SIGNAL_MUSIC / OPUS_AUTO
 //
 // The C oracle (tools/csrc/libopus_encoder_mode_crossproduct.c) encodes each
-// combination with a stateful libopus 1.6.1 encoder and returns the TOC byte
-// for each frame. The Go side creates a matching encoder and asserts the same
-// mode label (silk / hybrid / celt) for every frame.
+// combination with a stateful libopus 1.6.1 encoder and returns every packet
+// and final range. The Go side uses the same input, controls, and output budget.
 //
 // Reference: libopus 1.6.1 src/opus_encoder.c lines 1466–1695.
 package testvectors
 
 import (
+	"bytes"
 	"fmt"
 	"math"
 	"sync"
@@ -61,8 +61,10 @@ type crossProductCase struct {
 }
 
 type crossProductFrameResult struct {
-	ret int32
-	toc byte
+	ret        int32
+	toc        byte
+	finalRange uint32
+	packet     []byte
 }
 
 type crossProductCaseResult struct {
@@ -73,12 +75,11 @@ var crossProductHelperCache libopustest.HelperCache
 
 func getCrossProductHelperPath() (string, error) {
 	return crossProductHelperCache.Path(func() (string, error) {
-		return libopustest.BuildCHelper(libopustest.CHelperConfig{
+		return libopustest.BuildPublicAPIHelper(libopustest.CHelperConfig{
 			Label:      "encoder mode crossproduct",
 			OutputBase: "gopus_libopus_encoder_mode_crossproduct",
 			SourceFile: "libopus_encoder_mode_crossproduct.c",
 			CFlags:     []string{"-DHAVE_CONFIG_H"},
-			Libs:       []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
 		})
 	})
 }
@@ -104,19 +105,41 @@ func runCrossProductOracle(cases []crossProductCase) ([]crossProductCaseResult, 
 		}
 	}
 
-	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "encoder mode crossproduct", crossProductOutputMagic)
+	output, err := libopustest.RunHelper(binPath, payload.Bytes())
 	if err != nil {
 		return nil, err
+	}
+	reader, version, err := libopustest.NewOracleReaderVersion("encoder mode crossproduct", crossProductOutputMagic, output)
+	if err != nil {
+		return nil, err
+	}
+	if version != 2 {
+		return nil, fmt.Errorf("encoder mode crossproduct helper version=%d want 2", version)
 	}
 
 	count := reader.Count(len(cases))
 	results := make([]crossProductCaseResult, count)
 	for i := range results {
 		nf := int(reader.U32())
+		if nf != cases[i].numFrames || nf == 0 {
+			return nil, fmt.Errorf("encoder mode crossproduct case %d frames=%d want %d", i, nf, cases[i].numFrames)
+		}
 		results[i].frames = make([]crossProductFrameResult, nf)
 		for f := range results[i].frames {
-			results[i].frames[f].ret = reader.I32()
-			results[i].frames[f].toc = byte(reader.U32())
+			frame := &results[i].frames[f]
+			frame.ret = reader.I32()
+			frame.toc = byte(reader.U32())
+			frame.finalRange = reader.U32()
+			packetLen := int(reader.U32())
+			if packetLen > cases[i].maxDataBytes || (frame.ret > 0 && packetLen != int(frame.ret)) ||
+				(frame.ret <= 0 && packetLen != 0) {
+				return nil, fmt.Errorf("encoder mode crossproduct case %d frame %d ret=%d packet length=%d budget=%d",
+					i, f, frame.ret, packetLen, cases[i].maxDataBytes)
+			}
+			frame.packet = append([]byte(nil), reader.Bytes(packetLen)...)
+			if frame.ret > 0 && (len(frame.packet) == 0 || frame.toc != frame.packet[0]) {
+				return nil, fmt.Errorf("encoder mode crossproduct case %d frame %d invalid packet TOC", i, f)
+			}
 		}
 	}
 	if err := reader.ExpectConsumed(); err != nil {
@@ -365,12 +388,7 @@ func makeCrossProductCases() ([]crossProductCase, []crossProductKey) {
 //
 //	application × bitrate × frame-size × signal-class × channels
 //
-// cross-product, then asserts that the mode label (silk/hybrid/celt) decoded
-// from the TOC byte matches libopus on every frame.
-//
-// A maximum 2% per-stream mode-mismatch budget is allowed to tolerate
-// single-frame hysteresis at decision boundaries; the first-frame decision
-// must be exact.
+// cross-product, then asserts the full packet and final range for every frame.
 func TestEncoderAutoModeCrossProductParity(t *testing.T) {
 	t.Parallel()
 	requireTestTier(t, testTierParity)
@@ -402,13 +420,6 @@ func TestEncoderAutoModeCrossProductParity(t *testing.T) {
 		}
 	}
 
-	type failInfo struct {
-		frame     int
-		got, want string
-		gotTOC    byte
-		wantTOC   byte
-	}
-
 	for idx := range cases {
 		c := cases[idx]
 		k := keys[idx]
@@ -426,65 +437,38 @@ func TestEncoderAutoModeCrossProductParity(t *testing.T) {
 				c.application, c.signal)
 
 			samplesPerFrame := c.frameSize * c.channels
-			var mismatches []failInfo
+			if len(r.frames) != c.numFrames || len(r.frames) == 0 {
+				t.Fatalf("libopus returned %d frame records, want %d", len(r.frames), c.numFrames)
+			}
 
 			for f, wantFrame := range r.frames {
 				if wantFrame.ret <= 0 {
-					// libopus returned an error for this frame; skip comparison.
-					continue
+					t.Fatalf("libopus encode frame %d returned %d", f, wantFrame.ret)
 				}
 
 				start := f * samplesPerFrame
 				end := start + samplesPerFrame
 				frame32 := c.pcm[start:end]
 
-				gotPacket, err := enc.Encode(frame32, c.frameSize)
+				gotPacket, err := enc.EncodeWithAnalysisMaxBytes(frame32, c.frameSize, frame32, c.maxDataBytes)
 				if err != nil {
 					t.Errorf("frame %d: encode error: %v", f, err)
 					continue
 				}
 				if len(gotPacket) == 0 {
-					t.Errorf("frame %d: empty packet", f)
-					continue
+					t.Fatalf("frame %d: empty packet", f)
 				}
 
-				gotLabel := modeLabelFromTOC(gotPacket[0])
-				wantLabel := modeLabelFromTOC(wantFrame.toc)
-
-				if gotLabel != wantLabel {
-					mismatches = append(mismatches, failInfo{
-						frame:   f,
-						got:     gotLabel,
-						want:    wantLabel,
-						gotTOC:  gotPacket[0],
-						wantTOC: wantFrame.toc,
-					})
+				if int(wantFrame.ret) != len(gotPacket) ||
+					!bytes.Equal(gotPacket, wantFrame.packet) ||
+					enc.FinalRange() != wantFrame.finalRange {
+					t.Fatalf("frame %d packet/range mismatch: Go mode=%s TOC=%02x len=%d range=%08x C mode=%s TOC=%02x len=%d range=%08x first byte diff=%d",
+						f, modeLabelFromTOC(gotPacket[0]), gotPacket[0], len(gotPacket), enc.FinalRange(),
+						modeLabelFromTOC(wantFrame.toc), wantFrame.toc, len(wantFrame.packet), wantFrame.finalRange,
+						firstByteDiff(gotPacket, wantFrame.packet))
 				}
 			}
-
-			nFrames := len(r.frames)
-			if nFrames == 0 {
-				t.Skip("no valid frames from oracle")
-				return
-			}
-
-			// First-frame mode must be exact (no hysteresis on frame 0).
-			if len(mismatches) > 0 && mismatches[0].frame == 0 {
-				fi := mismatches[0]
-				t.Errorf("first-frame mode mismatch: got=%s want=%s (go_toc=0x%02x lib_toc=0x%02x)",
-					fi.got, fi.want, fi.gotTOC, fi.wantTOC)
-			}
-
-			// Allow ≤2% mismatch across the stream (hysteresis tolerance).
-			mismatchRatio := float64(len(mismatches)) / float64(nFrames)
-			const maxMismatchRatio = 0.02
-			if mismatchRatio > maxMismatchRatio {
-				fi := mismatches[0]
-				t.Errorf("mode mismatch ratio %.1f%% (%d/%d) exceeds %.0f%% budget; first mismatch frame=%d got=%s want=%s (go_toc=0x%02x lib_toc=0x%02x)",
-					mismatchRatio*100, len(mismatches), nFrames, maxMismatchRatio*100,
-					fi.frame, fi.got, fi.want, fi.gotTOC, fi.wantTOC)
-			}
-			t.Logf("frames=%d mismatches=%d (%.1f%%)", nFrames, len(mismatches), mismatchRatio*100)
+			t.Logf("%d packets and final ranges match", len(r.frames))
 		})
 	}
 }

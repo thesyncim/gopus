@@ -412,13 +412,7 @@ type libopusAPIRateDecodeStep struct {
 }
 
 func getLibopusAPIRateRefdecodeHelperPath() (string, error) {
-	return libopusAPIRateRefdecodeHelper.CHelperPath(libopustest.CHelperConfig{
-		Label:      "api-rate reference decode",
-		OutputBase: "gopus_libopus_refdecode_api_rate",
-		SourceFile: "libopus_refdecode_single.c",
-		CFlags:     []string{"-O3", "-DNDEBUG"},
-		Libs:       []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
-	})
+	return apiRateReferenceHelperPath()
 }
 
 func requireLibopusAPIRateRefdecodeHelper(t *testing.T) {
@@ -472,11 +466,15 @@ func decodeWithLibopusReferenceAPIRateFloat32StepsGain(sampleRate, channels, fra
 }
 
 func decodeWithLibopusReferenceAPIRateFloat32StepsRanges(sampleRate, channels, frameSize int, steps []libopusAPIRateDecodeStep) ([]float32, []uint32, error) {
+	return decodeWithLibopusReferenceAPIRateFloat32StepsGainRanges(sampleRate, channels, frameSize, 0, steps)
+}
+
+func decodeWithLibopusReferenceAPIRateFloat32StepsGainRanges(sampleRate, channels, frameSize, gainQ8 int, steps []libopusAPIRateDecodeStep) ([]float32, []uint32, error) {
 	binPath, err := getLibopusAPIRateRefdecodeHelperPath()
 	if err != nil {
 		return nil, nil, err
 	}
-	payload := libopustest.NewOraclePayloadVersion("GOSI", 6, libopusRefdecodeSingleFormatFloat32, uint32(sampleRate), 0, uint32(channels), uint32(frameSize), uint32(len(steps)))
+	payload := libopustest.NewOraclePayloadVersion("GOSI", 6, libopusRefdecodeSingleFormatFloat32, uint32(sampleRate), uint32(int32(gainQ8)), uint32(channels), uint32(frameSize), uint32(len(steps)))
 	for _, step := range steps {
 		if step.fec {
 			payload.U32(1)

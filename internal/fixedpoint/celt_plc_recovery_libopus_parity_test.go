@@ -73,7 +73,7 @@ func TestCELTDecoderPLCRecoveryOracle(t *testing.T) {
 				}
 			}
 			if len(prime) <= 1 {
-				t.Skip("no non-degenerate prime packet produced")
+				t.Fatal("no non-degenerate prime packet produced")
 			}
 
 			encG := celt.NewEncoder(channels)
@@ -89,7 +89,7 @@ func TestCELTDecoderPLCRecoveryOracle(t *testing.T) {
 				}
 			}
 			if len(good) <= 1 {
-				t.Skip("no non-degenerate good packet produced")
+				t.Fatal("no non-degenerate good packet produced")
 			}
 
 			n := channels * c.frameSize

@@ -4,6 +4,7 @@ package gopus
 
 import (
 	"fmt"
+	"math"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -33,6 +34,12 @@ func TestExplicitDREDQualityTracksLibopusAtSixtyPercentLoss(t *testing.T) {
 	goDRED := decodeDREDQualityPackets(t, packets, reference, goDecoderBlob, true)
 	libPLC := decodeLibopusDREDQualityPackets(t, packets, reference, decoderBlob, dredDecoderBlob, false)
 	libDRED := decodeLibopusDREDQualityPackets(t, packets, reference, decoderBlob, dredDecoderBlob, true)
+	zeroOffsetReference := dredQualityLossReferenceAtOffset(t, reference, len(packets), 0)
+	t.Logf("uncompensated zero-offset envelope diagnostic: Go PLC=%.5f Go DRED=%.5f C PLC=%.5f C DRED=%.5f",
+		dredQualityEnvelope(zeroOffsetReference, goPLC.lossDecoded, dredQualitySampleRate),
+		dredQualityEnvelope(zeroOffsetReference, goDRED.lossDecoded, dredQualitySampleRate),
+		dredQualityEnvelope(zeroOffsetReference, libPLC.lossDecoded, dredQualitySampleRate),
+		dredQualityEnvelope(zeroOffsetReference, libDRED.lossDecoded, dredQualitySampleRate))
 
 	if goDRED.lossFrames != libDRED.lossFrames {
 		t.Fatalf("loss frame count mismatch: go=%d libopus=%d", goDRED.lossFrames, libDRED.lossFrames)
@@ -118,6 +125,120 @@ func TestExplicitDREDQualityTracksLibopusAtSixtyPercentLoss(t *testing.T) {
 	qualitycompare.AssertQuality(t, cmp, dredPCMBar, "Go-vs-libopus DRED concealed PCM")
 }
 
+func TestDREDLowDelayReferenceOffsetAgainstLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	lookahead, err := libopustest.ProbeCTLSequence(libopustest.CTLSequenceParams{
+		SampleRate:  dredQualitySampleRate,
+		Channels:    dredQualityChannels,
+		Application: 2051, // OPUS_APPLICATION_RESTRICTED_LOWDELAY
+		FrameSize:   dredQualityFrameSize,
+		Ops: []libopustest.CTLOp{{
+			Op:      libopustest.CTLOpGet,
+			Request: 4027, // OPUS_GET_LOOKAHEAD_REQUEST
+		}},
+	})
+	if err != nil {
+		t.Fatalf("query C OPUS_GET_LOOKAHEAD: %v", err)
+	}
+	if len(lookahead) != 1 || lookahead[0].Ret != 0 || !lookahead[0].HaveValue ||
+		lookahead[0].Value != dredQualitySampleRate/400 {
+		t.Fatalf("C OPUS_GET_LOOKAHEAD result=%+v want %d", lookahead, dredQualitySampleRate/400)
+	}
+	encoderBlob := requireLibopusEncoderNeuralModelBlob(t)
+	reference, packets := encodeDREDQualityPackets(t, encoderBlob)
+	decoded := decodeLibopusAllDeliveredQualityPackets(t, packets)
+	if len(reference) != len(decoded) {
+		t.Fatalf("clean sequence samples: reference=%d C=%d", len(reference), len(decoded))
+	}
+
+	const search = 240
+	bestOffset, bestCorr := dredQualityBestReferenceOffset(reference, decoded, search)
+	corrAtZero := dredQualityReferenceOffsetCorrelation(reference, decoded, 0, search)
+	corrAtLookahead := dredQualityReferenceOffsetCorrelation(reference, decoded, int(lookahead[0].Value), search)
+	t.Logf("restricted-low-delay C decode timing: lookahead=%d best-source-offset=%d corr=%.6f zero-offset-corr=%.6f lookahead-offset-corr=%.6f",
+		lookahead[0].Value, bestOffset, bestCorr, corrAtZero, corrAtLookahead)
+	if bestOffset != int(lookahead[0].Value) {
+		t.Fatalf("C no-loss decode aligns at source offset %d, want OPUS_GET_LOOKAHEAD=%d", bestOffset, lookahead[0].Value)
+	}
+	if corrAtLookahead < corrAtZero+0.05 {
+		t.Fatalf("lookahead alignment improvement too small: zero=%.6f lookahead=%.6f", corrAtZero, corrAtLookahead)
+	}
+}
+
+func decodeLibopusAllDeliveredQualityPackets(t *testing.T, packets [][]byte) []float32 {
+	t.Helper()
+	binPath, err := getLibopusDREDQualitySequenceHelperPath()
+	if err != nil {
+		libopustest.HelperUnavailable(t, "DRED quality sequence", err)
+	}
+	payload := libopustest.NewOraclePayloadVersion(libopusDREDQualitySequenceInputMagic, 2,
+		uint32(dredQualitySampleRate), uint32(dredQualityChannels), uint32(dredQualityFrameSize),
+		uint32(len(packets)), 0, 0, 0)
+	for _, packet := range packets {
+		payload.U32s(1, uint32(len(packet)))
+		payload.Raw(packet)
+	}
+	reader, err := libopustest.RunOracleVersion(binPath, payload.Bytes(),
+		"libopus clean DRED timing sequence", libopusDREDQualitySequenceOutputMagic, 2)
+	if err != nil {
+		t.Fatalf("run libopus clean DRED timing sequence: %v", err)
+	}
+	lossFrames, dredFrames, fallbackFrames := reader.I32(), reader.I32(), reader.I32()
+	channels, sampleRate, frameSize, lossSamples := reader.I32(), reader.I32(), reader.I32(), reader.I32()
+	if err := reader.Err(); err != nil {
+		t.Fatalf("read clean sequence header: %v", err)
+	}
+	if lossFrames != 0 || dredFrames != 0 || fallbackFrames != 0 || channels != dredQualityChannels ||
+		sampleRate != dredQualitySampleRate || frameSize != dredQualityFrameSize || lossSamples != 0 {
+		t.Fatalf("unexpected clean sequence header: loss=%d DRED=%d fallback=%d shape=%d/%d/%d samples=%d",
+			lossFrames, dredFrames, fallbackFrames, channels, sampleRate, frameSize, lossSamples)
+	}
+	if reader.Count(len(packets)) != len(packets) {
+		t.Fatalf("clean sequence record count: %v", reader.Err())
+	}
+	decoded := make([]float32, 0, len(packets)*dredQualityFrameSize*dredQualityChannels)
+	for frame := range packets {
+		gotFrame, kind, samples := reader.U32(), reader.U32(), reader.I32()
+		_ = reader.U32() // final range
+		if err := reader.Err(); err != nil {
+			t.Fatalf("read clean frame %d header: %v", frame, err)
+		}
+		if gotFrame != uint32(frame) || kind != 0 || samples != dredQualityFrameSize*dredQualityChannels {
+			t.Fatalf("clean frame %d record=(frame=%d kind=%d samples=%d)", frame, gotFrame, kind, samples)
+		}
+		for i := 0; i < int(samples); i++ {
+			decoded = append(decoded, reader.Float32())
+		}
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		t.Fatalf("clean sequence output: %v", err)
+	}
+	return decoded
+}
+
+func dredQualityBestReferenceOffset(reference, decoded []float32, maxOffset int) (int, float64) {
+	bestOffset, bestCorr := -1, math.Inf(-1)
+	for offset := 0; offset <= maxOffset; offset++ {
+		corr := dredQualityReferenceOffsetCorrelation(reference, decoded, offset, maxOffset)
+		if corr > bestCorr {
+			bestOffset, bestCorr = offset, corr
+		}
+	}
+	return bestOffset, bestCorr
+}
+
+func dredQualityReferenceOffsetCorrelation(reference, decoded []float32, offset, maxOffset int) float64 {
+	start := 20*dredQualityFrameSize + maxOffset
+	if start < offset {
+		start = offset
+	}
+	end := len(decoded)
+	if end > len(reference)+offset {
+		end = len(reference) + offset
+	}
+	return dredQualityCorrelation(reference[start-offset:end-offset], decoded[start:end])
+}
+
 func getLibopusDREDQualitySequenceHelperPath() (string, error) {
 	return cachedLibopusDREDHelperPath(&libopusDREDQualitySequenceHelper, "libopus_decoder_dred_quality_sequence.c", "gopus_libopus_decoder_dred_quality_sequence", true)
 }
@@ -193,6 +314,10 @@ func decodeLibopusDREDQualityPackets(t *testing.T, packets [][]byte, reference [
 }
 
 func dredQualityLossReference(t *testing.T, reference []float32, frames int) []float32 {
+	return dredQualityLossReferenceAtOffset(t, reference, frames, dredQualityLookaheadSamples)
+}
+
+func dredQualityLossReferenceAtOffset(t *testing.T, reference []float32, frames, offset int) []float32 {
 	t.Helper()
 	var lossReference []float32
 	expected := 0
@@ -205,12 +330,11 @@ func dredQualityLossReference(t *testing.T, reference []float32, frames int) []f
 			missing := frame - expected
 			for lostAgo := missing; lostAgo >= 1; lostAgo-- {
 				originalFrame := frame - lostAgo
-				start := originalFrame * dredQualityFrameSize * dredQualityChannels
-				end := start + dredQualityFrameSize*dredQualityChannels
-				if start < 0 || end > len(reference) {
+				frameReference, ok := dredQualityFrameReferenceWithOffset(reference, originalFrame, offset)
+				if !ok {
 					t.Fatalf("loss reference frame=%d outside reference", originalFrame)
 				}
-				lossReference = append(lossReference, reference[start:end]...)
+				lossReference = append(lossReference, frameReference...)
 			}
 		}
 		expected = frame + 1

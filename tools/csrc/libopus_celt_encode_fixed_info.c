@@ -17,9 +17,10 @@
 #include "celt/celt.h"
 #include "opus_defines.h"
 
-/* Oracle helper for the libopus FIXED_POINT CELT encode pipeline. Built against
- * the --enable-fixed-point reference tree so config.h defines FIXED_POINT and
- * celt_encode_with_ec plus the band front-end resolve to their integer paths.
+/* Oracle helper for the libopus FIXED_POINT CELT encode pipeline. It links the
+ * selected FIXED_POINT reference (and ENABLE_QEXT when the Go build enables
+ * QEXT), so celt_encode_with_ec and the band front-end use matching integer
+ * code and struct layouts.
  *
  * MODE_ENCODE runs the full celt_encode_with_ec on a real CELTEncoder for the
  * static 48000/960 custom mode and dumps the produced packet bytes (the
@@ -74,8 +75,8 @@ static int write_u32(uint32_t value) {
 }
 
 /* Inline copy of the (static) compute_mdcts from celt_encoder.c for the
- * FIXED_POINT non-QEXT build. upsample is fixed to 1 (48k core), so the
- * upsample scaling branch is omitted. */
+ * FIXED_POINT build. upsample is fixed to 1 (48k core), so the upsample
+ * scaling branch is omitted. */
 static void frontend_compute_mdcts(const CELTMode *mode, int shortBlocks,
                                    celt_sig *in, celt_sig *out, int C, int CC,
                                    int LM, int upsample) {

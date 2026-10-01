@@ -74,17 +74,16 @@ func TestDecoderCachedCELTDRED16kExplicitMatchesLiveSequenceOracle(t *testing.T)
 		t.Fatalf("libopus CELT 16k first-loss ret=%d want %d", want.step0.ret, n)
 	}
 
-	_, plcTol, farganTol, celtTol := decoderDREDLiveSequenceTolerances(packetInfo.sampleRate / 50)
 	pcm := make([]float32, n*dec.Channels())
 	got := decodeCachedCarrierDREDViaExplicit(t, dec, dred, n, pcm, n)
 	if got != n {
 		t.Fatalf("explicit DRED decode=%d want %d", got, n)
 	}
 
-	assertDecodedPCMQuality(t, pcm[:got*dec.Channels()], want.step0.pcm[:got*dec.Channels()], decoderRate, dec.Channels(), "CELT 16k explicit live-sequence pcm")
-	assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step0.state, "CELT 16k explicit live-sequence plc", plcTol)
-	assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step0.fargan, "CELT 16k explicit live-sequence fargan", farganTol)
-	assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.step0.celt48k, "CELT 16k explicit live-sequence celt", celtTol)
+	assertDecodedPCMExactAndQuality(t, pcm[:got*dec.Channels()], want.step0.pcm[:got*dec.Channels()], decoderRate, dec.Channels(), "CELT 16k explicit live-sequence pcm")
+	assertDecoderDREDPLCStateBitsMatch(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step0.state, "CELT 16k explicit live-sequence plc")
+	assertDecoderDREDFARGANStateBitsMatch(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step0.fargan, "CELT 16k explicit live-sequence fargan")
+	assertDecoderDREDCELT48kBridgeBitsMatch(t, dec, want.step0.celt48k, "CELT 16k explicit live-sequence celt")
 }
 
 // TestDecoderCachedStereoCELTDRED16kExplicitMatchesLiveSequenceOracle gates the
@@ -134,17 +133,16 @@ func TestDecoderCachedStereoCELTDRED16kExplicitMatchesLiveSequenceOracle(t *test
 		t.Fatalf("libopus stereo CELT 16k first-loss ret=%d want %d", want.step0.ret, n)
 	}
 
-	_, plcTol, farganTol, celtTol := decoderDREDLiveSequenceTolerances(packetInfo.sampleRate / 50)
 	pcm := make([]float32, n*dec.Channels())
 	got := decodeCachedCarrierDREDViaExplicit(t, dec, dred, n, pcm, n)
 	if got != n {
 		t.Fatalf("stereo CELT 16k explicit DRED decode=%d want %d", got, n)
 	}
 
-	assertDecodedPCMQuality(t, pcm[:got*dec.Channels()], want.step0.pcm[:got*dec.Channels()], decoderRate, dec.Channels(), "stereo CELT 16k explicit live-sequence pcm")
-	assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step0.state, "stereo CELT 16k explicit live-sequence plc", plcTol)
-	assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step0.fargan, "stereo CELT 16k explicit live-sequence fargan", farganTol)
-	assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.step0.celt48k, "stereo CELT 16k explicit live-sequence celt", celtTol)
+	assertDecodedPCMExactAndQuality(t, pcm[:got*dec.Channels()], want.step0.pcm[:got*dec.Channels()], decoderRate, dec.Channels(), "stereo CELT 16k explicit live-sequence pcm")
+	assertDecoderDREDPLCStateBitsMatch(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step0.state, "stereo CELT 16k explicit live-sequence plc")
+	assertDecoderDREDFARGANStateBitsMatch(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step0.fargan, "stereo CELT 16k explicit live-sequence fargan")
+	assertDecoderDREDCELT48kBridgeBitsMatch(t, dec, want.step0.celt48k, "stereo CELT 16k explicit live-sequence celt")
 }
 
 // hybrid16kExplicitDREDCases returns the 16 kHz decoder-rate hybrid test cases
@@ -203,10 +201,10 @@ func TestDecoderExplicitHybridDRED16kAPIRateFirstLossMatchesLibopus(t *testing.T
 				t.Fatalf("decodeExplicitDREDFloat=%d want %d", got, n)
 			}
 
-			assertDecodedPCMQuality(t, pcm[:got], want.pcm[:got], dec.SampleRate(), dec.Channels(), "16k hybrid API-rate explicit first-loss pcm")
-			assertDecoderDREDPLCStateApproxEqual(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.state, "16k hybrid API-rate explicit first-loss plc")
-			assertDecoderDREDFARGANStateApproxEqual(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.fargan, "16k hybrid API-rate explicit first-loss fargan")
-			assertDecoderDREDCELT48kBridgeApproxEqual(t, dec, want.celt48k, "16k hybrid API-rate explicit first-loss celt")
+			assertDecodedPCMExactAndQuality(t, pcm[:got], want.pcm[:got], dec.SampleRate(), dec.Channels(), "16k hybrid API-rate explicit first-loss pcm")
+			assertDecoderDREDPLCStateBitsMatch(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.state, "16k hybrid API-rate explicit first-loss plc")
+			assertDecoderDREDFARGANStateBitsMatch(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.fargan, "16k hybrid API-rate explicit first-loss fargan")
+			assertDecoderDREDCELT48kBridgeBitsMatch(t, dec, want.celt48k, "16k hybrid API-rate explicit first-loss celt")
 		})
 	}
 }
@@ -251,10 +249,10 @@ func TestDecoderExplicitHybridDRED16kAPIRateThenNextPacketMatchesLibopus(t *test
 				t.Fatalf("Decode(next hybrid packet)=%d want %d", gotNext, want.nextRet)
 			}
 
-			assertDecodedPCMQuality(t, nextPCM[:gotNext], want.nextPCM[:gotNext], dec.SampleRate(), dec.Channels(), "16k hybrid API-rate explicit next-packet pcm")
-			assertDecoderDREDPLCStateApproxEqual(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.state, "16k hybrid API-rate explicit next-packet plc")
-			assertDecoderDREDFARGANStateApproxEqual(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.fargan, "16k hybrid API-rate explicit next-packet fargan")
-			assertDecoderDREDCELT48kBridgeApproxEqual(t, dec, want.celt48k, "16k hybrid API-rate explicit next-packet celt")
+			assertDecodedPCMExactAndQuality(t, nextPCM[:gotNext], want.nextPCM[:gotNext], dec.SampleRate(), dec.Channels(), "16k hybrid API-rate explicit next-packet pcm")
+			assertDecoderDREDPLCStateBitsMatch(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.state, "16k hybrid API-rate explicit next-packet plc")
+			assertDecoderDREDFARGANStateBitsMatch(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.fargan, "16k hybrid API-rate explicit next-packet fargan")
+			assertDecoderDREDCELT48kBridgeBitsMatch(t, dec, want.celt48k, "16k hybrid API-rate explicit next-packet celt")
 		})
 	}
 }
@@ -298,10 +296,10 @@ func TestDecoderExplicitHybridDRED16kAPIRateSecondLossMatchesLibopus(t *testing.
 				t.Fatalf("decodeExplicitDREDFloat(second)=%d want %d", got, n)
 			}
 
-			assertDecodedPCMQuality(t, pcm1[:got], want.pcm[:got], dec.SampleRate(), dec.Channels(), "16k hybrid API-rate explicit second-loss pcm")
-			assertDecoderDREDPLCStateApproxEqual(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.state, "16k hybrid API-rate explicit second-loss plc")
-			assertDecoderDREDFARGANStateApproxEqual(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.fargan, "16k hybrid API-rate explicit second-loss fargan")
-			assertDecoderDREDCELT48kBridgeApproxEqual(t, dec, want.celt48k, "16k hybrid API-rate explicit second-loss celt")
+			assertDecodedPCMExactAndQuality(t, pcm1[:got], want.pcm[:got], dec.SampleRate(), dec.Channels(), "16k hybrid API-rate explicit second-loss pcm")
+			assertDecoderDREDPLCStateBitsMatch(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.state, "16k hybrid API-rate explicit second-loss plc")
+			assertDecoderDREDFARGANStateBitsMatch(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.fargan, "16k hybrid API-rate explicit second-loss fargan")
+			assertDecoderDREDCELT48kBridgeBitsMatch(t, dec, want.celt48k, "16k hybrid API-rate explicit second-loss celt")
 		})
 	}
 }
@@ -353,10 +351,10 @@ func TestDecoderExplicitHybridDRED16kAPIRateSecondLossThenNextPacketMatchesLibop
 				t.Fatalf("Decode(next hybrid packet) after second loss=%d want %d", gotNext, want.nextRet)
 			}
 
-			assertDecodedPCMQuality(t, nextPCM[:gotNext], want.nextPCM[:gotNext], dec.SampleRate(), dec.Channels(), "16k hybrid API-rate explicit second-loss+next pcm")
-			assertDecoderDREDPLCStateApproxEqual(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.state, "16k hybrid API-rate explicit second-loss+next plc")
-			assertDecoderDREDFARGANStateApproxEqual(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.fargan, "16k hybrid API-rate explicit second-loss+next fargan")
-			assertDecoderDREDCELT48kBridgeApproxEqual(t, dec, want.celt48k, "16k hybrid API-rate explicit second-loss+next celt")
+			assertDecodedPCMExactAndQuality(t, nextPCM[:gotNext], want.nextPCM[:gotNext], dec.SampleRate(), dec.Channels(), "16k hybrid API-rate explicit second-loss+next pcm")
+			assertDecoderDREDPLCStateBitsMatch(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.state, "16k hybrid API-rate explicit second-loss+next plc")
+			assertDecoderDREDFARGANStateBitsMatch(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.fargan, "16k hybrid API-rate explicit second-loss+next fargan")
+			assertDecoderDREDCELT48kBridgeBitsMatch(t, dec, want.celt48k, "16k hybrid API-rate explicit second-loss+next celt")
 		})
 	}
 }
@@ -424,11 +422,11 @@ func TestDecoderExplicitSILKDREDAPIRateFirstLossMatchesLibopus(t *testing.T) {
 				t.Fatalf("decodeExplicitDREDFloat=%d want %d", got, n)
 			}
 
-			assertDecodedPCMQuality(t, pcm[:got*dec.Channels()], want.pcm[:got*dec.Channels()], dec.SampleRate(), dec.Channels(), fmt.Sprintf("SILK %s explicit API-rate pcm", tc.name))
-			assertDecoderDREDPLCStateApproxEqual(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.state, fmt.Sprintf("SILK %s explicit API-rate plc", tc.name))
-			assertDecoderDREDFARGANStateApproxEqual(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.fargan, fmt.Sprintf("SILK %s explicit API-rate fargan", tc.name))
-			assertDecoderDREDCELT48kBridgeApproxEqual(t, dec, want.celt48k, fmt.Sprintf("SILK %s explicit API-rate celt", tc.name))
-			assertDecoderDREDSILKStateApproxEqualWithin(t, dec, want.silk, silkpkg.BandwidthWideband, fmt.Sprintf("SILK %s explicit API-rate silk", tc.name), 1e-4)
+			assertDecodedPCMExactAndQuality(t, pcm[:got*dec.Channels()], want.pcm[:got*dec.Channels()], dec.SampleRate(), dec.Channels(), fmt.Sprintf("SILK %s explicit API-rate pcm", tc.name))
+			assertDecoderDREDPLCStateBitsMatch(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.state, fmt.Sprintf("SILK %s explicit API-rate plc", tc.name))
+			assertDecoderDREDFARGANStateBitsMatch(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.fargan, fmt.Sprintf("SILK %s explicit API-rate fargan", tc.name))
+			assertDecoderDREDCELT48kBridgeBitsMatch(t, dec, want.celt48k, fmt.Sprintf("SILK %s explicit API-rate celt", tc.name))
+			assertDecoderDREDSILKStateBitsMatch(t, dec, want.silk, silkpkg.BandwidthWideband, fmt.Sprintf("SILK %s explicit API-rate silk", tc.name))
 		})
 	}
 }
@@ -504,11 +502,11 @@ func TestDecoderExplicitSILKDREDAPIRateSecondLossMatchesLibopus(t *testing.T) {
 				t.Fatalf("decodeExplicitDREDFloat(second)=%d want %d", got, n)
 			}
 
-			assertDecodedPCMQuality(t, pcm1[:got*dec.Channels()], want.pcm[:got*dec.Channels()], dec.SampleRate(), dec.Channels(), fmt.Sprintf("SILK %s second-loss explicit pcm", tc.name))
-			assertDecoderDREDPLCStateApproxEqual(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.state, fmt.Sprintf("SILK %s second-loss explicit plc", tc.name))
-			assertDecoderDREDFARGANStateApproxEqual(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.fargan, fmt.Sprintf("SILK %s second-loss explicit fargan", tc.name))
-			assertDecoderDREDCELT48kBridgeApproxEqual(t, dec, want.celt48k, fmt.Sprintf("SILK %s second-loss explicit celt", tc.name))
-			assertDecoderDREDSILKStateApproxEqualWithin(t, dec, want.silk, silkpkg.BandwidthWideband, fmt.Sprintf("SILK %s second-loss explicit silk", tc.name), 1e-4)
+			assertDecodedPCMExactAndQuality(t, pcm1[:got*dec.Channels()], want.pcm[:got*dec.Channels()], dec.SampleRate(), dec.Channels(), fmt.Sprintf("SILK %s second-loss explicit pcm", tc.name))
+			assertDecoderDREDPLCStateBitsMatch(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.state, fmt.Sprintf("SILK %s second-loss explicit plc", tc.name))
+			assertDecoderDREDFARGANStateBitsMatch(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.fargan, fmt.Sprintf("SILK %s second-loss explicit fargan", tc.name))
+			assertDecoderDREDCELT48kBridgeBitsMatch(t, dec, want.celt48k, fmt.Sprintf("SILK %s second-loss explicit celt", tc.name))
+			assertDecoderDREDSILKStateBitsMatch(t, dec, want.silk, silkpkg.BandwidthWideband, fmt.Sprintf("SILK %s second-loss explicit silk", tc.name))
 		})
 	}
 }

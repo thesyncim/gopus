@@ -74,6 +74,7 @@ type runConfig struct {
 	libopusRoot          string
 	format               string
 	outPath              string
+	workloadHashes       bool
 	maxGopusLibopusRatio float64
 	maxGopusAllocsPerOp  float64
 }
@@ -84,9 +85,10 @@ func main() {
 	flag.DurationVar(&cfg.minDuration, "benchtime", 200*time.Millisecond, "minimum measurement time per run")
 	flag.StringVar(&cfg.benchtimes, "benchtimes", "", "comma-separated minimum measurement times; bare numbers are milliseconds")
 	flag.IntVar(&cfg.count, "count", 3, "measurement runs per case; median ns/sample is reported")
-	flag.StringVar(&cfg.libopusRoot, "libopus-root", filepath.Join("tmp_check", "opus-"+libopusVersion), "pinned libopus source/build directory")
+	flag.StringVar(&cfg.libopusRoot, "libopus-root", "", "validated libopus source/build directory (defaults to the build-matched tree)")
 	flag.StringVar(&cfg.format, "format", "markdown", "output format: markdown or tsv")
 	flag.StringVar(&cfg.outPath, "out", "", "optional output path")
+	flag.BoolVar(&cfg.workloadHashes, "workload-hashes", false, "write workload metadata and Float32LE SHA-256 hashes to stderr")
 	flag.Float64Var(&cfg.maxGopusLibopusRatio, "max-gopus-libopus-ratio", 0, "optional guardrail: fail when gopus/libopus ns/sample ratio exceeds this value")
 	flag.Float64Var(&cfg.maxGopusAllocsPerOp, "max-gopus-allocs-per-op", -1, "optional guardrail: fail when gopus allocations/op exceeds this value")
 	flag.Parse()
@@ -122,15 +124,28 @@ func run(cfg runConfig) error {
 	if err != nil {
 		return err
 	}
-	libopusRoot := absPath(root, cfg.libopusRoot)
+	libopusRoot, variant, err := prepareLibopusReferenceRoot(root, cfg.libopusRoot)
+	if err != nil {
+		return err
+	}
 
 	workloads, err := makeEncoderWorkloads()
 	if err != nil {
 		return err
 	}
+	if cfg.workloadHashes {
+		target, err := libopustooling.ResolveLibopusAMD64Target()
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprint(os.Stderr, formatWorkloadHashes(workloads, runtime.GOOS, runtime.GOARCH, libopustooling.CompiledGoAMD64Level(), target))
+		if err != nil {
+			return fmt.Errorf("write workload hash manifest: %w", err)
+		}
+	}
 	cases := makeBenchmarkCases(workloads, cfg.cases)
 
-	helper, err := buildLibopusHelper(root, libopusRoot)
+	helper, err := buildLibopusHelper(root, libopusRoot, variant)
 	if err != nil {
 		return err
 	}
@@ -544,16 +559,29 @@ func writeLibopusPCMInputs(tempDir string, workloads []encoderWorkload) ([]strin
 	return specs, nil
 }
 
-func buildLibopusHelper(root, libopusRoot string) (string, error) {
+func formatWorkloadHashes(workloads []encoderWorkload, goos, goarch, goamd64, target string) string {
+	var out strings.Builder
+	fmt.Fprintf(&out, "encoderbenchcmp-workload-manifest\tgoos=%s\tgoarch=%s\tgoamd64=%s\ttarget=%s\n", goos, goarch, goamd64, target)
+	for _, workload := range workloads {
+		fmt.Fprintf(&out,
+			"encoderbenchcmp-workload\tname=%s\tvariant=%s\tframe_size=%d\tchannels=%d\tsamples=%d\tsha256_float32le=%s\n",
+			workload.Name, workload.Variant, workload.FrameSize, workload.Channels, len(workload.PCM), testsignal.HashFloat32LE(workload.PCM),
+		)
+	}
+	return out.String()
+}
+
+func buildLibopusHelper(root, libopusRoot string, variant libopustooling.LibopusReferenceVariant) (string, error) {
+	if err := libopustooling.ValidateLibopusReferenceBuild(libopusRoot, variant, libopusVersion); err != nil {
+		return "", err
+	}
 	staticLib := filepath.Join(libopusRoot, ".libs", "libopus.a")
-	if _, err := os.Stat(staticLib); err != nil {
-		libopustooling.EnsureLibopus(libopusVersion, []string{root})
-	}
-	if _, err := os.Stat(staticLib); err != nil {
-		return "", fmt.Errorf("pinned libopus static library not found at %s: %w", staticLib, err)
-	}
 
 	cc, err := libopustooling.FindCCompiler()
+	if err != nil {
+		return "", err
+	}
+	targetCFlags, err := libopustooling.LibopusAMD64TargetCFlags()
 	if err != nil {
 		return "", err
 	}
@@ -562,22 +590,56 @@ func buildLibopusHelper(root, libopusRoot string) (string, error) {
 	if runtime.GOOS == "windows" {
 		out += ".exe"
 	}
-	args := []string{
-		"-std=c99",
-		"-O3",
-		"-DNDEBUG",
+	args := libopusHelperCompileFlags(variant, targetCFlags)
+	args = append(args,
 		"-I", filepath.Join(libopusRoot, "include"),
 		src,
 		staticLib,
 		"-lm",
 		"-o", out,
-	}
+	)
 	cmd := exec.Command(cc, args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("build libopus encoder benchmark helper: %w (%s)", err, bytes.TrimSpace(output))
 	}
 	return out, nil
+}
+
+func libopusHelperCompileFlags(variant libopustooling.LibopusReferenceVariant, targetCFlags []string) []string {
+	args := []string{"-O3", "-DNDEBUG"}
+	if variant == libopustooling.LibopusReferenceScalar {
+		args = append(args, strings.Fields(libopustooling.LibopusScalarCVectorizationFlags)...)
+	}
+	return append(args, targetCFlags...)
+}
+
+func prepareLibopusReferenceRoot(root, requested string) (string, libopustooling.LibopusReferenceVariant, error) {
+	variant, err := libopustooling.ResolveLibopusReferenceVariant()
+	if err != nil {
+		return "", "", err
+	}
+	refRoot := requested
+	if refRoot == "" {
+		suffix, err := libopustooling.LibopusReferenceSourceSuffix(variant)
+		if err != nil {
+			return "", "", err
+		}
+		refRoot = filepath.Join(root, "tmp_check", "opus-"+libopusVersion+suffix)
+	} else {
+		refRoot = absPath(root, refRoot)
+	}
+	if requested == "" {
+		if variant == libopustooling.LibopusReferenceSIMD {
+			libopustooling.EnsureLibopusSIMD(libopusVersion, []string{root})
+		} else {
+			libopustooling.EnsureLibopusScalar(libopusVersion, []string{root})
+		}
+	}
+	if err := libopustooling.ValidateLibopusReferenceBuild(refRoot, variant, libopusVersion); err != nil {
+		return "", "", err
+	}
+	return refRoot, variant, nil
 }
 
 func runLibopusBenchmarks(helper string, caseSpecs []string, cfg runConfig) ([]benchmarkResult, error) {

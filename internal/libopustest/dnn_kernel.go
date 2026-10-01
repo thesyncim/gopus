@@ -1,14 +1,20 @@
 package libopustest
 
 import (
+	"fmt"
+	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/thesyncim/gopus/internal/libopustooling"
 )
 
 const (
-	DNNKernelSGEMV    = uint32(0)
-	DNNKernelCGEMV8x4 = uint32(1)
+	DNNKernelSGEMV             = uint32(0)
+	DNNKernelCGEMV8x4          = uint32(1)
+	DNNKernelLinearCGEMV8x4    = uint32(2)
+	DNNKernelLinearSparseSGEMV = uint32(3)
+	DNNKernelConv2D3x3         = uint32(4)
 
 	dnnKernelInputMagic  = "GDKI"
 	dnnKernelOutputMagic = "GDKO"
@@ -18,13 +24,17 @@ var dnnKernelHelper HelperCache
 var dnnKernelScalarHelper HelperCache
 
 func dnnKernelHelperPath() (string, error) {
-	return dnnKernelHelper.CHelperPath(CHelperConfig{
-		Label:       "dnn kernel",
-		OutputBase:  "gopus_libopus_dnn_kernel",
-		SourceFile:  "libopus_dnn_kernel_info.c",
-		RefIncludes: []string{"celt", "celt/x86", "dnn"},
-		Libs:        []string{"-lm"},
+	_, source, _, _ := runtime.Caller(0)
+	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(source), "..", ".."))
+	return dnnKernelHelper.Path(func() (string, error) {
+		return BuildDREDHelper(repoRoot, "libopus_dnn_kernel_info.c", "gopus_libopus_dnn_kernel", true)
 	})
+}
+
+// DNNKernelOraclePath returns the selected kernel helper so native test runs
+// can retain its linked machine code alongside the numerical oracle evidence.
+func DNNKernelOraclePath() (string, error) {
+	return dnnKernelHelperPath()
 }
 
 func dnnKernelScalarHelperPath() (string, error) {
@@ -33,7 +43,7 @@ func dnnKernelScalarHelperPath() (string, error) {
 		OutputBase:  "gopus_libopus_dnn_kernel_scalar",
 		SourceFile:  "libopus_dnn_kernel_info.c",
 		RefIncludes: []string{"celt", "celt/x86", "dnn"},
-		CFlags:      strings.Fields(libopustooling.OSCEScalarDNNBuildCFLAGS),
+		CFlags:      append(strings.Fields(libopustooling.OSCEScalarDNNBuildCFLAGS), "-DGOPUS_DIRECT_SCALAR_DNN"),
 		Libs:        []string{"-lm"},
 	})
 }
@@ -46,7 +56,7 @@ func ProbeDNNKernelSGEMV(rows, cols, colStride int, weights, x []float32) ([]flo
 	payload := NewOraclePayload(dnnKernelInputMagic, DNNKernelSGEMV, uint32(rows), uint32(cols), uint32(colStride))
 	payload.Float32s(weights...)
 	payload.Float32s(x...)
-	return readDNNKernelOracle(binPath, payload.Bytes(), rows)
+	return readDNNKernelOracle(binPath, payload.Bytes(), rows, true)
 }
 
 func ProbeDNNKernelCGEMV8x4(rows, cols int, weights []byte, scale, x []float32) ([]float32, error) {
@@ -58,7 +68,57 @@ func ProbeDNNKernelCGEMV8x4(rows, cols int, weights []byte, scale, x []float32) 
 	payload.Raw(weights)
 	payload.Float32s(scale...)
 	payload.Float32s(x...)
-	return readDNNKernelOracle(binPath, payload.Bytes(), rows)
+	return readDNNKernelOracle(binPath, payload.Bytes(), rows, true)
+}
+
+// ProbeDNNLinearCGEMV8x4 calls the selected DRED archive's compute_linear,
+// including its integer-matrix bias selection and optional sparse weights.
+func ProbeDNNLinearCGEMV8x4(rows, cols int, idx []int32, weights []byte, scale, x, bias, subias []float32) ([]float32, error) {
+	binPath, err := dnnKernelHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	payload := NewOraclePayload(dnnKernelInputMagic, DNNKernelLinearCGEMV8x4, uint32(rows), uint32(cols), uint32(len(idx)))
+	payload.I32s(idx...)
+	payload.Raw(weights)
+	payload.Float32s(scale...)
+	payload.Float32s(x...)
+	payload.Float32s(bias...)
+	payload.Float32s(subias...)
+	return readDNNKernelOracle(binPath, payload.Bytes(), rows, true)
+}
+
+// ProbeDNNLinearSparseSGEMV calls the selected DRED archive's compute_linear
+// with float weights and sparse block indices, including its float bias.
+func ProbeDNNLinearSparseSGEMV(rows, cols int, idx []int32, weights, x, bias []float32) ([]float32, error) {
+	binPath, err := dnnKernelHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	payload := NewOraclePayload(dnnKernelInputMagic, DNNKernelLinearSparseSGEMV, uint32(rows), uint32(cols), uint32(len(idx)))
+	payload.I32s(idx...)
+	payload.Float32s(weights...)
+	payload.Float32s(make([]float32, rows)...)
+	payload.Float32s(x...)
+	payload.Float32s(bias...)
+	payload.Float32s(make([]float32, rows)...)
+	return readDNNKernelOracle(binPath, payload.Bytes(), rows, true)
+}
+
+// ProbeDNNConv2D3x3 calls the selected DRED archive's compute_conv2d with a
+// 3x3 kernel, a bias and the tanh activation, using hstride == height. It
+// returns the outChannels*height outputs.
+func ProbeDNNConv2D3x3(outChannels, inChannels, height int, weights, bias, mem, in []float32) ([]float32, error) {
+	binPath, err := dnnKernelHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	payload := NewOraclePayload(dnnKernelInputMagic, DNNKernelConv2D3x3, uint32(outChannels), uint32(inChannels), uint32(height))
+	payload.Float32s(weights...)
+	payload.Float32s(bias...)
+	payload.Float32s(mem...)
+	payload.Float32s(in...)
+	return readDNNKernelOracle(binPath, payload.Bytes(), outChannels*height, true)
 }
 
 func ProbeDNNKernelScalarCGEMV8x4(rows, cols int, weights []byte, scale, x []float32) ([]float32, error) {
@@ -70,15 +130,40 @@ func ProbeDNNKernelScalarCGEMV8x4(rows, cols int, weights []byte, scale, x []flo
 	payload.Raw(weights)
 	payload.Float32s(scale...)
 	payload.Float32s(x...)
-	return readDNNKernelOracle(binPath, payload.Bytes(), rows)
+	return readDNNKernelOracle(binPath, payload.Bytes(), rows, false)
 }
 
-func readDNNKernelOracle(binPath string, input []byte, rows int) ([]float32, error) {
+// ValidateDNNDispatchArch verifies that the selected x86 SIMD helper executes
+// libopus's AVX2 DNN table slot. Other targets use their selected config and
+// may map the architecture number differently.
+func ValidateDNNDispatchArch(arch uint32) error {
+	variant, err := libopustooling.ResolveLibopusReferenceVariant()
+	if err != nil {
+		return err
+	}
+	if variant == libopustooling.LibopusReferenceScalar && arch != 0 {
+		return fmt.Errorf("scalar DNN oracle selected arch=%d, want 0", arch)
+	}
+	if runtime.GOARCH == "amd64" && variant == libopustooling.LibopusReferenceSIMD && arch != 4 {
+		return fmt.Errorf("amd64 SIMD DNN oracle selected arch=%d, want AVX2 arch 4", arch)
+	}
+	return nil
+}
+
+func readDNNKernelOracle(binPath string, input []byte, rows int, selected bool) ([]float32, error) {
 	reader, err := RunOracle(binPath, input, "dnn kernel", dnnKernelOutputMagic)
 	if err != nil {
 		return nil, err
 	}
 	count := reader.Count(rows)
+	arch := reader.U32()
+	if selected {
+		if err := ValidateDNNDispatchArch(arch); err != nil {
+			return nil, err
+		}
+	} else if arch != 0 {
+		return nil, fmt.Errorf("direct scalar DNN oracle selected arch=%d, want 0", arch)
+	}
 	reader.ExpectRemaining(4 * count)
 	out := make([]float32, count)
 	for i := range out {

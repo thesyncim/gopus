@@ -1,40 +1,7 @@
-// composite_encode_differential_fuzz_test.go — differential fuzz for the
-// COMPOSITE encode paths (multistream surround + projection ambisonics) against
-// the SAME-ARCH libopus oracles, asserting byte-exact packets across a broad,
-// seeded configuration matrix.
-//
-// This is the multistream analog of the single-stream
-// gopus/encode_differential_fuzz_test.go. It complements the fixed-config
-// surround/projection parity tests (surround_encode_libopus_parity_test.go,
-// projection_encode_libopus_parity_test.go) by sweeping many more
-// layouts/orders × bitrates × frame-sizes × VBR/CVBR/CBR × complexity points
-// with SEEDED pseudo-random multichannel PCM, so the composite rate-split /
-// surround-masking / projection-mixing decisions are exercised on a wide range
-// of inter-channel energy distributions rather than a single fixed tone bed.
-//
-// Divergence classification (identical policy to the single-stream encode
-// fuzz and the existing composite parity tests):
-//
-//   - stream/coupled layout, demixing matrix and gain mismatch: HARD FAIL on
-//     every arch. These are integer-derived composite-layer outputs with no
-//     float boundary, so any divergence is a real composite bug.
-//
-//   - per-stream TOC config-list divergence (each stream's mode/bandwidth/frame
-//     duration): a per-stream mode-DECISION difference. The single-stream encode
-//     fuzz proved this is not a same-arch logic bug for the per-stream encoder
-//     (0 TOC flips / 1660 specs); when it appears here on the moderate
-//     per-stream rates surround/ambisonics streams receive, it is the same
-//     near-tie classification residual, logged not failed.
-//
-//   - packet byte mismatch with MATCHING per-stream TOC configs: the documented
-//     darwin/arm64 ≤1-ULP CELT float-analysis boundary
-//     (project_arm64_celt_1ulp_drift). On amd64 (the CI gate) the float path is
-//     exact, so this is a HARD FAIL there; on arm64 it is logged as the
-//     documented per-arch residual.
-//
-// Run the full sweep with:
-//   GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 go test \
-//     -run 'TestSurroundEncodeDifferentialFuzz|TestProjectionEncodeDifferentialFuzz' ./multistream/
+// The composite encode sweeps compare complete packets and entropy-coder final
+// ranges with the matching libopus 1.6.1 public entry on the same machine.
+// Every selected layout, duration, rate-control mode, sample format, and seeded
+// PCM sequence is a strict byte-exact case.
 
 package multistream
 
@@ -43,7 +10,6 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
-	"runtime"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -167,102 +133,53 @@ func buildSurroundFuzzSweep() []surroundFuzzSpec {
 	return specs
 }
 
-// TestSurroundEncodeDifferentialFuzz drives gopus and the libopus surround
-// oracle with identical seeded PCM across the broad config matrix and asserts
-// byte-exact packets, classifying every divergence (see file header).
+// TestSurroundEncodeDifferentialFuzz checks every packet and final range from
+// the selected surround matrix against opus_multistream_encode_float.
 func TestSurroundEncodeDifferentialFuzz(t *testing.T) {
 	libopustest.RequireOracle(t)
-
 	specs := buildSurroundFuzzSweep()
 	budget := fuzzBudget(len(specs))
 	stride := 1
 	if budget < len(specs) {
 		stride = len(specs) / budget
 	}
-
-	var (
-		tested        int
-		layoutFails   int
-		byteResiduals int // arm64 documented float-boundary frames
-		byteFails     int // amd64 hard failures
-	)
-
-	for idx := 0; idx < len(specs) && tested < budget; idx += stride {
+	for idx, tested := 0, 0; idx < len(specs) && tested < budget; idx, tested = idx+stride, tested+1 {
 		spec := specs[idx]
-		tested++
 		t.Run(spec.name, func(t *testing.T) {
 			pcm := seededMultichannelPCM(spec.seed, spec.channels, spec.frameSize, spec.frameCount)
-
 			ref, err := encodeLibopusSurround(compositeSampleRate, spec.channels, 1, compositeApplication,
 				spec.bitrate, spec.vbr, spec.vbrConstraint, spec.complexity, compositeBandwidthAuto,
-				spec.frameSize, spec.frameCount, compositeMaxPacketBytes, pcm)
+				spec.frameSize, spec.frameCount, compositeMaxPacketBytes, pcm, false)
 			if err != nil {
-				libopustest.HelperUnavailable(t, "multistream surround reference encode", err)
-				return
+				t.Fatalf("live C surround encode: %v", err)
 			}
-
 			enc, err := NewEncoderDefault(compositeSampleRate, spec.channels)
 			if err != nil {
-				t.Fatalf("NewEncoderDefault(%d): %v", spec.channels, err)
+				t.Fatal(err)
 			}
 			if enc.Streams() != ref.streams || enc.CoupledStreams() != ref.coupledStreams {
-				layoutFails++
-				t.Fatalf("stream layout mismatch: gopus streams=%d coupled=%d libopus streams=%d coupled=%d",
-					enc.Streams(), enc.CoupledStreams(), ref.streams, ref.coupledStreams)
+				t.Fatalf("layout Go=%d/%d C=%d/%d", enc.Streams(), enc.CoupledStreams(), ref.streams, ref.coupledStreams)
 			}
 			enc.SetBitrate(spec.bitrate)
 			enc.SetVBR(spec.vbr)
 			enc.SetVBRConstraint(spec.vbrConstraint)
 			enc.SetComplexity(spec.complexity)
 			enc.SetBandwidthAuto()
-
-			for i := 0; i < spec.frameCount; i++ {
-				start := i * spec.frameSize * spec.channels
-				frame := pcm[start : start+spec.frameSize*spec.channels]
-				got, err := enc.EncodeFloat32WithAnalysisMaxBytes(frame, spec.frameSize, frame, compositeMaxPacketBytes)
+			for frame := range spec.frameCount {
+				start := frame * spec.frameSize * spec.channels
+				input := pcm[start : start+spec.frameSize*spec.channels]
+				got, err := encodePacketMax(enc, input, spec.frameSize, input, compositeMaxPacketBytes)
 				if err != nil {
-					t.Fatalf("frame %d: gopus Encode: %v", i, err)
+					t.Fatalf("frame %d Go encode: %v", frame, err)
 				}
-				want := ref.packets[i]
-				if bytes.Equal(got, want) {
-					continue
+				if !bytes.Equal(got, ref.packets[frame]) || enc.GetFinalRange() != ref.ranges[frame] {
+					t.Errorf("frame %d: firstByte=%d len Go/C=%d/%d range Go/C=%08x/%08x configs Go/C=%v/%v", frame,
+						firstByteMismatch(got, ref.packets[frame]), len(got), len(ref.packets[frame]),
+						enc.GetFinalRange(), ref.ranges[frame], perStreamConfigs(got, enc.Streams()), perStreamConfigs(ref.packets[frame], ref.streams))
 				}
-				mismatch := firstByteMismatch(got, want)
-				// Compare per-stream TOC configs to separate a mode-decision
-				// residual from a pure float-boundary byte drift.
-				gotCfgs := perStreamConfigs(got, enc.Streams())
-				wantCfgs := perStreamConfigs(want, ref.streams)
-				if gotCfgs != nil && wantCfgs != nil && !sameInts(gotCfgs, wantCfgs) {
-					// A per-stream bandwidth/mode flip is a near-tie cascade: a ≤1-ULP
-					// analysis difference tips which config a stream's encoder selects.
-					// Both pure-Go builds show the identical flips on the same specs
-					// (arm64 FMA, amd64-purego Go float vs scalar libopus). The amd64
-					// asm/SIMD build is the strict bit-exact reference. The stream/
-					// coupled LAYOUT is asserted hard above on every build.
-					if runtime.GOARCH == "amd64" && gopusBuildIsAsm {
-						byteFails++
-						t.Errorf("frame %d: per-stream MODE-DECISION divergence gopus=%v libopus=%v (UNEXPECTED on amd64 asm)",
-							i, gotCfgs, wantCfgs)
-						continue
-					}
-					byteResiduals++
-					t.Logf("frame %d: per-stream mode-decision residual gopus=%v libopus=%v — pure-Go near-tie", i, gotCfgs, wantCfgs)
-					continue
-				}
-				if runtime.GOARCH == "amd64" && gopusBuildIsAsm {
-					byteFails++
-					t.Errorf("frame %d: surround packet BYTE MISMATCH at byte %d (len g=%d o=%d) — matching per-stream modes (UNEXPECTED on amd64 asm; bit-exact required)",
-						i, mismatch, len(got), len(want))
-					continue
-				}
-				byteResiduals++
-				t.Logf("frame %d: surround packet differs at byte %d (len g=%d o=%d) — documented pure-Go ≤1-ULP CELT float boundary",
-					i, mismatch, len(got), len(want))
 			}
 		})
 	}
-	t.Logf("surround encode differential sweep: %d/%d specs; arch=%s; layout-fails=%d amd64-byte-fails=%d arm64-float-residuals=%d",
-		tested, len(specs), runtime.GOARCH, layoutFails, byteFails, byteResiduals)
 }
 
 // projectionFuzzSpec is one point in the projection composite-encode config space.
@@ -330,124 +247,71 @@ func buildProjectionFuzzSweep() []projectionFuzzSpec {
 	return specs
 }
 
-// TestProjectionEncodeDifferentialFuzz drives gopus and the libopus projection
-// oracle with identical seeded ambisonics PCM across the broad config matrix and
-// asserts byte-exact layout/demixing/packets, classifying every divergence.
+// TestProjectionEncodeDifferentialFuzz compares the float and short projection
+// entries with their matching libopus 1.6.1 public entries for every selected
+// frame, packet byte, and final range.
 func TestProjectionEncodeDifferentialFuzz(t *testing.T) {
 	libopustest.RequireOracle(t)
-
 	specs := buildProjectionFuzzSweep()
 	budget := fuzzBudget(len(specs))
 	stride := 1
 	if budget < len(specs) {
 		stride = len(specs) / budget
 	}
-
-	var (
-		tested        int
-		layoutFails   int
-		demixFails    int
-		modeResiduals int
-		byteResiduals int
-		byteFails     int
-	)
-
-	for idx := 0; idx < len(specs) && tested < budget; idx += stride {
+	for idx, tested := 0, 0; idx < len(specs) && tested < budget; idx, tested = idx+stride, tested+1 {
 		spec := specs[idx]
-		tested++
 		t.Run(spec.name, func(t *testing.T) {
 			pcm := seededMultichannelPCM(spec.seed, spec.channels, spec.frameSize, spec.frameCount)
 			var pcm16 []int16
-			gopusPCM := pcm
 			if spec.sampleFormat == 1 {
 				pcm16 = floatToInt16(pcm)
-				gopusPCM = make([]float32, len(pcm16))
-				for i, s := range pcm16 {
-					gopusPCM[i] = float32(s) / 32768.0
-				}
 			}
-
 			ref, err := encodeLibopusProjection(compositeSampleRate, spec.channels, compositeApplication,
 				spec.bitrate, spec.vbr, spec.vbrConstraint, spec.complexity, compositeBandwidthAuto,
 				spec.frameSize, spec.frameCount, compositeMaxPacketBytes, spec.sampleFormat, pcm, pcm16)
 			if err != nil {
-				libopustest.HelperUnavailable(t, "projection reference encode", err)
-				return
+				t.Fatalf("live C projection encode: %v", err)
 			}
-
 			enc, err := NewProjectionEncoder(compositeSampleRate, spec.channels)
 			if err != nil {
-				t.Fatalf("NewProjectionEncoder(%d): %v", spec.channels, err)
+				t.Fatal(err)
 			}
 			if enc.Streams() != ref.streams || enc.CoupledStreams() != ref.coupledStreams {
-				layoutFails++
-				t.Fatalf("stream layout mismatch: gopus streams=%d coupled=%d libopus streams=%d coupled=%d",
-					enc.Streams(), enc.CoupledStreams(), ref.streams, ref.coupledStreams)
+				t.Fatalf("layout Go=%d/%d C=%d/%d", enc.Streams(), enc.CoupledStreams(), ref.streams, ref.coupledStreams)
 			}
-			// Demixing matrix + gain are integer outputs — byte-exact on every arch.
-			if !bytes.Equal(enc.GetDemixingMatrix(), ref.demixing) {
-				demixFails++
-				t.Fatalf("demixing matrix mismatch (gopus len=%d libopus len=%d)", len(enc.GetDemixingMatrix()), len(ref.demixing))
+			if !bytes.Equal(enc.GetDemixingMatrix(), ref.demixing) || enc.DemixingMatrixGain() != ref.demixingGain {
+				t.Fatal("demixing matrix or gain differs from C")
 			}
-			if enc.DemixingMatrixGain() != ref.demixingGain {
-				demixFails++
-				t.Fatalf("demixing gain mismatch: gopus=%d libopus=%d", enc.DemixingMatrixGain(), ref.demixingGain)
-			}
-
 			enc.SetBitrate(spec.bitrate)
 			enc.SetVBR(spec.vbr)
 			enc.SetVBRConstraint(spec.vbrConstraint)
 			enc.SetComplexity(spec.complexity)
 			enc.SetBandwidthAuto()
-
-			for i := 0; i < spec.frameCount; i++ {
-				start := i * spec.frameSize * spec.channels
-				frame := gopusPCM[start : start+spec.frameSize*spec.channels]
-				got, err := enc.EncodeFloat32WithAnalysisMaxBytes(frame, spec.frameSize, frame, compositeMaxPacketBytes)
-				if err != nil {
-					t.Fatalf("frame %d: gopus Encode: %v", i, err)
-				}
-				want := ref.packets[i]
-				if bytes.Equal(got, want) {
-					continue
-				}
-				mismatch := firstByteMismatch(got, want)
-				gotCfgs := perStreamConfigs(got, enc.Streams())
-				wantCfgs := perStreamConfigs(want, ref.streams)
-				if gotCfgs != nil && wantCfgs != nil && !sameInts(gotCfgs, wantCfgs) {
-					// Per-stream mode flip = near-tie cascade. Strict only on the amd64
-					// asm/SIMD float path (the int16 path already carries an
-					// accumulation-order residual on every build). The layout + demixing
-					// matrix are asserted hard above on every build.
-					if runtime.GOARCH == "amd64" && spec.sampleFormat == 0 && gopusBuildIsAsm {
-						byteFails++
-						t.Errorf("frame %d: per-stream MODE-DECISION divergence gopus=%v libopus=%v (UNEXPECTED on amd64 asm float path)",
-							i, gotCfgs, wantCfgs)
-						continue
+			out := make([]byte, compositeMaxPacketBytes)
+			for frame := range spec.frameCount {
+				start := frame * spec.frameSize * spec.channels
+				var got []byte
+				if spec.sampleFormat == 1 {
+					input := pcm16[start : start+spec.frameSize*spec.channels]
+					n, err := enc.EncodeInt16WithAnalysis(input, spec.frameSize, input, out)
+					if err != nil {
+						t.Fatalf("frame %d Go short encode: %v", frame, err)
 					}
-					modeResiduals++
-					t.Logf("frame %d: per-stream mode-decision residual gopus=%v libopus=%v", i, gotCfgs, wantCfgs)
-					continue
+					got = out[:n]
+				} else {
+					input := pcm[start : start+spec.frameSize*spec.channels]
+					var err error
+					got, err = encodePacketMax(enc, input, spec.frameSize, input, compositeMaxPacketBytes)
+					if err != nil {
+						t.Fatalf("frame %d Go float encode: %v", frame, err)
+					}
 				}
-				// int16 path: libopus applies the mixing matrix on the ~2^30 integer
-				// products then divides; gopus mixes the ~2^15 pre-divided floats.
-				// Equal in exact arithmetic, but the float32 accumulation order
-				// differs, so a frame can drift even on amd64. The float32 path on the
-				// pure-Go builds carries the documented ≤1-ULP CELT boundary; only the
-				// amd64 asm/SIMD float path is held strict. Log it (the layout +
-				// demixing assertions above already gate the projection layer).
-				if runtime.GOARCH == "amd64" && spec.sampleFormat == 0 && gopusBuildIsAsm {
-					byteFails++
-					t.Errorf("frame %d: projection packet BYTE MISMATCH at byte %d (len g=%d o=%d) — matching per-stream modes (UNEXPECTED on amd64 asm float path)",
-						i, mismatch, len(got), len(want))
-					continue
+				if !bytes.Equal(got, ref.packets[frame]) || enc.GetFinalRange() != ref.ranges[frame] {
+					t.Errorf("frame %d: firstByte=%d len Go/C=%d/%d range Go/C=%08x/%08x configs Go/C=%v/%v", frame,
+						firstByteMismatch(got, ref.packets[frame]), len(got), len(ref.packets[frame]),
+						enc.GetFinalRange(), ref.ranges[frame], perStreamConfigs(got, enc.Streams()), perStreamConfigs(ref.packets[frame], ref.streams))
 				}
-				byteResiduals++
-				t.Logf("frame %d: projection packet differs at byte %d (len g=%d o=%d) — pure-Go ≤1-ULP CELT float boundary / int16 accumulation-order residual",
-					i, mismatch, len(got), len(want))
 			}
 		})
 	}
-	t.Logf("projection encode differential sweep: %d/%d specs; arch=%s; layout-fails=%d demix-fails=%d mode-residuals=%d amd64-byte-fails=%d float-residuals=%d",
-		tested, len(specs), runtime.GOARCH, layoutFails, demixFails, modeResiduals, byteFails, byteResiduals)
 }

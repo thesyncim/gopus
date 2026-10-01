@@ -10,12 +10,13 @@ import (
 var multistreamRefdecodeHelper libopustest.HelperCache
 
 func runLibopusMultistreamDecode(sampleRate, channels, streams, coupled, frameSize, gainQ8, sampleFormat int, mapping []byte, packets [][]byte) (*libopustest.OracleReader, error) {
-	binPath, err := multistreamRefdecodeHelper.CHelperPath(libopustest.CHelperConfig{
-		Label:      "multistream reference decode",
-		OutputBase: "gopus_libopus_refdecode_public_multistream",
-		SourceFile: "libopus_refdecode_multistream.c",
-		CFlags:     []string{"-O3", "-DNDEBUG"},
-		Libs:       []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
+	binPath, err := multistreamRefdecodeHelper.Path(func() (string, error) {
+		return libopustest.BuildPublicAPIHelper(libopustest.CHelperConfig{
+			Label:      "multistream reference decode",
+			OutputBase: "gopus_libopus_refdecode_public_multistream",
+			SourceFile: "libopus_refdecode_multistream.c",
+			CFlags:     []string{"-O3", "-DNDEBUG"},
+		})
 	})
 	if err != nil {
 		return nil, err
@@ -148,13 +149,12 @@ func TestMultistreamDecodeUsesAPIRatePacketDuration(t *testing.T) {
 func TestMultistreamDecodeFloat32MatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 	modes := []struct {
-		name      string
-		packet    func(*testing.T, int) []byte
-		tolerance float64
+		name   string
+		packet func(*testing.T, int) []byte
 	}{
-		{name: "silk", packet: encodeAPIRateSILKPacket, tolerance: 8e-3},
-		{name: "celt", packet: encodeAPIRateCELTPacket, tolerance: 3e-3},
-		{name: "hybrid", packet: encodeAPIRateHybridPacket, tolerance: 1e-2},
+		{name: "silk", packet: encodeAPIRateSILKPacket},
+		{name: "celt", packet: encodeAPIRateCELTPacket},
+		{name: "hybrid", packet: encodeAPIRateHybridPacket},
 	}
 	for _, mode := range modes {
 		for _, channels := range []int{1, 2} {
@@ -198,17 +198,10 @@ func TestMultistreamDecodeFloat32MatchesLibopus(t *testing.T) {
 						t.Fatalf("Decode(nil)=%d want %d", n, frameSize)
 					}
 					got = append(got, frame[:n*channels]...)
-					// This is a short (one 20 ms real frame + one PLC frame),
-					// synthetic-packet wrapper stream. opus_compare's psychoacoustic Q
-					// is not a valid metric on it: half is extrapolated concealment, and
-					// even the real frame is below the steady-state length opus_compare
-					// needs (a single hybrid frame scores Q<20 from SILK resampler/LPC
-					// startup transient alone). gopus matches libopus to <5e-3 abs here
-					// (corr~=0.99996, rms~=1.0), so we gate on the trusted near-exact
-					// corr/RMS bar and log Q, exactly like the requested-PLC sibling.
-					// Per-mode steady-state decode Q quality is covered by
-					// TestDecoderParityLibopusMatrix (hybrid Q~=99.7).
+					// PLC dominates this short sequence, so opus_compare's Q is
+					// diagnostic. Both public float outputs must match sample bits.
 					assertAPIRateQualityFloat32PLC(t, got, want, sampleRate, channels, true, "multistream "+mode.name+" float32")
+					assertAPIRateFloat32BitsExact(t, got, want, "multistream "+mode.name+" float32")
 				})
 			}
 		}
@@ -218,13 +211,12 @@ func TestMultistreamDecodeFloat32MatchesLibopus(t *testing.T) {
 func TestMultistreamDecodeRequestedPLCDurationMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 	modes := []struct {
-		name      string
-		packet    func(*testing.T, int) []byte
-		tolerance float64
+		name   string
+		packet func(*testing.T, int) []byte
 	}{
-		{name: "silk", packet: encodeAPIRateSILKPacket, tolerance: 8e-3},
-		{name: "celt", packet: encodeAPIRateCELTPacket, tolerance: 3e-3},
-		{name: "hybrid", packet: encodeAPIRateHybridPacket, tolerance: 1e-2},
+		{name: "silk", packet: encodeAPIRateSILKPacket},
+		{name: "celt", packet: encodeAPIRateCELTPacket},
+		{name: "hybrid", packet: encodeAPIRateHybridPacket},
 	}
 	for _, mode := range modes {
 		for _, channels := range []int{1, 2} {
@@ -273,6 +265,7 @@ func TestMultistreamDecodeRequestedPLCDurationMatchesLibopus(t *testing.T) {
 					}
 					got = append(got, frame[:n*channels]...)
 					assertAPIRateQualityFloat32PLC(t, got, want, sampleRate, channels, true, "multistream "+mode.name+" requested PLC")
+					assertAPIRateFloat32BitsExact(t, got, want, "multistream "+mode.name+" requested PLC")
 				})
 			}
 		}
@@ -324,6 +317,7 @@ func TestMultistreamDecodeOverlongAndEmptyPLCMatchesLibopus(t *testing.T) {
 				}
 				got = append(got, frame[:n*channels]...)
 				assertAPIRateQualityFloat32PLC(t, got, want, sampleRate, channels, true, "multistream overlong empty PLC")
+				assertAPIRateFloat32BitsExact(t, got, want, "multistream overlong empty PLC")
 			})
 
 			t.Run("int16_ch_"+itoaSmall(channels)+"_fs_"+itoaSmall(sampleRate), func(t *testing.T) {
@@ -353,6 +347,7 @@ func TestMultistreamDecodeOverlongAndEmptyPLCMatchesLibopus(t *testing.T) {
 				}
 				got = append(got, frame[:n*channels]...)
 				assertAPIRateQualityInt16PLC(t, got, want, sampleRate, channels, true, "multistream overlong empty PLC int16")
+				assertAPIRateInt16Exact(t, got, want, "multistream overlong empty PLC int16")
 			})
 		}
 	}
@@ -403,6 +398,7 @@ func TestMultistreamDecodeInt16HighGainMatchesLibopus(t *testing.T) {
 	}
 	got = append(got, frame[:n*channels]...)
 	assertAPIRateQualityInt16(t, got, want, sampleRate, channels, "multistream high-gain int16")
+	assertAPIRateInt16Exact(t, got, want, "multistream high-gain int16")
 }
 
 func TestMultistreamDecodeInvalidRequestedPLCFrameSizeMatchesLibopus(t *testing.T) {

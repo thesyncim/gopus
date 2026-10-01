@@ -51,7 +51,7 @@ func TestNewProjectionEncoderRoundtrip(t *testing.T) {
 
 			frameSize := 960
 			pcm := generateMultichannelSine(tc.channels, frameSize)
-			packet, err := enc.Encode(pcm, frameSize)
+			packet, err := encodePacket(enc, pcm, frameSize)
 			if err != nil {
 				t.Fatalf("Encode: %v", err)
 			}

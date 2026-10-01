@@ -10,8 +10,8 @@ import (
 
 // decodeFixedStereoEdge decodes a step sequence (nil == lost frame) through the
 // public DecodeInt16 / DecodeInt24 path and the FIXED_POINT opus_decode /
-// opus_decode24 oracle, then asserts bit-exact int16 AND int24 output (amd64;
-// within the documented arm64 1-ULP CELT drift budget). It returns the int16
+// opus_decode24 oracle, then asserts bit-exact int16 and int24 output for the
+// tested sequences against that selected reference. It returns the int16
 // decoder so the caller can inspect the integer redundancy / transition counters.
 func decodeFixedStereoEdge(t *testing.T, sampleRate, channels, frameSize int, steps [][]byte) *Decoder {
 	t.Helper()
@@ -116,10 +116,10 @@ func TestDecoderFixedPointStereoCELTTransitionParity(t *testing.T) {
 			phase += float64(frameSize)
 			hyb2 := encodeFixedSingleModePacket(t, channels, frameSize, EncoderModeHybrid, phase)
 			if toc := ParseTOC(celtPkt[0]); toc.Mode != ModeCELT {
-				t.Skipf("first packet mode %v, want CELT", toc.Mode)
+				t.Fatalf("first packet mode %v, want CELT", toc.Mode)
 			}
 			if toc := ParseTOC(hyb1[0]); toc.Mode != ModeHybrid {
-				t.Skipf("second packet mode %v, want Hybrid", toc.Mode)
+				t.Fatalf("second packet mode %v, want Hybrid", toc.Mode)
 			}
 			steps := [][]byte{celtPkt, hyb1, hyb2}
 			dec := decodeFixedStereoEdge(t, sampleRate, channels, frameSize, steps)
@@ -280,7 +280,7 @@ func TestDecoderFixedPointSubRateParity(t *testing.T) {
 			packets := encodeFixedSILKSequence(t, channels, coreFrame, frames, BandwidthWideband)
 			for _, pkt := range packets {
 				if toc := ParseTOC(pkt[0]); toc.Mode != ModeSILK {
-					t.Skipf("encoder produced mode %v, want SILK", toc.Mode)
+					t.Fatalf("encoder produced mode %v, want SILK", toc.Mode)
 				}
 			}
 			for _, sr := range subRates {
@@ -301,7 +301,7 @@ func TestDecoderFixedPointSubRateParity(t *testing.T) {
 			for f := 0; f < frames; f++ {
 				pkt := encodeAPIRateHybridPacketFrameSizeVariant(t, channels, coreFrame, f)
 				if toc := ParseTOC(pkt[0]); toc.Mode != ModeHybrid {
-					t.Skipf("encoder produced mode %v, want Hybrid", toc.Mode)
+					t.Fatalf("encoder produced mode %v, want Hybrid", toc.Mode)
 				}
 				packets = append(packets, append([]byte(nil), pkt...))
 			}

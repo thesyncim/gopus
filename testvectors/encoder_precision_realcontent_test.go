@@ -29,7 +29,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sync"
 	"testing"
 
@@ -92,10 +91,10 @@ var (
 // clip name (interleaved stereo float32). It reads the generic committed fixture
 // directly: the source recordings are platform-independent, so it does not apply
 // the libopus-build provenance/platform gate that loadRealcontentFixture enforces
-// (that gate guards the fixture's FROZEN libopus encodes, which the precision
+// (that gate guards the fixture's frozen libopus encodes, which the precision
 // guard does not consume -- the precision reference is produced live by the
-// native same-arch opus_demo). Each clip's sha256 integrity is still verified, so
-// a drifted source recording is caught.
+// validated opus_demo paired to the active Go build). Each clip's sha256
+// integrity is still verified, so a drifted source recording is caught.
 func loadRealcontentSourceClips() (map[string][]float32, error) {
 	realContentSourceOnce.Do(func() {
 		raw, err := os.ReadFile(realcontentFixturePath)
@@ -181,69 +180,53 @@ func runRealContentPrecisionGopus(t *testing.T, mode encoder.Mode, bandwidth typ
 	return entry.result.q
 }
 
-// runRealContentPrecisionLibopusReference encodes the SAME real-content signal
-// with the native same-arch libopus opus_demo (live on this runner), decodes the
-// reference packets the same way as the gopus side, and returns the reference Q.
-// The reference is always libopus, built and run natively, so the comparison is
-// same-arch-and-toolchain. When opus_demo is unavailable it returns ok=false.
+// runRealContentPrecisionLibopusReference encodes the same real-content signal
+// with the currently selected, validated paired opus_demo and retains the
+// reference packets, final ranges, build identity, and PCM hash in the cache.
+// An unavailable helper returns ok=false only when the caller is not strict.
 func runRealContentPrecisionLibopusReference(t *testing.T, mode encoder.Mode, bandwidth types.Bandwidth, frameSize, channels, bitrate int) (float64, bool) {
 	t.Helper()
 	key := encoderComplianceKey(mode, bandwidth, frameSize, channels, bitrate)
 	entry := realContentLibopusRefEntry(key)
+	numFrames := 48000 / frameSize
+	totalSamples := numFrames * frameSize * channels
+	signal, err := precisionGuardRealContentSignal(totalSamples, channels)
+	if err != nil {
+		t.Fatalf("build real-content precision input: %v", err)
+	}
 	entry.once.Do(func() {
-		opusDemo, ok := getFixtureOpusDemoPathForEncoder()
-		if !ok {
-			entry.result.warning = "opus_demo not available for real-content precision reference"
-			return
-		}
-		modeName := fixtureModeName(mode)
-		bwName := fixtureBandwidthName(bandwidth)
-		app, err := modeToOpusDemoApp(modeName)
+		ref, err := runPairedLibopusQualityReference(encoderQualityReferenceSettings{
+			mode:      mode,
+			bandwidth: bandwidth,
+			frameSize: frameSize,
+			channels:  channels,
+			bitrate:   bitrate,
+		}, signal)
 		if err != nil {
-			entry.result.warning = err.Error()
+			entry.result.err = err
+			entry.result.warning = fmt.Sprintf("paired live libopus real-content reference unavailable: %v", err)
 			return
 		}
-		bwArg, err := bandwidthToOpusDemoArg(bwName)
-		if err != nil {
-			entry.result.warning = err.Error()
-			return
-		}
-		frameArg, err := frameSizeSamplesToArg(frameSize)
-		if err != nil {
-			entry.result.warning = err.Error()
-			return
-		}
-
-		numFrames := 48000 / frameSize
-		totalSamples := numFrames * frameSize * channels
-		signal, err := precisionGuardRealContentSignal(totalSamples, channels)
-		if err != nil {
-			entry.result.warning = err.Error()
-			return
-		}
-
-		tmpDir := t.TempDir()
-		rawPath := filepath.Join(tmpDir, "realcontent.f32")
-		bitPath := filepath.Join(tmpDir, "realcontent.bit")
-		if err := writeFloat32LEFile(rawPath, signal); err != nil {
-			entry.result.warning = fmt.Sprintf("write real-content input: %v", err)
-			return
-		}
-		packets, _, err := runOpusDemoCELTEncode(opusDemo, app, bwArg, frameArg, bitrate, channels, rawPath, bitPath)
-		if err != nil {
-			entry.result.warning = fmt.Sprintf("opus_demo real-content encode: %v", err)
-			return
-		}
-		cmp, _, err := qualityOfPackets(packets, signal, channels, frameSize)
-		if err != nil {
-			entry.result.warning = fmt.Sprintf("real-content reference quality: %v", err)
-			return
-		}
-		entry.result.q = cmp.Q
+		entry.result.q = ref.quality.q
 		entry.result.ok = true
+		entry.result.packets = ref.packets
+		entry.result.finalRanges = ref.finalRanges
+		entry.result.identity = ref.identity
+		entry.result.pcmSHA256 = ref.pcmSHA256
 	})
+	if entry.result.err != nil && precisionReferenceErrorRequiresFatal(entry.result.err, strictLibopusReferenceRequired()) {
+		t.Fatalf("real-content paired libopus reference unavailable: %v", entry.result.err)
+	}
 	if entry.result.warning != "" {
 		t.Log(entry.result.warning)
+	} else if entry.result.ok {
+		t.Logf("RealContent paired libopus reference Q=%.2f (%s pcm_sha256=%s packets=%d finalRanges=%d)",
+			entry.result.q,
+			entry.result.identity,
+			entry.result.pcmSHA256,
+			len(entry.result.packets),
+			len(entry.result.finalRanges),
+		)
 	}
 	return entry.result.q, entry.result.ok
 }

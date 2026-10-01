@@ -223,11 +223,9 @@ func TestQuantAllBandsEncodeOracle(t *testing.T) {
 			enc := &rangecoding.Encoder{}
 			enc.Init(buf)
 			goSeed := startSeed
-			pulsesI := toIntSlice(pulses)
-			tfResI := toIntSlice(tfRes)
 
 			collapse := QuantAllBandsEncode(enc, c.channels, frameSize, lm, start, end,
-				goLeft, goRight, bandE, pulsesI, tfResI, c.shortBlocks, c.spread,
+				goLeft, goRight, bandE, pulses, tfRes, c.shortBlocks, c.spread,
 				c.dualStereo, c.intensity, int(totalBits), int(balance), codedBands,
 				c.complexity, false, &goSeed, nil)
 			// Match the libopus oracle buffer layout: ec_enc_done leaves the

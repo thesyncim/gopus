@@ -55,7 +55,7 @@ func TestAutoModePreservesVoiceRatioOnDigitalSilence(t *testing.T) {
 	enc.voiceRatio = 73
 
 	pcm := make([]opusRes, 960)
-	_ = enc.autoModeAndBandwidthDecision(pcm, 960, maxSilkPacketBytes, true)
+	_, _ = enc.autoModeAndBandwidthDecision(enc.frameStereoWidth(pcm, 960), 960, maxSilkPacketBytes, true)
 
 	if got := enc.voiceRatio; got != 73 {
 		t.Fatalf("voiceRatio on silence = %d, want preserved 73", got)
@@ -72,7 +72,7 @@ func TestAutoModeResetsVoiceRatioOnNonSilentFrame(t *testing.T) {
 
 	pcm := make([]opusRes, 960)
 	pcm[0] = opusRes(1.0 / (1 << 12))
-	_ = enc.autoModeAndBandwidthDecision(pcm, 960, maxSilkPacketBytes, false)
+	_, _ = enc.autoModeAndBandwidthDecision(enc.frameStereoWidth(pcm, 960), 960, maxSilkPacketBytes, false)
 
 	if got := enc.voiceRatio; got != -1 {
 		t.Fatalf("voiceRatio on non-silence = %d, want reset -1", got)
@@ -123,6 +123,66 @@ func TestAutoClampBandwidthUsesPacketBudgetMaxRate(t *testing.T) {
 	}
 	if got := enc.autoClampBandwidth(types.BandwidthFullband, ModeHybrid, 64000, enc.maxRateForFrame(960, 38)); got != types.BandwidthFullband {
 		t.Fatalf("autoClampBandwidth(safe max_rate) = %v, want %v", got, types.BandwidthFullband)
+	}
+}
+
+func TestDetectedNarrowbandClampsAutoBandwidth(t *testing.T) {
+	enc := NewEncoder(48000, 2)
+	enc.SetBandwidthAuto()
+	enc.lastAnalysisValid = true
+	enc.lastAnalysisInfo.BandwidthIndex = 6
+	enc.updateDetectedBandwidth()
+	if !enc.detectedBandwidthValid || enc.detectedBandwidth != types.BandwidthNarrowband {
+		t.Fatalf("detected bandwidth=%v valid=%t want valid narrowband", enc.detectedBandwidth, enc.detectedBandwidthValid)
+	}
+	// libopus uses a nonzero OPUS_BANDWIDTH_NARROWBAND sentinel. Go's
+	// narrowband enum is zero, so validity must be tracked separately.
+	if got := enc.autoClampBandwidth(types.BandwidthFullband, ModeCELT, 50000, 100000); got != types.BandwidthWideband {
+		t.Fatalf("auto clamp with narrowband detection=%v want wideband", got)
+	}
+	enc.lastAnalysisValid = false
+	enc.updateDetectedBandwidth()
+	if enc.detectedBandwidthValid {
+		t.Fatal("missing analysis marked detected bandwidth valid")
+	}
+	if got := enc.autoClampBandwidth(types.BandwidthFullband, ModeCELT, 50000, 100000); got != types.BandwidthFullband {
+		t.Fatalf("auto clamp without analysis=%v want fullband", got)
+	}
+}
+
+func TestDetectedBandwidthRefreshesAcrossForcedModeAndReset(t *testing.T) {
+	enc := NewEncoder(48000, 2)
+	enc.SetMode(ModeAuto)
+	pcm := make([]opusRes, 960*2)
+	for i := range pcm {
+		pcm[i] = opusRes(float32((i%31)-15) / 32768)
+	}
+	encodeWithAnalysis := func(valid bool) {
+		t.Helper()
+		_, err := enc.encodeOpusResWithAnalysisMaxBytes(pcm, 960, 4000, func() {
+			enc.lastAnalysisValid = valid
+			enc.lastAnalysisInfo.BandwidthIndex = 6
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	encodeWithAnalysis(true)
+	if !enc.detectedBandwidthValid || enc.detectedBandwidth != types.BandwidthNarrowband {
+		t.Fatalf("automatic mode detection=%v valid=%t", enc.detectedBandwidth, enc.detectedBandwidthValid)
+	}
+	enc.SetMode(ModeCELT)
+	encodeWithAnalysis(false)
+	if enc.detectedBandwidthValid {
+		t.Fatal("forced mode retained stale detected bandwidth")
+	}
+	encodeWithAnalysis(true)
+	if !enc.detectedBandwidthValid || enc.detectedBandwidth != types.BandwidthNarrowband {
+		t.Fatalf("forced mode detection=%v valid=%t", enc.detectedBandwidth, enc.detectedBandwidthValid)
+	}
+	enc.Reset()
+	if enc.detectedBandwidthValid {
+		t.Fatal("reset retained detected bandwidth")
 	}
 }
 

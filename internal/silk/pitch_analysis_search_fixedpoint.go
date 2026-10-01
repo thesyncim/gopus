@@ -275,9 +275,10 @@ func silkPitchAnalysisCoreFixed(
 
 	var prevLagLog2Q7 int32
 	if prevLag > 0 {
-		if fsKHz == 12 {
+		switch fsKHz {
+		case 12:
 			prevLag = int(silkDiv32_16(silkLSHIFT(int32(prevLag), 1), 3))
-		} else if fsKHz == 16 {
+		case 16:
 			prevLag = int(silkRSHIFT(int32(prevLag), 1))
 		}
 		prevLagLog2Q7 = silkLin2Log(int32(prevLag))
@@ -358,11 +359,12 @@ func silkPitchAnalysisCoreFixed(
 		// Search in original signal.
 		cBimaxOld := cBimax
 		// Compensate for decimation.
-		if fsKHz == 12 {
+		switch fsKHz {
+		case 12:
 			lag = int(silkRSHIFT(silkSMULBB(int32(lag), 3), 1))
-		} else if fsKHz == 16 {
+		case 16:
 			lag = int(silkLSHIFT(int32(lag), 1))
-		} else {
+		default:
 			lag = int(silkSMULBB(int32(lag), 3))
 		}
 

@@ -86,8 +86,9 @@ func TestSILKFloatToInt16SliceScaledMatchesLibopusFloat2ShortArray(t *testing.T)
 		float32(32767.5 / silkSampleScale),
 		1,
 		float32(1.2),
+		float32(-1361.4384),
 	}
-	for _, scale := range []float32{1, float32(silkSampleScale), float32(silkSampleScale / 2)} {
+	for _, scale := range []float32{1, float32(silkSampleScale), float32(silkSampleScale / 2), 7.3} {
 		t.Run("scale_"+itoaFloatScale(scale), func(t *testing.T) {
 			scaled := make([]float32, len(input))
 			for i, sample := range input {
@@ -97,12 +98,30 @@ func TestSILKFloatToInt16SliceScaledMatchesLibopusFloat2ShortArray(t *testing.T)
 			if err != nil {
 				libopustest.HelperUnavailable(t, "silk float2short", err)
 			}
+			wantScaled, err := libopustest.ProbeFloatQuantScaledInt32(scale, input)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "silk scaled float2int", err)
+			}
 			got := make([]int16, len(input))
 			floatToInt16SliceScaled(got, input, scale)
 			for i := range got {
 				if got[i] != want[i] {
 					t.Fatalf("scale=%0.10g sample[%d]=%0.10g scaled=%0.10g got=%d want %d",
 						scale, i, input[i], scaled[i], got[i], want[i])
+				}
+			}
+			for i, wantInt32 := range wantScaled {
+				if wantInt32 > 32767 {
+					wantInt32 = 32767
+				} else if wantInt32 < -32768 {
+					wantInt32 = -32768
+				}
+				if got[i] != int16(wantInt32) {
+					t.Fatalf("scale=%0.10g sample[%d]=%0.10g got=%d want scaled C result %d",
+						scale, i, input[i], got[i], wantInt32)
+				}
+				if input[i] == float32(-1361.4384) && scale == float32(7.3) && wantInt32 != -9938 {
+					t.Fatalf("scaled C witness got %d, want -9938", wantInt32)
 				}
 			}
 		})

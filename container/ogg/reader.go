@@ -2,8 +2,8 @@ package ogg
 
 import "io"
 
-// Reader reads Opus packets from an Ogg container.
-// It parses the Ogg stream and extracts Opus packets for decoding.
+// Reader reads Opus packets from an Ogg stream. It retains parsing state and is
+// not safe for concurrent use.
 type Reader struct {
 	r           io.Reader
 	rs          io.ReadSeeker
@@ -32,16 +32,13 @@ type Reader struct {
 // readerBufferSize is the size of the internal read buffer.
 const readerBufferSize = 64 * 1024 // 64KB
 
-// NewReader creates a Reader over r and parses the Ogg Opus headers up front:
-// it reads the beginning-of-stream page carrying OpusHead and the following
-// page(s) carrying OpusTags, exposing them via the Header and Tags fields. The
-// comment header may span multiple pages and is reassembled before returning.
-//
-// It returns ErrNilReader if r is nil, ErrInvalidPage or ErrBadCRC if the
-// leading pages are malformed or corrupt, and ErrInvalidHeader if the OpusHead
-// or OpusTags packets are not well-formed. If r also implements io.ReadSeeker,
-// the Reader records the offset of the first audio page so SeekGranule can be
-// used later.
+// NewReader returns a Reader for r after parsing the OpusHead and OpusTags
+// headers from the initial logical bitstream. It requires a BOS page containing
+// OpusHead followed by OpusTags pages with the same serial number. Page lengths
+// and CRCs are checked while reading. It returns ErrNilReader for a nil reader,
+// ErrInvalidPage or ErrBadCRC for invalid page framing or checksums,
+// ErrInvalidHeader for malformed Opus headers, and propagates errors from r. If
+// r implements io.ReadSeeker, the Reader also supports SeekGranule.
 func NewReader(r io.Reader) (*Reader, error) {
 	if r == nil {
 		return nil, ErrNilReader
@@ -114,16 +111,12 @@ func NewReader(r io.Reader) (*Reader, error) {
 	return or, nil
 }
 
-// ReadPacket reads the next Opus packet, reassembling packets that span page
-// boundaries via the lacing table. It returns the packet bytes, the granule
-// position attributed to that packet, and any error.
-//
-// The returned slice is freshly allocated and owned by the caller; it is not
-// overwritten by later reads. Packets from logical bitstreams whose serial
-// number differs from the first stream are skipped. ReadPacket returns io.EOF
-// once the end-of-stream page has been consumed; a malformed or truncated page
-// surfaces the underlying parse error. To avoid the per-packet allocation, use
-// ReadPacketInto.
+// ReadPacket returns the next Opus packet and its granule position, reassembling
+// packets that span pages. The returned packet is an independent copy that the
+// caller may retain or modify. Pages from other logical bitstreams are skipped.
+// It returns io.EOF when the selected stream is exhausted or no more packet
+// data can be read; an unterminated trailing packet can also end with io.EOF.
+// Page framing, CRC, and underlying read errors are returned to the caller.
 func (or *Reader) ReadPacket() (packet []byte, granulePos uint64, err error) {
 	out, granule, err := or.nextPacket(or.pktScratch[:0])
 	if err != nil {
@@ -133,14 +126,12 @@ func (or *Reader) ReadPacket() (packet []byte, granulePos uint64, err error) {
 	return append([]byte(nil), out...), granule, nil
 }
 
-// ReadPacketInto reads the next Opus packet into dst, allocating nothing when
-// the packet fits. It returns the number of bytes written and the packet's
-// granule position.
-//
-// If the packet is larger than dst it returns ErrPacketTooLarge with n == 0; the
-// packet has already been consumed in that case, so dst should be sized to the
-// largest expected packet. Serial-mismatched bitstreams are skipped and io.EOF
-// is returned at end of stream.
+// ReadPacketInto writes the next Opus packet into dst and returns its length and
+// granule position. len(dst), rather than cap(dst), is the size limit; the
+// method allocates nothing when dst is large enough. If the packet is larger,
+// it consumes the packet and returns n == 0, granulePos == 0, and
+// ErrPacketTooLarge. Pages from other logical bitstreams are skipped, and
+// io.EOF indicates stream exhaustion.
 func (or *Reader) ReadPacketInto(dst []byte) (n int, granulePos uint64, err error) {
 	limit := len(dst)
 	out, granule, err := or.nextPacket(dst[:0])
@@ -281,11 +272,12 @@ func (or *Reader) packetGranule() uint64 {
 	return 0
 }
 
-// SeekGranule rewinds a seekable stream to the first packet at or after target.
-//
-// This is a correctness-first linear scan from the first audio page, which keeps
-// the API small and deterministic for in-memory or file-backed readers. Later
-// optimizations can replace the linear walk with a true bisection search.
+// SeekGranule rewinds a seekable stream to its first audio page and scans for
+// the first packet whose computed granule position is at least target. On
+// success, the next ReadPacket or ReadPacketInto returns that packet; repeated
+// calls start the scan again from the first audio page. It returns ErrNotSeekable
+// if the source does not implement io.ReadSeeker, io.EOF if no packet reaches
+// target, and propagates seek or read errors.
 func (or *Reader) SeekGranule(target uint64) error {
 	if or.rs == nil {
 		return ErrNotSeekable
@@ -378,12 +370,16 @@ func (or *Reader) streamOffset() (int64, error) {
 func (or *Reader) readPage() (*Page, error) {
 	for {
 		if or.bufferLen > or.bufferOffset {
-			consumed, err := parsePageInto(or.pageBuffer[or.bufferOffset:or.bufferLen], &or.page)
+			data := or.pageBuffer[or.bufferOffset:or.bufferLen]
+			consumed, err := parsePageInto(data, &or.page)
 			if err == nil {
 				or.bufferOffset += consumed
 				return &or.page, nil
 			}
-			// Not enough buffered for a complete page; read more.
+			if err != ErrInvalidPage || !hasOggMagicPrefix(data) {
+				return nil, err
+			}
+			// A valid capture-pattern prefix can still be an incomplete page.
 		}
 
 		// Compact the buffer.
@@ -408,16 +404,37 @@ func (or *Reader) readPage() (*Page, error) {
 			or.bufferLen += n
 		}
 		if err != nil {
-			if err == io.EOF && or.bufferLen > or.bufferOffset {
-				consumed, parseErr := parsePageInto(or.pageBuffer[or.bufferOffset:or.bufferLen], &or.page)
+			if err == io.EOF {
+				if or.bufferLen == or.bufferOffset {
+					return nil, io.EOF
+				}
+				data := or.pageBuffer[or.bufferOffset:or.bufferLen]
+				consumed, parseErr := parsePageInto(data, &or.page)
 				if parseErr == nil {
 					or.bufferOffset += consumed
 					return &or.page, nil
 				}
+				return nil, parseErr
 			}
 			return nil, err
 		}
 	}
+}
+
+// hasOggMagicPrefix reports whether data starts with the bytes of the Ogg
+// capture pattern it contains. A mismatch is permanent even when the header
+// has not reached its full fixed size yet.
+func hasOggMagicPrefix(data []byte) bool {
+	limit := len(data)
+	if limit > len(oggMagic) {
+		limit = len(oggMagic)
+	}
+	for i := 0; i < limit; i++ {
+		if data[i] != oggMagic[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // PreSkip returns the pre-skip value from the OpusHead header.
@@ -437,8 +454,8 @@ func (or *Reader) Channels() uint8 {
 	return 0
 }
 
-// SampleRate returns the original sample rate from the OpusHead header.
-// Note: Opus always operates at 48kHz internally; this is informational only.
+// SampleRate returns the original input rate recorded in OpusHead. Ogg Opus
+// granule positions use 48 kHz sample units.
 func (or *Reader) SampleRate() uint32 {
 	if or.Header != nil {
 		return or.Header.SampleRate
@@ -446,12 +463,17 @@ func (or *Reader) SampleRate() uint32 {
 	return 0
 }
 
-// GranulePos returns the granule position of the last read packet.
+// GranulePos returns the granule position of the most recently assembled
+// packet, in 48 kHz sample units. It is reset to zero by a successful
+// SeekGranule and updated when the selected packet is read; an oversized packet
+// consumed by ReadPacketInto also updates it.
 func (or *Reader) GranulePos() uint64 {
 	return or.granulePos
 }
 
-// EOF returns true if the end of stream has been reached.
+// EOF reports whether the Reader has seen the selected stream's EOS page or
+// has encountered io.EOF while requesting more input. It can be true while
+// packets already loaded from the EOS page remain unread.
 func (or *Reader) EOF() bool {
 	return or.eos
 }

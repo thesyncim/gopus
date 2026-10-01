@@ -1,0 +1,1466 @@
+[
+  {
+    "baseline_package": "github.com/thesyncim/gopus",
+    "baseline_tests": [
+      "TestSub48NativeEncodeParity/celt_fb_20ms_mono/fs12000#01",
+      "TestSub48NativeEncodeParity/celt_fb_20ms_mono/fs12000#02"
+    ],
+    "required_candidate_tests": [
+      "TestSub48NativeEncodeParity/celt_fb_2.5ms_mono/fs12000",
+      "TestSub48NativeEncodeParity/celt_fb_20ms_mono/fs12000",
+      "TestSub48NativeEncodeParity/celt_fb_5ms_mono/fs12000"
+    ],
+    "source_review": "b0c9c56a: the duration labels identify 2.5, 5 and 20 ms separately; each collision requires all three exact native-rate replacements."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus",
+    "baseline_tests": [
+      "TestSub48NativeEncodeParity/celt_fb_20ms_mono/fs16000#01",
+      "TestSub48NativeEncodeParity/celt_fb_20ms_mono/fs16000#02"
+    ],
+    "required_candidate_tests": [
+      "TestSub48NativeEncodeParity/celt_fb_2.5ms_mono/fs16000",
+      "TestSub48NativeEncodeParity/celt_fb_20ms_mono/fs16000",
+      "TestSub48NativeEncodeParity/celt_fb_5ms_mono/fs16000"
+    ],
+    "source_review": "b0c9c56a: the duration labels identify 2.5, 5 and 20 ms separately; each collision requires all three exact native-rate replacements."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus",
+    "baseline_tests": [
+      "TestSub48NativeEncodeParity/celt_fb_20ms_mono/fs24000#01",
+      "TestSub48NativeEncodeParity/celt_fb_20ms_mono/fs24000#02"
+    ],
+    "required_candidate_tests": [
+      "TestSub48NativeEncodeParity/celt_fb_2.5ms_mono/fs24000",
+      "TestSub48NativeEncodeParity/celt_fb_20ms_mono/fs24000",
+      "TestSub48NativeEncodeParity/celt_fb_5ms_mono/fs24000"
+    ],
+    "source_review": "b0c9c56a: the duration labels identify 2.5, 5 and 20 ms separately; each collision requires all three exact native-rate replacements."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus",
+    "baseline_tests": [
+      "TestSub48NativeEncodeParity/celt_fb_20ms_mono/fs48000#01",
+      "TestSub48NativeEncodeParity/celt_fb_20ms_mono/fs48000#02"
+    ],
+    "required_candidate_tests": [
+      "TestSub48NativeEncodeParity/celt_fb_2.5ms_mono/fs48000",
+      "TestSub48NativeEncodeParity/celt_fb_20ms_mono/fs48000",
+      "TestSub48NativeEncodeParity/celt_fb_5ms_mono/fs48000"
+    ],
+    "source_review": "b0c9c56a: the duration labels identify 2.5, 5 and 20 ms separately; each collision requires all three exact native-rate replacements."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus",
+    "baseline_tests": [
+      "TestSub48NativeEncodeParity/celt_fb_20ms_mono/fs8000#01",
+      "TestSub48NativeEncodeParity/celt_fb_20ms_mono/fs8000#02"
+    ],
+    "required_candidate_tests": [
+      "TestSub48NativeEncodeParity/celt_fb_2.5ms_mono/fs8000",
+      "TestSub48NativeEncodeParity/celt_fb_20ms_mono/fs8000",
+      "TestSub48NativeEncodeParity/celt_fb_5ms_mono/fs8000"
+    ],
+    "source_review": "b0c9c56a: the duration labels identify 2.5, 5 and 20 ms separately; each collision requires all three exact native-rate replacements."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus",
+    "baseline_tests": [
+      "TestSub48NativeEncodeParity/celt_fb_20ms_stereo/fs12000#01",
+      "TestSub48NativeEncodeParity/celt_fb_20ms_stereo/fs12000#02"
+    ],
+    "required_candidate_tests": [
+      "TestSub48NativeEncodeParity/celt_fb_2.5ms_stereo/fs12000",
+      "TestSub48NativeEncodeParity/celt_fb_20ms_stereo/fs12000",
+      "TestSub48NativeEncodeParity/celt_fb_5ms_stereo/fs12000"
+    ],
+    "source_review": "b0c9c56a: the duration labels identify 2.5, 5 and 20 ms separately; each collision requires all three exact native-rate replacements."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus",
+    "baseline_tests": [
+      "TestSub48NativeEncodeParity/celt_fb_20ms_stereo/fs16000#01",
+      "TestSub48NativeEncodeParity/celt_fb_20ms_stereo/fs16000#02"
+    ],
+    "required_candidate_tests": [
+      "TestSub48NativeEncodeParity/celt_fb_2.5ms_stereo/fs16000",
+      "TestSub48NativeEncodeParity/celt_fb_20ms_stereo/fs16000",
+      "TestSub48NativeEncodeParity/celt_fb_5ms_stereo/fs16000"
+    ],
+    "source_review": "b0c9c56a: the duration labels identify 2.5, 5 and 20 ms separately; each collision requires all three exact native-rate replacements."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus",
+    "baseline_tests": [
+      "TestSub48NativeEncodeParity/celt_fb_20ms_stereo/fs24000#01",
+      "TestSub48NativeEncodeParity/celt_fb_20ms_stereo/fs24000#02"
+    ],
+    "required_candidate_tests": [
+      "TestSub48NativeEncodeParity/celt_fb_2.5ms_stereo/fs24000",
+      "TestSub48NativeEncodeParity/celt_fb_20ms_stereo/fs24000",
+      "TestSub48NativeEncodeParity/celt_fb_5ms_stereo/fs24000"
+    ],
+    "source_review": "b0c9c56a: the duration labels identify 2.5, 5 and 20 ms separately; each collision requires all three exact native-rate replacements."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus",
+    "baseline_tests": [
+      "TestSub48NativeEncodeParity/celt_fb_20ms_stereo/fs48000#01",
+      "TestSub48NativeEncodeParity/celt_fb_20ms_stereo/fs48000#02"
+    ],
+    "required_candidate_tests": [
+      "TestSub48NativeEncodeParity/celt_fb_2.5ms_stereo/fs48000",
+      "TestSub48NativeEncodeParity/celt_fb_20ms_stereo/fs48000",
+      "TestSub48NativeEncodeParity/celt_fb_5ms_stereo/fs48000"
+    ],
+    "source_review": "b0c9c56a: the duration labels identify 2.5, 5 and 20 ms separately; each collision requires all three exact native-rate replacements."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus",
+    "baseline_tests": [
+      "TestSub48NativeEncodeParity/celt_fb_20ms_stereo/fs8000#01",
+      "TestSub48NativeEncodeParity/celt_fb_20ms_stereo/fs8000#02"
+    ],
+    "required_candidate_tests": [
+      "TestSub48NativeEncodeParity/celt_fb_2.5ms_stereo/fs8000",
+      "TestSub48NativeEncodeParity/celt_fb_20ms_stereo/fs8000",
+      "TestSub48NativeEncodeParity/celt_fb_5ms_stereo/fs8000"
+    ],
+    "source_review": "b0c9c56a: the duration labels identify 2.5, 5 and 20 ms separately; each collision requires all three exact native-rate replacements."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus",
+    "baseline_tests": [
+      "TestSub48NativeEncodeParity/celt_nb_20ms_mono/fs12000#01",
+      "TestSub48NativeEncodeParity/celt_nb_20ms_mono/fs12000#02"
+    ],
+    "required_candidate_tests": [
+      "TestSub48NativeEncodeParity/celt_nb_2.5ms_mono/fs12000",
+      "TestSub48NativeEncodeParity/celt_nb_20ms_mono/fs12000",
+      "TestSub48NativeEncodeParity/celt_nb_5ms_mono/fs12000"
+    ],
+    "source_review": "b0c9c56a: the duration labels identify 2.5, 5 and 20 ms separately; each collision requires all three exact native-rate replacements."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus",
+    "baseline_tests": [
+      "TestSub48NativeEncodeParity/celt_nb_20ms_mono/fs16000#01",
+      "TestSub48NativeEncodeParity/celt_nb_20ms_mono/fs16000#02"
+    ],
+    "required_candidate_tests": [
+      "TestSub48NativeEncodeParity/celt_nb_2.5ms_mono/fs16000",
+      "TestSub48NativeEncodeParity/celt_nb_20ms_mono/fs16000",
+      "TestSub48NativeEncodeParity/celt_nb_5ms_mono/fs16000"
+    ],
+    "source_review": "b0c9c56a: the duration labels identify 2.5, 5 and 20 ms separately; each collision requires all three exact native-rate replacements."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus",
+    "baseline_tests": [
+      "TestSub48NativeEncodeParity/celt_nb_20ms_mono/fs24000#01",
+      "TestSub48NativeEncodeParity/celt_nb_20ms_mono/fs24000#02"
+    ],
+    "required_candidate_tests": [
+      "TestSub48NativeEncodeParity/celt_nb_2.5ms_mono/fs24000",
+      "TestSub48NativeEncodeParity/celt_nb_20ms_mono/fs24000",
+      "TestSub48NativeEncodeParity/celt_nb_5ms_mono/fs24000"
+    ],
+    "source_review": "b0c9c56a: the duration labels identify 2.5, 5 and 20 ms separately; each collision requires all three exact native-rate replacements."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus",
+    "baseline_tests": [
+      "TestSub48NativeEncodeParity/celt_nb_20ms_mono/fs48000#01",
+      "TestSub48NativeEncodeParity/celt_nb_20ms_mono/fs48000#02"
+    ],
+    "required_candidate_tests": [
+      "TestSub48NativeEncodeParity/celt_nb_2.5ms_mono/fs48000",
+      "TestSub48NativeEncodeParity/celt_nb_20ms_mono/fs48000",
+      "TestSub48NativeEncodeParity/celt_nb_5ms_mono/fs48000"
+    ],
+    "source_review": "b0c9c56a: the duration labels identify 2.5, 5 and 20 ms separately; each collision requires all three exact native-rate replacements."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus",
+    "baseline_tests": [
+      "TestSub48NativeEncodeParity/celt_nb_20ms_mono/fs8000#01",
+      "TestSub48NativeEncodeParity/celt_nb_20ms_mono/fs8000#02"
+    ],
+    "required_candidate_tests": [
+      "TestSub48NativeEncodeParity/celt_nb_2.5ms_mono/fs8000",
+      "TestSub48NativeEncodeParity/celt_nb_20ms_mono/fs8000",
+      "TestSub48NativeEncodeParity/celt_nb_5ms_mono/fs8000"
+    ],
+    "source_review": "b0c9c56a: the duration labels identify 2.5, 5 and 20 ms separately; each collision requires all three exact native-rate replacements."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus",
+    "baseline_tests": [
+      "TestSub48NativeEncodeParity/celt_nb_20ms_stereo/fs12000#01",
+      "TestSub48NativeEncodeParity/celt_nb_20ms_stereo/fs12000#02"
+    ],
+    "required_candidate_tests": [
+      "TestSub48NativeEncodeParity/celt_nb_2.5ms_stereo/fs12000",
+      "TestSub48NativeEncodeParity/celt_nb_20ms_stereo/fs12000",
+      "TestSub48NativeEncodeParity/celt_nb_5ms_stereo/fs12000"
+    ],
+    "source_review": "b0c9c56a: the duration labels identify 2.5, 5 and 20 ms separately; each collision requires all three exact native-rate replacements."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus",
+    "baseline_tests": [
+      "TestSub48NativeEncodeParity/celt_nb_20ms_stereo/fs16000#01",
+      "TestSub48NativeEncodeParity/celt_nb_20ms_stereo/fs16000#02"
+    ],
+    "required_candidate_tests": [
+      "TestSub48NativeEncodeParity/celt_nb_2.5ms_stereo/fs16000",
+      "TestSub48NativeEncodeParity/celt_nb_20ms_stereo/fs16000",
+      "TestSub48NativeEncodeParity/celt_nb_5ms_stereo/fs16000"
+    ],
+    "source_review": "b0c9c56a: the duration labels identify 2.5, 5 and 20 ms separately; each collision requires all three exact native-rate replacements."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus",
+    "baseline_tests": [
+      "TestSub48NativeEncodeParity/celt_nb_20ms_stereo/fs24000#01",
+      "TestSub48NativeEncodeParity/celt_nb_20ms_stereo/fs24000#02"
+    ],
+    "required_candidate_tests": [
+      "TestSub48NativeEncodeParity/celt_nb_2.5ms_stereo/fs24000",
+      "TestSub48NativeEncodeParity/celt_nb_20ms_stereo/fs24000",
+      "TestSub48NativeEncodeParity/celt_nb_5ms_stereo/fs24000"
+    ],
+    "source_review": "b0c9c56a: the duration labels identify 2.5, 5 and 20 ms separately; each collision requires all three exact native-rate replacements."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus",
+    "baseline_tests": [
+      "TestSub48NativeEncodeParity/celt_nb_20ms_stereo/fs48000#01",
+      "TestSub48NativeEncodeParity/celt_nb_20ms_stereo/fs48000#02"
+    ],
+    "required_candidate_tests": [
+      "TestSub48NativeEncodeParity/celt_nb_2.5ms_stereo/fs48000",
+      "TestSub48NativeEncodeParity/celt_nb_20ms_stereo/fs48000",
+      "TestSub48NativeEncodeParity/celt_nb_5ms_stereo/fs48000"
+    ],
+    "source_review": "b0c9c56a: the duration labels identify 2.5, 5 and 20 ms separately; each collision requires all three exact native-rate replacements."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus",
+    "baseline_tests": [
+      "TestSub48NativeEncodeParity/celt_nb_20ms_stereo/fs8000#01",
+      "TestSub48NativeEncodeParity/celt_nb_20ms_stereo/fs8000#02"
+    ],
+    "required_candidate_tests": [
+      "TestSub48NativeEncodeParity/celt_nb_2.5ms_stereo/fs8000",
+      "TestSub48NativeEncodeParity/celt_nb_20ms_stereo/fs8000",
+      "TestSub48NativeEncodeParity/celt_nb_5ms_stereo/fs8000"
+    ],
+    "source_review": "b0c9c56a: the duration labels identify 2.5, 5 and 20 ms separately; each collision requires all three exact native-rate replacements."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus",
+    "baseline_tests": [
+      "TestSub48NativeEncodeParity/celt_wb_20ms_mono/fs12000#01",
+      "TestSub48NativeEncodeParity/celt_wb_20ms_mono/fs12000#02"
+    ],
+    "required_candidate_tests": [
+      "TestSub48NativeEncodeParity/celt_wb_2.5ms_mono/fs12000",
+      "TestSub48NativeEncodeParity/celt_wb_20ms_mono/fs12000",
+      "TestSub48NativeEncodeParity/celt_wb_5ms_mono/fs12000"
+    ],
+    "source_review": "b0c9c56a: the duration labels identify 2.5, 5 and 20 ms separately; each collision requires all three exact native-rate replacements."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus",
+    "baseline_tests": [
+      "TestSub48NativeEncodeParity/celt_wb_20ms_mono/fs16000#01",
+      "TestSub48NativeEncodeParity/celt_wb_20ms_mono/fs16000#02"
+    ],
+    "required_candidate_tests": [
+      "TestSub48NativeEncodeParity/celt_wb_2.5ms_mono/fs16000",
+      "TestSub48NativeEncodeParity/celt_wb_20ms_mono/fs16000",
+      "TestSub48NativeEncodeParity/celt_wb_5ms_mono/fs16000"
+    ],
+    "source_review": "b0c9c56a: the duration labels identify 2.5, 5 and 20 ms separately; each collision requires all three exact native-rate replacements."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus",
+    "baseline_tests": [
+      "TestSub48NativeEncodeParity/celt_wb_20ms_mono/fs24000#01",
+      "TestSub48NativeEncodeParity/celt_wb_20ms_mono/fs24000#02"
+    ],
+    "required_candidate_tests": [
+      "TestSub48NativeEncodeParity/celt_wb_2.5ms_mono/fs24000",
+      "TestSub48NativeEncodeParity/celt_wb_20ms_mono/fs24000",
+      "TestSub48NativeEncodeParity/celt_wb_5ms_mono/fs24000"
+    ],
+    "source_review": "b0c9c56a: the duration labels identify 2.5, 5 and 20 ms separately; each collision requires all three exact native-rate replacements."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus",
+    "baseline_tests": [
+      "TestSub48NativeEncodeParity/celt_wb_20ms_mono/fs48000#01",
+      "TestSub48NativeEncodeParity/celt_wb_20ms_mono/fs48000#02"
+    ],
+    "required_candidate_tests": [
+      "TestSub48NativeEncodeParity/celt_wb_2.5ms_mono/fs48000",
+      "TestSub48NativeEncodeParity/celt_wb_20ms_mono/fs48000",
+      "TestSub48NativeEncodeParity/celt_wb_5ms_mono/fs48000"
+    ],
+    "source_review": "b0c9c56a: the duration labels identify 2.5, 5 and 20 ms separately; each collision requires all three exact native-rate replacements."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus",
+    "baseline_tests": [
+      "TestSub48NativeEncodeParity/celt_wb_20ms_mono/fs8000#01",
+      "TestSub48NativeEncodeParity/celt_wb_20ms_mono/fs8000#02"
+    ],
+    "required_candidate_tests": [
+      "TestSub48NativeEncodeParity/celt_wb_2.5ms_mono/fs8000",
+      "TestSub48NativeEncodeParity/celt_wb_20ms_mono/fs8000",
+      "TestSub48NativeEncodeParity/celt_wb_5ms_mono/fs8000"
+    ],
+    "source_review": "b0c9c56a: the duration labels identify 2.5, 5 and 20 ms separately; each collision requires all three exact native-rate replacements."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus",
+    "baseline_tests": [
+      "TestSub48NativeEncodeParity/celt_wb_20ms_stereo/fs12000#01",
+      "TestSub48NativeEncodeParity/celt_wb_20ms_stereo/fs12000#02"
+    ],
+    "required_candidate_tests": [
+      "TestSub48NativeEncodeParity/celt_wb_2.5ms_stereo/fs12000",
+      "TestSub48NativeEncodeParity/celt_wb_20ms_stereo/fs12000",
+      "TestSub48NativeEncodeParity/celt_wb_5ms_stereo/fs12000"
+    ],
+    "source_review": "b0c9c56a: the duration labels identify 2.5, 5 and 20 ms separately; each collision requires all three exact native-rate replacements."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus",
+    "baseline_tests": [
+      "TestSub48NativeEncodeParity/celt_wb_20ms_stereo/fs16000#01",
+      "TestSub48NativeEncodeParity/celt_wb_20ms_stereo/fs16000#02"
+    ],
+    "required_candidate_tests": [
+      "TestSub48NativeEncodeParity/celt_wb_2.5ms_stereo/fs16000",
+      "TestSub48NativeEncodeParity/celt_wb_20ms_stereo/fs16000",
+      "TestSub48NativeEncodeParity/celt_wb_5ms_stereo/fs16000"
+    ],
+    "source_review": "b0c9c56a: the duration labels identify 2.5, 5 and 20 ms separately; each collision requires all three exact native-rate replacements."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus",
+    "baseline_tests": [
+      "TestSub48NativeEncodeParity/celt_wb_20ms_stereo/fs24000#01",
+      "TestSub48NativeEncodeParity/celt_wb_20ms_stereo/fs24000#02"
+    ],
+    "required_candidate_tests": [
+      "TestSub48NativeEncodeParity/celt_wb_2.5ms_stereo/fs24000",
+      "TestSub48NativeEncodeParity/celt_wb_20ms_stereo/fs24000",
+      "TestSub48NativeEncodeParity/celt_wb_5ms_stereo/fs24000"
+    ],
+    "source_review": "b0c9c56a: the duration labels identify 2.5, 5 and 20 ms separately; each collision requires all three exact native-rate replacements."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus",
+    "baseline_tests": [
+      "TestSub48NativeEncodeParity/celt_wb_20ms_stereo/fs48000#01",
+      "TestSub48NativeEncodeParity/celt_wb_20ms_stereo/fs48000#02"
+    ],
+    "required_candidate_tests": [
+      "TestSub48NativeEncodeParity/celt_wb_2.5ms_stereo/fs48000",
+      "TestSub48NativeEncodeParity/celt_wb_20ms_stereo/fs48000",
+      "TestSub48NativeEncodeParity/celt_wb_5ms_stereo/fs48000"
+    ],
+    "source_review": "b0c9c56a: the duration labels identify 2.5, 5 and 20 ms separately; each collision requires all three exact native-rate replacements."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus",
+    "baseline_tests": [
+      "TestSub48NativeEncodeParity/celt_wb_20ms_stereo/fs8000#01",
+      "TestSub48NativeEncodeParity/celt_wb_20ms_stereo/fs8000#02"
+    ],
+    "required_candidate_tests": [
+      "TestSub48NativeEncodeParity/celt_wb_2.5ms_stereo/fs8000",
+      "TestSub48NativeEncodeParity/celt_wb_20ms_stereo/fs8000",
+      "TestSub48NativeEncodeParity/celt_wb_5ms_stereo/fs8000"
+    ],
+    "source_review": "b0c9c56a: the duration labels identify 2.5, 5 and 20 ms separately; each collision requires all three exact native-rate replacements."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/celt",
+    "baseline_tests": [
+      "TestNormalizeBandsToArrayMonoWithBandEMatchesSeparatePasses"
+    ],
+    "required_candidate_tests": [
+      "TestNormalizeBandsMonoF32MatchesSeparatePasses"
+    ],
+    "source_review": "036c4d51: selected-C native-frame helpers and focused assertions cover the corresponding gain, delay, prefill, VAD or normalization contract."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/celt",
+    "baseline_tests": [
+      "TestNormalizeBandsToArrayStereoWithBandEMatchesSeparatePasses"
+    ],
+    "required_candidate_tests": [
+      "TestNormalizeBandsStereoF32MatchesSeparatePasses"
+    ],
+    "source_review": "036c4d51: selected-C native-frame helpers and focused assertions cover the corresponding gain, delay, prefill, VAD or normalization contract."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/encoder",
+    "baseline_tests": [
+      "TestAnalysisFixtureMetadata",
+      "TestAnalysisFixtureParityWithLibopus",
+      "TestAnalysisFixtureProfileCoverage"
+    ],
+    "required_candidate_tests": [
+      "TestAnalysisMatchesLibopusLive",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/10ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/10ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/10ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/10ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/10ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/10ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/20ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/20ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/20ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/20ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/20ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/20ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/40ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/40ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/40ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/40ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/40ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/40ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/5ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/5ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/5ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/5ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/5ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/5ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/60ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/60ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/60ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/60ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/60ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/60ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/10ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/10ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/10ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/10ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/10ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/10ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/20ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/20ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/20ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/20ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/20ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/20ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/40ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/40ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/40ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/40ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/40ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/40ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/5ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/5ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/5ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/5ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/5ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/5ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/60ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/60ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/60ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/60ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/60ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/60ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/10ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/10ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/10ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/10ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/10ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/10ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/20ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/20ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/20ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/20ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/20ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/20ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/40ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/40ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/40ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/40ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/40ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/40ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/5ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/5ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/5ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/5ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/5ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/5ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/60ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/60ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/60ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/60ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/60ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/60ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/10ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/10ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/10ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/10ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/10ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/10ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/20ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/20ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/20ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/20ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/20ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/20ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/40ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/40ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/40ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/40ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/40ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/40ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/5ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/5ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/5ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/5ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/5ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/5ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/60ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/60ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/60ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/60ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/60ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/60ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/10ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/10ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/10ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/10ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/10ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/10ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/20ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/20ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/20ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/20ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/20ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/20ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/40ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/40ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/40ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/40ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/40ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/40ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/5ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/5ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/5ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/5ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/5ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/5ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/60ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/60ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/60ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/60ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/60ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/60ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/10ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/10ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/10ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/10ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/10ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/10ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/20ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/20ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/20ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/20ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/20ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/20ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/40ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/40ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/40ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/40ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/40ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/40ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/5ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/5ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/5ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/5ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/5ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/5ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/60ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/60ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/60ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/60ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/60ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/60ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLiveEncoderVariants",
+      "TestAnalysisMatchesLibopusLiveEncoderVariants/am_multisine_v1/ch1/10ms",
+      "TestAnalysisMatchesLibopusLiveEncoderVariants/am_multisine_v1/ch1/20ms",
+      "TestAnalysisMatchesLibopusLiveEncoderVariants/am_multisine_v1/ch1/40ms",
+      "TestAnalysisMatchesLibopusLiveEncoderVariants/am_multisine_v1/ch1/60ms",
+      "TestAnalysisMatchesLibopusLiveEncoderVariants/am_multisine_v1/ch2/20ms",
+      "TestAnalysisMatchesLibopusLiveEncoderVariants/chirp_sweep_v1/ch1/10ms",
+      "TestAnalysisMatchesLibopusLiveEncoderVariants/chirp_sweep_v1/ch1/20ms",
+      "TestAnalysisMatchesLibopusLiveEncoderVariants/chirp_sweep_v1/ch1/40ms",
+      "TestAnalysisMatchesLibopusLiveEncoderVariants/chirp_sweep_v1/ch1/60ms",
+      "TestAnalysisMatchesLibopusLiveEncoderVariants/chirp_sweep_v1/ch2/20ms",
+      "TestAnalysisMatchesLibopusLiveEncoderVariants/impulse_train_v1/ch1/10ms",
+      "TestAnalysisMatchesLibopusLiveEncoderVariants/impulse_train_v1/ch1/20ms",
+      "TestAnalysisMatchesLibopusLiveEncoderVariants/impulse_train_v1/ch1/40ms",
+      "TestAnalysisMatchesLibopusLiveEncoderVariants/impulse_train_v1/ch1/60ms",
+      "TestAnalysisMatchesLibopusLiveEncoderVariants/impulse_train_v1/ch2/20ms",
+      "TestAnalysisMatchesLibopusLiveEncoderVariants/speech_like_v1/ch1/10ms",
+      "TestAnalysisMatchesLibopusLiveEncoderVariants/speech_like_v1/ch1/20ms",
+      "TestAnalysisMatchesLibopusLiveEncoderVariants/speech_like_v1/ch1/40ms",
+      "TestAnalysisMatchesLibopusLiveEncoderVariants/speech_like_v1/ch1/60ms",
+      "TestAnalysisMatchesLibopusLiveEncoderVariants/speech_like_v1/ch2/20ms"
+    ],
+    "source_review": "473a0434: live selected-C analysis output and state checks cover the analysis contract independently of the frozen fixture producer."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/encoder",
+    "baseline_tests": [
+      "TestCELTTransitionPrefillForcesOneIntraFrame"
+    ],
+    "required_candidate_tests": [
+      "TestCELTTransitionPrefillDisablesPrediction"
+    ],
+    "source_review": "036c4d51: selected-C native-frame helpers and focused assertions cover the corresponding gain, delay, prefill, VAD or normalization contract."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/encoder",
+    "baseline_tests": [
+      "TestCELTTransitionPrefillResyncsAnalysisAfterReset"
+    ],
+    "required_candidate_tests": [
+      "TestCELTTransitionPrefillClearsAnalysis"
+    ],
+    "source_review": "036c4d51: selected-C native-frame helpers and focused assertions cover the corresponding gain, delay, prefill, VAD or normalization contract."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/encoder",
+    "baseline_tests": [
+      "TestCELTTransitionPrefillSkipsWhenDelayedTransitionAlreadyAdvancedPrevMode"
+    ],
+    "required_candidate_tests": [
+      "TestCELTTransitionPrefillSkippedWithoutModeChange"
+    ],
+    "source_review": "036c4d51: selected-C native-frame helpers and focused assertions cover the corresponding gain, delay, prefill, VAD or normalization contract."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/encoder",
+    "baseline_tests": [
+      "TestGainFadeSmoothing"
+    ],
+    "required_candidate_tests": [
+      "TestGainFadeMatchesLibopus",
+      "TestGainFadeMatchesLibopus/24k_mono_changing",
+      "TestGainFadeMatchesLibopus/24k_mono_steady",
+      "TestGainFadeMatchesLibopus/24k_mono_unity",
+      "TestGainFadeMatchesLibopus/24k_stereo_changing",
+      "TestGainFadeMatchesLibopus/24k_stereo_steady_hybrid_gain",
+      "TestGainFadeMatchesLibopus/24k_stereo_unity",
+      "TestGainFadeMatchesLibopus/48k_mono_changing",
+      "TestGainFadeMatchesLibopus/48k_mono_steady_hybrid_gain",
+      "TestGainFadeMatchesLibopus/48k_mono_steady_near_unity",
+      "TestGainFadeMatchesLibopus/48k_mono_unity",
+      "TestGainFadeMatchesLibopus/48k_stereo_changing",
+      "TestGainFadeMatchesLibopus/48k_stereo_steady_near_unity",
+      "TestGainFadeMatchesLibopus/48k_stereo_unity"
+    ],
+    "source_review": "036c4d51: selected-C native-frame helpers and focused assertions cover the corresponding gain, delay, prefill, VAD or normalization contract."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/encoder",
+    "baseline_tests": [
+      "TestHybridBitAllocation",
+      "TestHybridBitAllocation/24kbps_mono_20ms",
+      "TestHybridBitAllocation/32kbps_mono_10ms",
+      "TestHybridBitAllocation/32kbps_mono_20ms",
+      "TestHybridBitAllocation/32kbps_mono_20ms_FEC",
+      "TestHybridBitAllocation/48kbps_stereo_20ms",
+      "TestHybridBitAllocation/64kbps_mono_20ms",
+      "TestHybridBitAllocationDoesNotClampCELTRate"
+    ],
+    "required_candidate_tests": [
+      "TestComputeSilkRateForHybridMatchesLibopus",
+      "TestComputeSilkRateForHybridMatchesLibopus/19.6k_mono_10ms",
+      "TestComputeSilkRateForHybridMatchesLibopus/20k_stereo",
+      "TestComputeSilkRateForHybridMatchesLibopus/24k_mono_20ms",
+      "TestComputeSilkRateForHybridMatchesLibopus/24k_mono_cbr_swb",
+      "TestComputeSilkRateForHybridMatchesLibopus/32k_mono_20ms_fec",
+      "TestComputeSilkRateForHybridMatchesLibopus/48k_stereo",
+      "TestComputeSilkRateForHybridMatchesLibopus/7.6k_mono_20ms",
+      "TestComputeSilkRateForHybridMatchesLibopus/80k_mono"
+    ],
+    "source_review": "036c4d51: selected-C native-frame helpers and focused assertions cover the corresponding gain, delay, prefill, VAD or normalization contract."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/encoder",
+    "baseline_tests": [
+      "TestPrepareCELTPCM_DelayCompensationGatedByLowDelay"
+    ],
+    "required_candidate_tests": [
+      "TestPCMBufDelayCompensationGatedByLowDelay"
+    ],
+    "source_review": "036c4d51: selected-C native-frame helpers and focused assertions cover the corresponding gain, delay, prefill, VAD or normalization contract."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/encoder",
+    "baseline_tests": [
+      "TestUpdateOpusVADReusesFreshAnalysis"
+    ],
+    "required_candidate_tests": [
+      "TestUpdateFrameActivityReusesFreshAnalysis"
+    ],
+    "source_review": "036c4d51: selected-C native-frame helpers and focused assertions cover the corresponding gain, delay, prefill, VAD or normalization contract."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/silk",
+    "baseline_tests": [
+      "TestEncodeStereoAppliesPerChannelRateSplitWithVADCarryover"
+    ],
+    "required_candidate_tests": [
+      "TestEncodeStereoAppliesPerChannelRateSplit"
+    ],
+    "source_review": "fc81fb76: the shared integer SILK stereo path follows silk_stereo_LR_to_MS; the listed focused state/arithmetic tests assert the replacement contract."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/silk",
+    "baseline_tests": [
+      "TestEncoderReset"
+    ],
+    "required_candidate_tests": [
+      "TestPacketEncoderInitRestoresFreshState"
+    ],
+    "source_review": "fc81fb76: the shared integer SILK stereo path follows silk_stereo_LR_to_MS; the listed focused state/arithmetic tests assert the replacement contract."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/silk",
+    "baseline_tests": [
+      "TestNewEncoder",
+      "TestNewEncoder/mediumband",
+      "TestNewEncoder/narrowband",
+      "TestNewEncoder/wideband"
+    ],
+    "required_candidate_tests": [
+      "TestNewEncoderHasNoInternalRate",
+      "TestSetupFsSetsRateParameters",
+      "TestSetupFsSetsRateParameters/mediumband",
+      "TestSetupFsSetsRateParameters/narrowband",
+      "TestSetupFsSetsRateParameters/wideband"
+    ],
+    "source_review": "3290f198: construction has no internal SILK rate; setup_fs owns per-rate initialization. Both constructor and rate-setup assertions are required."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/silk",
+    "baseline_tests": [
+      "TestReducedDependencyPacketCadence"
+    ],
+    "required_candidate_tests": [
+      "TestReducedDependencyCodesEveryPacketIndependently"
+    ],
+    "source_review": "fc81fb76: the shared integer SILK stereo path follows silk_stereo_LR_to_MS; the listed focused state/arithmetic tests assert the replacement contract."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/silk",
+    "baseline_tests": [
+      "TestResetTransitionPrefillState"
+    ],
+    "required_candidate_tests": [
+      "TestPrefillResetsChannelsAndKeepsLPStateOnlyForPrefill2"
+    ],
+    "source_review": "fc81fb76: the shared integer SILK stereo path follows silk_stereo_LR_to_MS; the listed focused state/arithmetic tests assert the replacement contract."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/silk",
+    "baseline_tests": [
+      "TestStereoConvertLRToMSFloat"
+    ],
+    "required_candidate_tests": [
+      "TestSILKStereoLRToMSMatchesLibopusOracle",
+      "TestSILKStereoLRToMSMatchesLibopusOracle/chirp_sweep_v1_wb_20ms_stereo_48k_packet0",
+      "TestSILKStereoLRToMSMatchesLibopusOracle/chirp_sweep_v1_wb_20ms_stereo_48k_packet0_48kbps",
+      "TestSILKStereoLRToMSMatchesLibopusOracle/full_width_20ms",
+      "TestSILKStereoLRToMSMatchesLibopusOracle/reduced_width_10ms",
+      "TestSILKStereoLRToMSMatchesLibopusOracle/to_mono_transition",
+      "TestStereoConvertLRToMS"
+    ],
+    "source_review": "fc81fb76: the shared integer SILK stereo path follows silk_stereo_LR_to_MS; the listed focused state/arithmetic tests assert the replacement contract."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/silk",
+    "baseline_tests": [
+      "TestStereoEncoderLPFilterState"
+    ],
+    "required_candidate_tests": [
+      "TestStereoLRToMSKeepsFilterHistory"
+    ],
+    "source_review": "fc81fb76: the shared integer SILK stereo path follows silk_stereo_LR_to_MS; the listed focused state/arithmetic tests assert the replacement contract."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/silk",
+    "baseline_tests": [
+      "TestStereoFindPredictorFloat",
+      "TestStereoFindPredictorFloatUncorrelated"
+    ],
+    "required_candidate_tests": [
+      "TestSILKStereoFindPredictorMatchesLibopusOracle",
+      "TestSILKStereoFindPredictorMatchesLibopusOracle/negative_corr",
+      "TestSILKStereoFindPredictorMatchesLibopusOracle/positive_corr",
+      "TestSILKStereoFindPredictorMatchesLibopusOracle/silent_target"
+    ],
+    "source_review": "fc81fb76: the shared integer SILK stereo path follows silk_stereo_LR_to_MS; the listed focused state/arithmetic tests assert the replacement contract."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/silk",
+    "baseline_tests": [
+      "TestStereoLPFilterFloat"
+    ],
+    "required_candidate_tests": [
+      "TestStereoLPFilter",
+      "TestStereoLPFilterMatchesLibopus"
+    ],
+    "source_review": "fc81fb76: the shared integer SILK stereo path follows silk_stereo_LR_to_MS; the listed focused state/arithmetic tests assert the replacement contract."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/silk",
+    "baseline_tests": [
+      "TestStereoLPFilterFloatImpulse"
+    ],
+    "required_candidate_tests": [
+      "TestStereoLPFilterImpulse"
+    ],
+    "source_review": "fc81fb76: the shared integer SILK stereo path follows silk_stereo_LR_to_MS; the listed focused state/arithmetic tests assert the replacement contract."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/testvectors",
+    "baseline_tests": [
+      "TestEncoderVariantThresholdForArchAppliesAMD64Overrides",
+      "TestEncoderVariantThresholdForArchAppliesAMD64Overrides/amd64_celt_shortframe_chirp_override",
+      "TestEncoderVariantThresholdForArchAppliesAMD64Overrides/amd64_hybrid_stereo_tight_floor",
+      "TestEncoderVariantThresholdForArchAppliesAMD64Overrides/amd64_silk_long_impulse_tight_floor",
+      "TestEncoderVariantThresholdForArchAppliesAMD64Overrides/amd64_silk_stereo_chirp_tight_floor",
+      "TestEncoderVariantThresholdForArchAppliesAMD64Overrides/amd64_silk_stereo_speech_tight_floor",
+      "TestEncoderVariantThresholdForArchAppliesAMD64Overrides/amd64_silk_wb40_chirp_tight_floor",
+      "TestEncoderVariantThresholdForArchAppliesAMD64Overrides/arm64_celt_shortframe_chirp_tight_floor",
+      "TestEncoderVariantThresholdForArchAppliesAMD64Overrides/arm64_hybrid_stereo_tight_floor",
+      "TestEncoderVariantThresholdForArchAppliesAMD64Overrides/arm64_silk_long_impulse_tight_floor",
+      "TestEncoderVariantThresholdForArchAppliesAMD64Overrides/arm64_silk_stereo_chirp_tight_floor",
+      "TestEncoderVariantThresholdForArchAppliesAMD64Overrides/arm64_silk_stereo_speech_tight_floor"
+    ],
+    "required_candidate_tests": [
+      "TestEncoderVariantThresholdForArchAppliesArchitectureFloors",
+      "TestEncoderVariantThresholdForArchAppliesArchitectureFloors/amd64_celt_shortframe_chirp",
+      "TestEncoderVariantThresholdForArchAppliesArchitectureFloors/amd64_hybrid_mono_AM_floor",
+      "TestEncoderVariantThresholdForArchAppliesArchitectureFloors/amd64_hybrid_mono_chirp_floor",
+      "TestEncoderVariantThresholdForArchAppliesArchitectureFloors/amd64_hybrid_stereo_floor",
+      "TestEncoderVariantThresholdForArchAppliesArchitectureFloors/amd64_silk_long_impulse_tight_floor",
+      "TestEncoderVariantThresholdForArchAppliesArchitectureFloors/amd64_silk_stereo_chirp_tight_floor",
+      "TestEncoderVariantThresholdForArchAppliesArchitectureFloors/amd64_silk_stereo_speech_tight_floor",
+      "TestEncoderVariantThresholdForArchAppliesArchitectureFloors/amd64_silk_wb40_chirp_tight_floor",
+      "TestEncoderVariantThresholdForArchAppliesArchitectureFloors/arm64_celt_shortframe_chirp_tight_floor",
+      "TestEncoderVariantThresholdForArchAppliesArchitectureFloors/arm64_hybrid_mono_AM_floor",
+      "TestEncoderVariantThresholdForArchAppliesArchitectureFloors/arm64_hybrid_mono_chirp_floor",
+      "TestEncoderVariantThresholdForArchAppliesArchitectureFloors/arm64_hybrid_stereo_tight_floor",
+      "TestEncoderVariantThresholdForArchAppliesArchitectureFloors/arm64_silk_long_impulse_tight_floor",
+      "TestEncoderVariantThresholdForArchAppliesArchitectureFloors/arm64_silk_stereo_chirp_tight_floor",
+      "TestEncoderVariantThresholdForArchAppliesArchitectureFloors/arm64_silk_stereo_speech_tight_floor"
+    ],
+    "source_review": "0807b76a: architecture-floor names have explicit candidate assertions; every listed leaf must pass."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/encoder",
+    "baseline_tests": [
+      "TestSILKEncoderReconfiguresOnBandwidthChangeMono",
+      "TestSILKEncoderReconfiguresOnBandwidthChangeStereo"
+    ],
+    "required_candidate_tests": [
+      "TestSILKInternalRateSwitchZeroAlloc",
+      "TestSILKInternalRateSwitchesStepByStep",
+      "TestSILKInternalRateWaitsForBandwidthSwitch"
+    ],
+    "source_review": "3290f198: silk_control_audio_bandwidth keeps the current rate during active speech and steps WB through MB to NB after switchReady; both-channel tests assert that source contract and TOC at every step instead of the removed immediate-rebuild expectation."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/encoder",
+    "baseline_tests": [
+      "TestSilkResamplerDown2HPMatchesLegacy",
+      "TestSilkResamplerDown2HPScaledMatchesScaleThenResample",
+      "TestSilkResamplerDown2HPStereoMatchesDownmixThenResample"
+    ],
+    "required_candidate_tests": [
+      "TestAnalysisMatchesLibopusLive",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/10ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/10ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/10ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/10ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/10ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/10ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/20ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/20ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/20ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/20ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/20ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/20ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/40ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/40ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/40ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/40ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/40ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/40ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/5ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/5ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/5ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/5ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/5ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/5ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/60ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/60ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/60ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/60ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/60ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch1/60ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/10ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/10ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/10ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/10ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/10ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/10ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/20ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/20ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/20ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/20ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/20ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/20ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/40ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/40ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/40ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/40ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/40ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/40ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/5ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/5ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/5ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/5ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/5ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/5ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/60ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/60ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/60ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/60ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/60ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/16k/ch2/60ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/10ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/10ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/10ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/10ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/10ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/10ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/20ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/20ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/20ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/20ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/20ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/20ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/40ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/40ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/40ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/40ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/40ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/40ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/5ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/5ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/5ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/5ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/5ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/5ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/60ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/60ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/60ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/60ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/60ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch1/60ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/10ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/10ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/10ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/10ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/10ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/10ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/20ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/20ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/20ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/20ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/20ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/20ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/40ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/40ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/40ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/40ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/40ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/40ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/5ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/5ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/5ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/5ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/5ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/5ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/60ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/60ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/60ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/60ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/60ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/24k/ch2/60ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/10ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/10ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/10ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/10ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/10ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/10ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/20ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/20ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/20ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/20ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/20ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/20ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/40ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/40ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/40ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/40ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/40ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/40ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/5ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/5ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/5ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/5ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/5ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/5ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/60ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/60ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/60ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/60ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/60ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch1/60ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/10ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/10ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/10ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/10ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/10ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/10ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/20ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/20ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/20ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/20ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/20ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/20ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/40ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/40ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/40ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/40ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/40ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/40ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/5ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/5ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/5ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/5ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/5ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/5ms/corpus_silence_bursts_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/60ms/corpus_castanet_transient_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/60ms/corpus_clean_speech_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/60ms/corpus_mixed_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/60ms/corpus_music_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/60ms/corpus_pure_tone_v1",
+      "TestAnalysisMatchesLibopusLive/48k/ch2/60ms/corpus_silence_bursts_v1"
+    ],
+    "source_review": "473a0434: the separate legacy/scaled/stereo down2-HP wrappers are replaced by the source-shaped analysis input path. Actual selected-C analysis compares every output and all persistent state hashes including mem plus hp_ener_accum through successive mono/stereo frames at 48/24/16 kHz. This replaces the old Go-to-Go exact/8-ULP wrapper comparisons."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/encoder",
+    "baseline_tests": [
+      "TestDownsample48to16",
+      "TestResamplerContinuity"
+    ],
+    "required_candidate_tests": [
+      {
+        "package": "github.com/thesyncim/gopus/internal/silk",
+        "test": "TestSILKEncoderDownsamplingResamplerMatchesLibopusOracle"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/silk",
+        "test": "TestSILKEncoderDownsamplingResamplerMatchesLibopusOracle/24000_to_12000_10ms"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/silk",
+        "test": "TestSILKEncoderDownsamplingResamplerMatchesLibopusOracle/24000_to_16000_10ms"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/silk",
+        "test": "TestSILKEncoderDownsamplingResamplerMatchesLibopusOracle/24000_to_8000_10ms"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/silk",
+        "test": "TestSILKEncoderDownsamplingResamplerMatchesLibopusOracle/48000_to_12000_10ms"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/silk",
+        "test": "TestSILKEncoderDownsamplingResamplerMatchesLibopusOracle/48000_to_16000_10ms"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/silk",
+        "test": "TestSILKEncoderDownsamplingResamplerMatchesLibopusOracle/48000_to_8000_10ms"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/silk",
+        "test": "TestSetupResamplersCarriesXBufOver"
+      }
+    ],
+    "source_review": "fc81fb76: the separate hybrid low-band wrapper moves into PacketEncoder/silk_setup_resamplers. Selected-C encoder resampler tests compare exact samples and total count for six consecutive 24/48-kHz frames to all three internal rates; setup-resamplers additionally checks retained history and next-frame continuation. These cover the old output-length/non-silence and loose sine-continuity assertions."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/silk",
+    "baseline_tests": [
+      "TestEncodeFrameQuantizesInputPCM"
+    ],
+    "required_candidate_tests": [
+      "TestEncodeQuantizesInputPCM"
+    ],
+    "source_review": "fc81fb76: the same RES2INT16 boundary assertion is expressed at PacketEncoder.Encode; both inputBuf and xBuf must hold quantized 3277 for 0.1 input."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/silk",
+    "baseline_tests": [
+      "TestResetStereoSideAfterMidOnlyPreservesRateControl"
+    ],
+    "required_candidate_tests": [
+      "TestReducedDependencyCodesEveryPacketIndependently",
+      "TestResetAnalysisHistory"
+    ],
+    "source_review": "fc81fb76: resetAnalysisHistory is the actual side-reset call at enc_api.go mid-only exit. TestResetAnalysisHistory asserts the source-correct reset values and preserved entropy/LP mode per silk/enc_API.c:453-463; reduced dependency is caller-owned EncControl and has an independent per-packet coding assertion. The old expectation to clear entropy history is intentionally corrected."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/silk",
+    "baseline_tests": [
+      "TestReducedDependencyControlSurvivesReset"
+    ],
+    "required_candidate_tests": [
+      {
+        "package": "github.com/thesyncim/gopus/internal/encoder",
+        "test": "TestSetPredictionDisabledPersistsAcrossReset"
+      },
+      "TestReducedDependencyCodesEveryPacketIndependently"
+    ],
+    "source_review": "fc81fb76: reducedDependency moves from channel state to caller-owned EncControl. The parent encoder reset test explicitly keeps PredictionDisabled and propagates silkMode.ReducedDependency; the packet test verifies each packet consumes that control."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/silk",
+    "baseline_tests": [
+      "TestDecoderInterpolationMatches"
+    ],
+    "required_candidate_tests": [
+      "TestInterpolationSamplesCount",
+      "TestInterpolationSamplesCount/12kHz",
+      "TestInterpolationSamplesCount/16kHz",
+      "TestInterpolationSamplesCount/8kHz"
+    ],
+    "source_review": "fc81fb76: the removed test only asserts stereoInterpLenMs==8. The retained test asserts the same constant through exact interpolation lengths 64/96/128 at 8/12/16 kHz; it is not claimed as a PCM oracle."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/silk",
+    "baseline_tests": [
+      "TestInterpolatePredictorsFloat",
+      "TestInterpolatePredictorsFloat/NoPredictorChange",
+      "TestInterpolatePredictorsFloat/PredictorRampUp",
+      "TestInterpolatePredictorsFloat/WidthRampUp",
+      "TestStereoEncStateInterp",
+      "TestSmoothTransitionAtBoundary",
+      "TestEncoderInterpolationState",
+      "TestStereoEncodeLRToMSWithInterp",
+      "TestInterpolationContinuity"
+    ],
+    "required_candidate_tests": [
+      "TestPacketEncoderInitRestoresFreshState",
+      "TestSILKStereoLRToMSMatchesLibopusOracle",
+      "TestSILKStereoLRToMSMatchesLibopusOracle/chirp_sweep_v1_wb_20ms_stereo_48k_packet0",
+      "TestSILKStereoLRToMSMatchesLibopusOracle/chirp_sweep_v1_wb_20ms_stereo_48k_packet0_48kbps",
+      "TestSILKStereoLRToMSMatchesLibopusOracle/full_width_20ms",
+      "TestSILKStereoLRToMSMatchesLibopusOracle/reduced_width_10ms",
+      "TestSILKStereoLRToMSMatchesLibopusOracle/to_mono_transition",
+      "TestStereoLRToMSKeepsFilterHistory"
+    ],
+    "source_review": "fc81fb76: the separate approximate float interpolation/state API is replaced by the shared integer silk_stereo_LR_to_MS path. The live-C gate compares every mid/side sample, prediction index, rate, flag and final state for zero and nonzero predictor/history/width states (10/20 ms and to-mono); retained-history and reset-to-fresh-packet checks cover state lifetime. The deleted loose float monotonicity/boundary assertions are not preserved as a second algorithm."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/celt",
+    "baseline_tests": [
+      "TestApplyHybridPrefilterMatchesDisabledRunPrefilter"
+    ],
+    "required_candidate_tests": [
+      "TestHybridPrefilterMatchesDisabledTransition",
+      "TestHybridPrefilterMatchesDisabledTransition/ch1/gain0",
+      "TestHybridPrefilterMatchesDisabledTransition/ch1/gain0.46875",
+      "TestHybridPrefilterMatchesDisabledTransition/ch2/gain0",
+      "TestHybridPrefilterMatchesDisabledTransition/ch2/gain0.46875"
+    ],
+    "source_review": "036c4d51: unified encode entry runs the disabled prefilter transition for hybrid. The current live entry invariant checks complete preemphasis/history/overlap/period/gain/tapset/pitch-change state with both zero and active incoming gain, plus warm allocations. This preserves branch/state coverage, without claiming a C numeric oracle."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/celt",
+    "baseline_tests": [
+      "TestApplyDeemphasisAndScaleInPlaceMatchesLibopus",
+      "TestApplyDeemphasisAndScaleMonoFloat32ToFloat32MatchesInterleaved",
+      "TestApplyDeemphasisAndScaleMonoFloat32ToFloat32MatchesLibopus",
+      "TestApplyDeemphasisAndScaleStereoPlanarFloat32ToFloat32MatchesInterleaved",
+      "TestApplyDeemphasisAndScaleStereoPlanarFloat32ToFloat32MatchesLibopus",
+      "TestApplyDeemphasisAndScaleStereoPlanarToFloat32MatchesLibopus",
+      "TestApplyDeemphasisAndScaleToFloat32MatchesLibopus",
+      "TestApplyDeemphasisAndScaleToFloat32StereoMatchesLibopus"
+    ],
+    "source_review": "3f846cc4: one Decoder.deemphasis replaces all eight wrappers; each matrix leaf executes interleaved and planar paths, and ds1/accum=false also executes in-place. All output and memory bits compare to selected C. Stateful odd lengths 17/67/23/72 remain separately exercised.",
+    "required_candidate_tests": [
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestDeemphasisMatchesLibopus/loud/ch1/ds1/accum=false"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestDeemphasisMatchesLibopus/loud/ch2/ds1/accum=false"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestDeemphasisMatchesLibopus/small/ch1/ds1/accum=false"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestDeemphasisMatchesLibopus/small/ch2/ds1/accum=false"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestDeemphasisMatchesLibopus/silence/ch1/ds1/accum=false"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestDeemphasisMatchesLibopus/silence/ch2/ds1/accum=false"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestDeemphasisSilenceTransitionsAndDownsampleStateMatchLibopus/channels=1/transition/initial-silence"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestDeemphasisSilenceTransitionsAndDownsampleStateMatchLibopus/channels=1/transition/signal"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestDeemphasisSilenceTransitionsAndDownsampleStateMatchLibopus/channels=1/transition/silence-with-state"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestDeemphasisSilenceTransitionsAndDownsampleStateMatchLibopus/channels=1/transition/signal-again"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestDeemphasisSilenceTransitionsAndDownsampleStateMatchLibopus/channels=2/transition/initial-silence"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestDeemphasisSilenceTransitionsAndDownsampleStateMatchLibopus/channels=2/transition/signal"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestDeemphasisSilenceTransitionsAndDownsampleStateMatchLibopus/channels=2/transition/silence-with-state"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestDeemphasisSilenceTransitionsAndDownsampleStateMatchLibopus/channels=2/transition/signal-again"
+      }
+    ]
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/hybrid",
+    "baseline_tests": [
+      "TestHybridBandCombineMatchesLibopusAccum"
+    ],
+    "source_review": "3f846cc4: Hybrid lowband accumulation occurs inside Decoder.deemphasis; this selected-C leaf compares live accumulation output and memory with a nonzero lowband seed, matching the removed combine contract.",
+    "required_candidate_tests": [
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestDeemphasisMatchesLibopus/loud/ch1/ds1/accum=true"
+      }
+    ]
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/dnnmath",
+    "baseline_tests": [
+      "TestNEONVectorActivationsMatchLibopusOracle"
+    ],
+    "source_review": "a03103c9: same input vectors and raw-bit assertions retained; helper and Go entry select the actual instruction lane. Mapping must require every replacement PASS; activation/CGEMV native failures therefore remain hard.",
+    "required_candidate_tests": [
+      {
+        "package": "github.com/thesyncim/gopus/internal/dnnmath",
+        "test": "TestDNNVectorActivationsMatchSelectedLibopusOracle/sigmoid"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/dnnmath",
+        "test": "TestDNNVectorActivationsMatchSelectedLibopusOracle/tanh"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/dnnmath",
+        "test": "TestDNNVectorActivationsMatchSelectedLibopusOracle/exp"
+      }
+    ]
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/dred/rdovae",
+    "baseline_tests": [
+      "TestRDOVAECGEMV8x4MatchesLibopusNEONOracle"
+    ],
+    "source_review": "a03103c9: same input vectors and raw-bit assertions retained; helper and Go entry select the actual instruction lane. Mapping must require every replacement PASS; activation/CGEMV native failures therefore remain hard.",
+    "required_candidate_tests": [
+      {
+        "package": "github.com/thesyncim/gopus/internal/dred/rdovae",
+        "test": "TestRDOVAECGEMV8x4MatchesSelectedLibopusOracle/rows_8_cols_8"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/dred/rdovae",
+        "test": "TestRDOVAECGEMV8x4MatchesSelectedLibopusOracle/rows_16_cols_16"
+      }
+    ]
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/dred/rdovae",
+    "baseline_tests": [
+      "TestRDOVAESGEMVFusedMatchesLibopusNEONOracle"
+    ],
+    "source_review": "a03103c9: same input vectors and raw-bit assertions retained; helper and Go entry select the actual instruction lane. Mapping must require every replacement PASS; activation/CGEMV native failures therefore remain hard.",
+    "required_candidate_tests": [
+      {
+        "package": "github.com/thesyncim/gopus/internal/dred/rdovae",
+        "test": "TestRDOVAESGEMVMatchesSelectedLibopusOracle/rows_16_cols_9"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/dred/rdovae",
+        "test": "TestRDOVAESGEMVMatchesSelectedLibopusOracle/rows_8_cols_13"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/dred/rdovae",
+        "test": "TestRDOVAESGEMVMatchesSelectedLibopusOracle/rows_5_cols_7"
+      }
+    ]
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/hybrid",
+    "baseline_tests": [
+      "TestHybridBandCombineMatchesLibopusAccumSmallMagnitudes"
+    ],
+    "required_candidate_tests": [
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestDeemphasisHybridLowbandEdgesMatchLibopus/tiny-both-bands"
+      }
+    ],
+    "source_review": "Hybrid lowband accumulation runs inside Decoder.deemphasis. The selected-C replacement checks every output and memory bit with the corresponding tiny or zero SILK lowband and nonzero CELT input."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/hybrid",
+    "baseline_tests": [
+      "TestHybridBandCombineMatchesLibopusAccumZeroSilk"
+    ],
+    "required_candidate_tests": [
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestDeemphasisHybridLowbandEdgesMatchLibopus/zero-lowband"
+      }
+    ],
+    "source_review": "Hybrid lowband accumulation runs inside Decoder.deemphasis. The selected-C replacement checks every output and memory bit with the corresponding tiny or zero SILK lowband and nonzero CELT input."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/celt",
+    "baseline_tests": [
+      "TestApplyPostfilterNoGainMonoFromFloat32MatchesFloat64"
+    ],
+    "required_candidate_tests": [
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestApplyPostfilterNoGainBypassMono"
+      }
+    ],
+    "source_review": "737b5232 replaces applyPostfilterFloat32 and its applyPostfilterNoGainMonoFromFloat32 specialization with one in-place postfilterDecodeMem on decode_mem, so the legacy-versus-specialized comparison has no second path. The no-gain mono contract it checked (lm=0, zero gains, samples unchanged, history moved by the frame, period/tapset committed with the old state kept) runs through postfilterDecodeMem in the replacement."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/celt",
+    "baseline_tests": [
+      "TestSynthesizeMonoLongToFloat32MatchesSynthesize"
+    ],
+    "required_candidate_tests": [
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestSynthesizeChannelDirectMatchesReference"
+      }
+    ],
+    "source_review": "737b5232 removes Synthesize, synthesizeMonoLongToFloat32 and the separate overlap buffer; synthesizeToDecodeMem runs one inverse MDCT per channel into out_syn. The replacement checks the long-block synthesis written into out, with a carried overlap and garbage-filled output, bit-exactly against the reference IMDCT and overlap-add, for 120 to 960 samples; selected-C synthesis-stage gates remain separate."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/celt",
+    "baseline_tests": [
+      "TestSynthesizeStereoPlanarFromMonoLongMatchesDuplicatedStereo"
+    ],
+    "required_candidate_tests": [
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestSynthesizeToDecodeMemMonoSpectrumOnStereo"
+      }
+    ],
+    "source_review": "737b5232 removes synthesizeStereoPlanar and synthesizeStereoPlanarFromMonoLong; a mono stream on a stereo decoder passes its spectrum for both channels to synthesizeToDecodeMem, as celt_synthesis does for C=1, CC=2. The port keeps the frame sizes and distinct per-channel overlaps and requires each stereo channel's out_syn to equal, bit for bit, a mono decoder carrying that channel's overlap, for long and short blocks."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/celt",
+    "baseline_tests": [
+      "TestStereoHistoryHelpersMatchLegacy",
+      "TestStereoHistoryHelpersMatchLegacy/postfilter/120",
+      "TestStereoHistoryHelpersMatchLegacy/postfilter/240",
+      "TestStereoHistoryHelpersMatchLegacy/postfilter/960",
+      "TestStereoHistoryHelpersMatchLegacy/postfilter/2112",
+      "TestStereoHistoryHelpersMatchLegacy/plc/120",
+      "TestStereoHistoryHelpersMatchLegacy/plc/240",
+      "TestStereoHistoryHelpersMatchLegacy/plc/960",
+      "TestStereoHistoryHelpersMatchLegacy/plc/2112"
+    ],
+    "required_candidate_tests": [
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestShiftDecodeMemMatchesOpusMove/standard/ch2"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestShiftDecodeMemMatchesOpusMove/custom2048/ch2"
+      }
+    ],
+    "source_review": "737b5232 removes the separate postfilterMem and plcDecodeMem histories and their updatePostfilterHistory, updatePLCDecodeHistory and materialize helpers; both histories are the per-channel decode_mem. The replacement drives stereo decode_mem through 2000 random frames, including window compactions and the 2048-sample custom geometry with its comb-filter headroom, and checks every sample of each channel's line against a buffer moved with libopus OPUS_MOVE semantics. A frame longer than the history no longer exists: libopus moves decode_mem by N <= DECODE_BUFFER_SIZE."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/celt",
+    "baseline_tests": [
+      "TestApplyPostfilterStereoPlanarMatchesInterleaved"
+    ],
+    "required_candidate_tests": [
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestCELTPostfilterStagesMatchLibopusC"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestCombFilterInPlaceMatchesReference"
+      },
+      {
+        "package": "github.com/thesyncim/gopus/internal/celt",
+        "test": "TestApplyPostfilterNoGainBypassStereo"
+      }
+    ],
+    "source_review": "737b5232 removes the planar and interleaved stereo postfilter entries; postfilterDecodeMem filters each channel's out_syn in place. The selected-C stage gate compares the stereo IMDCT, postfilter and de-emphasis stages bit-exactly with a non-zero postfilter split across carried history; the in-place comb reference and the stereo no-gain history/state check cover the remaining planar-path assertions."
+  }
+]

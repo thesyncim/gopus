@@ -105,9 +105,14 @@ type encoderComplianceRunEntry struct {
 }
 
 type libopusComplianceReferenceResult struct {
-	q       float64
-	ok      bool
-	warning string
+	q           float64
+	ok          bool
+	warning     string
+	packets     [][]byte
+	finalRanges []uint32
+	identity    string
+	pcmSHA256   string
+	err         error
 }
 
 type libopusComplianceReferenceEntry struct {
@@ -280,12 +285,6 @@ func TestEncoderComplianceSummary(t *testing.T) {
 	logEncoderComplianceStatus(t)
 
 	cases := encoderComplianceSummaryCases()
-	refAvailable := libopusComplianceReferenceAvailable()
-	// The (gopus Q - libopus Q) gap floors are only fair against a native
-	// same-arch libopus reference (see nativeLibopusComplianceReferenceAvailable).
-	// Against a non-native/stale reference the gap is logged but not gated; the
-	// native-fixture CI jobs enforce it.
-	enforceGap := nativeLibopusComplianceReferenceAvailable()
 
 	type caseResult struct {
 		q      float64
@@ -294,6 +293,7 @@ func TestEncoderComplianceSummary(t *testing.T) {
 		status string
 		refOK  bool
 		passed bool
+		ran    bool
 	}
 	results := make([]caseResult, len(cases))
 
@@ -303,45 +303,32 @@ func TestEncoderComplianceSummary(t *testing.T) {
 		for i, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
 				t.Parallel()
+				results[i].ran = true
 				q, _ := runEncoderComplianceTest(t, tc.mode, tc.bandwidth, tc.frameSize, tc.channels, tc.bitrate)
 
-				res := caseResult{q: q}
-				if enforceGap {
-					// Native same-arch lane: the (gopus Q - libopus Q) gap floor is
-					// enforced on the real-content source, where the cross-toolchain
-					// float-order spread is negligible (the am_multisine gap is a
-					// CELT float-order knife-edge; see encoder_precision_realcontent_test.go).
-					rcQ := runRealContentPrecisionGopus(t, tc.mode, tc.bandwidth, tc.frameSize, tc.channels, tc.bitrate)
-					libQ, ok := runRealContentPrecisionLibopusReference(t, tc.mode, tc.bandwidth, tc.frameSize, tc.channels, tc.bitrate)
-					res.refOK = ok
-					if !ok {
-						t.Fatalf("native real-content libopus reference unavailable for %s", tc.name)
-					}
-					res.q = rcQ
+				res := caseResult{q: q, ran: true}
+				// Prefer a real-content score when the validated paired runtime
+				// reference succeeds. If that optional reference is unavailable,
+				// compare the synthetic signal against its paired live reference.
+				libQ, realContentRefOK := runRealContentPrecisionLibopusReference(t, tc.mode, tc.bandwidth, tc.frameSize, tc.channels, tc.bitrate)
+				if realContentRefOK {
+					res.q = runRealContentPrecisionGopus(t, tc.mode, tc.bandwidth, tc.frameSize, tc.channels, tc.bitrate)
 					res.libQ = libQ
-					res.gapQ = rcQ - libQ
-					status, floor := encoderComplianceReferenceStatusForCase(tc.name, res.gapQ)
+					res.refOK = true
+				} else {
+					libQ, _, res.refOK = runLibopusComplianceReferenceTest(t, tc.mode, tc.bandwidth, tc.frameSize, tc.channels, tc.bitrate)
+					if res.refOK {
+						res.libQ = libQ
+					}
+				}
+				if res.refOK {
+					gapQ, status, floor := precisionGapStatusForCase(tc.name, res.q, res.libQ)
+					res.gapQ = gapQ
 					res.status = status
-					if status == "FAIL" {
-						t.Errorf("precision floor miss for %s: gap=%.2f Q floor=%.2f Q tol=%.2f Q (source=%s)", tc.name, res.gapQ, floor, encoderLibopusGapMeasurementToleranceQ, precisionGuardSignalName)
+					if res.status == "FAIL" {
+						t.Errorf("paired live libopus quality floor miss for %s: gap=%.2f Q floor=%.2f Q tol=%.2f Q", tc.name, res.gapQ, floor, encoderLibopusGapMeasurementToleranceQ)
 					} else {
 						res.passed = true
-					}
-				} else if refAvailable {
-					// Non-native/stale reference: the am_multisine gap is float-order
-					// noise across toolchains, so it is logged for visibility only;
-					// the native-fixture jobs enforce the floor on real audio.
-					libQ, _, ok := runLibopusComplianceReferenceTest(t, tc.mode, tc.bandwidth, tc.frameSize, tc.channels, tc.bitrate)
-					res.refOK = ok
-					if ok {
-						res.libQ = libQ
-						res.gapQ = q - libQ
-						status, floor := encoderComplianceReferenceStatusForCase(tc.name, res.gapQ)
-						res.status = status
-						res.passed = true
-						if status == "FAIL" {
-							t.Logf("non-native libopus reference: %s gap=%.2f Q floor=%.2f Q (gap guard skipped)", tc.name, res.gapQ, floor)
-						}
 					}
 				}
 				if !res.refOK {
@@ -362,44 +349,34 @@ func TestEncoderComplianceSummary(t *testing.T) {
 		}
 	})
 
-	if refAvailable {
-		t.Log("Encoder Compliance Summary (Target: libopus reference)")
-		t.Log("======================================================")
-		t.Logf("%-35s %10s %10s %10s %s", "Configuration", "Q", "LibQ", "GapQ", "Status")
-		t.Logf("%-35s %10s %10s %10s %s", "--------------", "----", "----", "----", "------")
-	} else {
-		t.Log("Encoder Compliance Summary")
-		t.Log("===========================")
-		t.Logf("%-35s %10s %s", "Configuration", "Q", "Status")
-		t.Logf("%-35s %10s %s", "--------------", "----", "------")
-		t.Log("INFO: libopus reference fixture unavailable; using absolute quality thresholds")
-	}
+	t.Log("Encoder Compliance Summary (paired live libopus reference when available)")
+	t.Log("==========================================================================")
+	t.Logf("%-35s %10s %10s %10s %s", "Configuration", "Q", "LibQ", "GapQ", "Status")
+	t.Logf("%-35s %10s %10s %10s %s", "--------------", "----", "----", "----", "------")
 
-	passed, failed := 0, 0
+	executed, passed, failed := 0, 0, 0
 	for i, tc := range cases {
 		res := results[i]
+		if !res.ran {
+			continue
+		}
+		executed++
 		if res.passed {
 			passed++
 		} else {
 			failed++
 		}
-		if refAvailable {
-			if res.refOK {
-				t.Logf("%-35s %10.2f %10.2f %10.2f %s", tc.name, res.q, res.libQ, res.gapQ, res.status)
-			} else {
-				t.Logf("%-35s %10.2f %10s %10s %s", tc.name, res.q, "-", "-", res.status)
-			}
+		if res.refOK {
+			t.Logf("%-35s %10.2f %10.2f %10.2f %s", tc.name, res.q, res.libQ, res.gapQ, res.status)
 		} else {
-			t.Logf("%-35s %10.2f %s", tc.name, res.q, res.status)
+			t.Logf("%-35s %10.2f %10s %10s %s", tc.name, res.q, "-", "-", res.status)
 		}
 	}
 
 	t.Logf("---")
-	t.Logf("Total: %d passed, %d failed", passed, failed)
-	if refAvailable {
-		t.Logf("Gap thresholds (gopus Q - libopus Q): GOOD >= %.1f, BASE >= %.1f", EncoderLibopusGapGoodQ, EncoderLibopusGapBaseQ)
-		t.Logf("Precision floor guard: per-profile floors with %.2f Q measurement tolerance", encoderLibopusGapMeasurementToleranceQ)
-	}
+	t.Logf("Total: %d executed, %d passed, %d failed", executed, passed, failed)
+	t.Logf("Gap thresholds (gopus Q - libopus Q): GOOD >= %.1f, BASE >= %.1f", EncoderLibopusGapGoodQ, EncoderLibopusGapBaseQ)
+	t.Logf("Precision floor guard: per-profile floors with %.2f Q measurement tolerance", encoderLibopusGapMeasurementToleranceQ)
 }
 
 // testEncoderCompliance runs a single encoder compliance test.
@@ -449,9 +426,11 @@ func computeEncoderComplianceResultForSignal(mode encoder.Mode, bandwidth types.
 	// Mirror that application profile so packet/quality comparisons stay
 	// aligned with the libopus fixture we are judging against.
 	enc.SetLowDelay(mode == encoder.ModeCELT)
+	enc.SetRestrictedSilkApplication(mode == encoder.ModeSILK)
 	enc.SetBandwidth(bandwidth)
 	enc.SetBitrate(bitrate)
 	enc.SetBitrateMode(encoder.ModeCBR)
+	enc.SetComplexity(10)
 
 	// Encode all signal frames.
 	packets := make([][]byte, 0, numFrames+1)
@@ -547,55 +526,34 @@ func runLibopusComplianceReferenceTest(t *testing.T, mode encoder.Mode, bandwidt
 	key := encoderComplianceKey(mode, bandwidth, frameSize, channels, bitrate)
 	entry := libopusComplianceReferenceCacheEntry(key)
 	entry.once.Do(func() {
-		if fixtureCase, found := findEncoderVariantsFixtureCase(mode, bandwidth, frameSize, channels, bitrate, defaultEncoderSignalVariant); found {
-			packets, _, err := decodeEncoderVariantsFixturePackets(fixtureCase)
-			if err == nil {
-				numFrames := 48000 / frameSize
-				totalSamples := numFrames * frameSize * channels
-				original := generateEncoderTestSignal(totalSamples, channels)
-				cmp, _, err := qualityOfPackets(packets, original, channels, frameSize)
-				if err == nil {
-					entry.result.q = cmp.Q
-					entry.result.ok = true
-					return
-				}
-				entry.result.warning = fmt.Sprintf(
-					"live libopus variants quality unavailable for %s/%s/%d/%d/%d: %v",
-					fixtureModeName(mode),
-					fixtureBandwidthName(bandwidth),
-					frameSize,
-					channels,
-					bitrate,
-					err,
-				)
-			}
+		numFrames := 48000 / frameSize
+		original := generateEncoderTestSignal(numFrames*frameSize*channels, channels)
+		ref, err := runPairedLibopusQualityReference(encoderQualityReferenceSettings{
+			mode:      mode,
+			bandwidth: bandwidth,
+			frameSize: frameSize,
+			channels:  channels,
+			bitrate:   bitrate,
+		}, original)
+		if err != nil {
+			entry.result.err = err
+			entry.result.warning = fmt.Sprintf("paired live libopus quality reference unavailable for %s/%s/%d/%d/%d: %v", fixtureModeName(mode), fixtureBandwidthName(bandwidth), frameSize, channels, bitrate, err)
+			return
 		}
-		if fixtureCase, found := findEncoderCompliancePacketsFixtureCase(mode, bandwidth, frameSize, channels, bitrate); found {
-			packets, _, err := decodeEncoderPacketsFixturePackets(fixtureCase)
-			if err == nil {
-				numFrames := 48000 / frameSize
-				totalSamples := numFrames * frameSize * channels
-				original := generateEncoderTestSignal(totalSamples, channels)
-				cmp, _, err := qualityOfPackets(packets, original, channels, frameSize)
-				if err == nil {
-					entry.result.q = cmp.Q
-					entry.result.ok = true
-					return
-				}
-				entry.result.warning = fmt.Sprintf(
-					"live libopus packet quality unavailable for %s/%s/%d/%d/%d: %v",
-					fixtureModeName(mode),
-					fixtureBandwidthName(bandwidth),
-					frameSize,
-					channels,
-					bitrate,
-					err,
-				)
-			}
-		}
+		entry.result.q = ref.quality.q
+		entry.result.ok = true
+		entry.result.packets = ref.packets
+		entry.result.finalRanges = ref.finalRanges
+		entry.result.identity = ref.identity
+		entry.result.pcmSHA256 = ref.pcmSHA256
 	})
+	if entry.result.err != nil && precisionReferenceErrorRequiresFatal(entry.result.err, strictLibopusReferenceRequired()) {
+		t.Fatalf("paired libopus quality reference unavailable: %v", entry.result.err)
+	}
 	if entry.result.warning != "" {
 		t.Log(entry.result.warning)
+	} else if entry.result.ok {
+		t.Logf("paired live libopus quality reference: %s pcm_sha256=%s packets=%d finalRanges=%d", entry.result.identity, entry.result.pcmSHA256, len(entry.result.packets), len(entry.result.finalRanges))
 	}
 	return entry.result.q, nil, entry.result.ok
 }

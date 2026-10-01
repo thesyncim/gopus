@@ -17,17 +17,19 @@ var (
 	ErrInvalidPacket = errors.New("gopus: invalid packet structure")
 )
 
-// PacketInfo contains parsed information about an Opus packet.
+// PacketInfo describes an Opus packet's TOC and frame layout.
 type PacketInfo struct {
-	TOC        TOC   // Parsed TOC byte
-	FrameCount int   // Number of frames (1-48 for code 3)
-	FrameSizes []int // Size in bytes of each frame
-	Padding    int   // Padding bytes (code 3 only)
-	TotalSize  int   // Total packet size
+	TOC        TOC   // Parsed TOC byte.
+	FrameCount int   // Number of frames in the packet.
+	FrameSizes []int // Frame payload sizes in bytes, excluding headers and padding.
+	Padding    int   // Trailing padding bytes; nonzero only for code 3 packets.
+	TotalSize  int   // Complete packet size in bytes, including headers and padding.
 }
 
-// ParsePacket parses an Opus packet and returns information about its structure.
-// It determines the frame boundaries based on the TOC byte's frame code (0-3).
+// ParsePacket parses a complete Opus packet and returns its frame layout.
+// FrameSizes contains payload lengths in packet order; packet headers and
+// trailing padding are reported separately. It returns an error for truncated,
+// malformed, overlong, or over-duration packets.
 func ParsePacket(data []byte) (PacketInfo, error) {
 	if len(data) < 1 {
 		return PacketInfo{}, ErrPacketTooShort
@@ -170,6 +172,80 @@ func ParsePacket(data []byte) (PacketInfo, error) {
 	}
 
 	return info, nil
+}
+
+// validatePacketFraming checks the same packet-size constraints as ParsePacket
+// without materializing a FrameSizes slice. DecodeWithFEC only needs to reject
+// malformed framing before it changes decoder state.
+func validatePacketFraming(data []byte) error {
+	toc, count, err := packetFrameCount(data)
+	if err != nil {
+		return err
+	}
+	switch toc.FrameCode {
+	case 0:
+		if len(data)-1 > maxOpusFrameBytes {
+			return ErrInvalidPacket
+		}
+	case 1:
+		frameDataLen := len(data) - 1
+		if frameDataLen%2 != 0 || frameDataLen/2 > maxOpusFrameBytes {
+			return ErrInvalidPacket
+		}
+	case 2:
+		if len(data) < 2 {
+			return ErrPacketTooShort
+		}
+		first, headerBytes, err := parseFrameLength(data, 1)
+		if err != nil {
+			return err
+		}
+		last := len(data) - 1 - headerBytes - first
+		if last < 0 || last > maxOpusFrameBytes {
+			return ErrInvalidPacket
+		}
+	case 3:
+		vbr := data[1]&0x80 != 0
+		hasPadding := data[1]&0x40 != 0
+		offset := 2
+		padding := 0
+		if hasPadding {
+			for {
+				if offset >= len(data) {
+					return ErrPacketTooShort
+				}
+				b := int(data[offset])
+				offset++
+				if b == 255 {
+					padding += 254
+				} else {
+					padding += b
+					break
+				}
+			}
+		}
+		if vbr {
+			total := 0
+			for range count - 1 {
+				n, bytesRead, err := parseFrameLength(data, offset)
+				if err != nil {
+					return err
+				}
+				total += n
+				offset += bytesRead
+			}
+			last := len(data) - offset - padding - total
+			if last < 0 || last > maxOpusFrameBytes {
+				return ErrInvalidPacket
+			}
+		} else {
+			frameDataLen := len(data) - offset - padding
+			if frameDataLen < 0 || frameDataLen%count != 0 || frameDataLen/count > maxOpusFrameBytes {
+				return ErrInvalidPacket
+			}
+		}
+	}
+	return nil
 }
 
 // parseFrameLength parses a frame length from the packet data at the given offset.

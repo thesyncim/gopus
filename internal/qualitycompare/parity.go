@@ -1,6 +1,7 @@
 package qualitycompare
 
 import (
+	"fmt"
 	"math"
 	"testing"
 )
@@ -16,12 +17,11 @@ import (
 // derives the only valid metric from an objective SignalProfile and never lets Q
 // score concealed or sub-rate samples.
 //
-// Why this is build-invariant where bit-exact comparison is not: Q, correlation,
-// and RMS ratio are statistical/perceptual measures, so a 1-ULP FMA-contraction
-// difference between build configs (arm64 vs amd64 vs purego) moves them far
-// below their bars. Bit-exact oracles, which do break on such differences, are a
-// separate tier reserved for isolated algorithmic kernels and are enforced across
-// the whole build-config matrix (see Makefile test-build-config-matrix).
+// Quality metrics complement exact comparisons; they do not excuse differences
+// against a matching libopus build. Tests that require exactness select the same
+// scalar or SIMD instruction lane for Go and libopus and compare the relevant
+// packets, ranges, or PCM samples directly. See the parity reports for the tested
+// configurations and coverage.
 
 // opus_compare validity thresholds (RFC 8251 / libopus opus_compare.c): the tool
 // is defined for 48 kHz input and needs enough content for its per-band model.
@@ -39,7 +39,7 @@ const (
 type SignalProfile struct {
 	SampleRate   int
 	Channels     int
-	TotalSamples int
+	TotalSamples int // Interleaved sample count; zero infers the nonempty PCM length.
 	CodedSamples int
 }
 
@@ -68,7 +68,7 @@ func (m MetricTier) String() string {
 
 // codedTier returns the only valid metric for the coded portion of p.
 func (p SignalProfile) codedTier() MetricTier {
-	if p.SampleRate == opusCompareRate && p.Channels > 0 && p.CodedSamples/p.Channels >= opusCompareMinPerChan {
+	if p.SampleRate == opusCompareRate && (p.Channels == 1 || p.Channels == 2) && p.CodedSamples/p.Channels >= opusCompareMinPerChan {
 		return TierOpusCompare
 	}
 	return TierWaveform
@@ -86,10 +86,9 @@ const (
 	IntentRFCConformance
 )
 
-// Bars for the waveform tier, anchored to the same external references as the
-// opus_compare bars: the near-exact envelope is libopus's own cross-build
-// waveform agreement (corr >= 0.997, RMS within +/-2%), well inside which gopus
-// sits on every covered case; the RFC envelope is the looser conformance floor.
+// Bars for the waveform tier use the correlation and RMS thresholds recorded
+// for the corresponding libopus comparisons. The reports describe the tested
+// cases; these thresholds measure waveform similarity rather than exactness.
 var (
 	waveformBarNearExact = QualityBar{MinQ: math.Inf(-1), MinCorr: 0.997, RMSLo: 0.98, RMSHi: 1.02, Desc: "near-exact waveform vs libopus (opus_compare N/A here)"}
 	waveformBarRFC       = QualityBar{MinQ: math.Inf(-1), MinCorr: 0.985, RMSLo: 0.97, RMSHi: 1.03, Desc: "RFC-floor waveform vs libopus (opus_compare N/A here)"}
@@ -130,6 +129,61 @@ func delaySearchWindow(channels int) int {
 	return 240 * channels // 5 ms @ 48 kHz
 }
 
+func validateParityInputs(candidate, reference []float32, p SignalProfile, intent ParityIntent) (SignalProfile, error) {
+	if len(candidate) == 0 || len(reference) == 0 {
+		return p, fmt.Errorf("parity comparison requires nonempty candidate and reference PCM")
+	}
+	if len(candidate) != len(reference) {
+		return p, fmt.Errorf("PCM sample count mismatch: candidate=%d reference=%d", len(candidate), len(reference))
+	}
+	if p.SampleRate <= 0 {
+		return p, fmt.Errorf("profile sample rate must be positive (got %d)", p.SampleRate)
+	}
+	if p.Channels <= 0 {
+		return p, fmt.Errorf("profile channel count must be positive (got %d)", p.Channels)
+	}
+	if len(candidate)%p.Channels != 0 {
+		return p, fmt.Errorf("PCM sample count %d is not aligned to %d channels", len(candidate), p.Channels)
+	}
+	if p.TotalSamples == 0 {
+		p.TotalSamples = len(candidate)
+	} else if p.TotalSamples != len(candidate) {
+		return p, fmt.Errorf("profile total samples=%d does not match PCM length=%d", p.TotalSamples, len(candidate))
+	}
+	if p.CodedSamples < 0 || p.CodedSamples > p.TotalSamples {
+		return p, fmt.Errorf("coded sample count %d is outside [0,%d]", p.CodedSamples, p.TotalSamples)
+	}
+	if p.CodedSamples%p.Channels != 0 {
+		return p, fmt.Errorf("coded sample count %d is not aligned to %d channels", p.CodedSamples, p.Channels)
+	}
+	if intent != IntentNearExact && intent != IntentRFCConformance {
+		return p, fmt.Errorf("unsupported parity intent %d", intent)
+	}
+	for i := range candidate {
+		if math.IsNaN(float64(candidate[i])) || math.IsInf(float64(candidate[i]), 0) {
+			return p, fmt.Errorf("candidate PCM[%d] is non-finite: %v", i, candidate[i])
+		}
+		if math.IsNaN(float64(reference[i])) || math.IsInf(float64(reference[i]), 0) {
+			return p, fmt.Errorf("reference PCM[%d] is non-finite: %v", i, reference[i])
+		}
+	}
+	return p, nil
+}
+
+type parityComparer func(candidate, reference []float32, sampleRate, channels, maxDelay int) (QualityComparison, error)
+
+func scoreParityRegion(candidate, reference []float32, p SignalProfile, tier MetricTier, compare parityComparer) (QualityComparison, error) {
+	switch tier {
+	case TierOpusCompare:
+		return compare(candidate, reference, p.SampleRate, p.Channels, delaySearchWindow(p.Channels))
+	case TierWaveform:
+		corr, rms := waveformCorrelationRMS(candidate, reference)
+		return QualityComparison{Q: 0, Corr: corr, RMSRatio: rms}, nil
+	default:
+		return QualityComparison{}, fmt.Errorf("unsupported metric tier %d", tier)
+	}
+}
+
 // AssertParity is the single self-selecting parity gate for decoded PCM. It
 // splits the stream into its coded prefix and concealed tail (per
 // profile.CodedSamples), scores each region with the only metric valid for it
@@ -139,15 +193,11 @@ func delaySearchWindow(channels int) int {
 // threshold. It fails t on any region miss and returns the full verdict.
 func AssertParity(t *testing.T, candidate, reference []float32, p SignalProfile, intent ParityIntent, label string) ParityVerdict {
 	t.Helper()
-	n := min(len(candidate), len(reference))
-	if p.TotalSamples == 0 || p.TotalSamples > n {
-		p.TotalSamples = n
-	}
-	if p.CodedSamples > p.TotalSamples {
-		p.CodedSamples = p.TotalSamples
-	}
-	if p.CodedSamples < 0 {
-		p.CodedSamples = 0
+	var err error
+	p, err = validateParityInputs(candidate, reference, p, intent)
+	if err != nil {
+		t.Fatalf("%s invalid parity input: %v", label, err)
+		return ParityVerdict{}
 	}
 
 	verdict := ParityVerdict{Profile: p}
@@ -156,21 +206,10 @@ func AssertParity(t *testing.T, candidate, reference []float32, p SignalProfile,
 			return
 		}
 		cand, ref := candidate[lo:hi], reference[lo:hi]
-		var cmp QualityComparison
-		if tier == TierOpusCompare {
-			c, err := CompareDecodedFloat32(cand, ref, p.SampleRate, p.Channels, delaySearchWindow(p.Channels))
-			if err != nil {
-				// opus_compare unavailable for this segment after all; fall back to
-				// the waveform tier rather than skipping the region.
-				tier = TierWaveform
-				corr, rms := waveformCorrelationRMS(cand, ref)
-				cmp = QualityComparison{Q: math.Inf(-1), Corr: corr, RMSRatio: rms}
-			} else {
-				cmp = c
-			}
-		} else {
-			corr, rms := waveformCorrelationRMS(cand, ref)
-			cmp = QualityComparison{Q: 0, Corr: corr, RMSRatio: rms}
+		cmp, err := scoreParityRegion(cand, ref, p, tier, CompareDecodedFloat32)
+		if err != nil {
+			t.Fatalf("%s [%s] required %s metric failed: %v", label, name, tier, err)
+			return
 		}
 		bar := barFor(tier, intent)
 		rv := RegionVerdict{Name: name, Tier: tier, Cmp: cmp, Bar: bar}
@@ -184,5 +223,8 @@ func AssertParity(t *testing.T, candidate, reference []float32, p SignalProfile,
 
 	assertRegion("coded", 0, p.CodedSamples, p.codedTier())
 	assertRegion("concealed", p.CodedSamples, p.TotalSamples, TierWaveform)
+	if len(verdict.Regions) == 0 {
+		t.Fatalf("%s has no nonempty PCM region to compare", label)
+	}
 	return verdict
 }

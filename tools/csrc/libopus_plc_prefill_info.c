@@ -11,6 +11,7 @@
 #include "config.h"
 #endif
 
+#include "celt/cpu_support.h"
 #include "nnet.h"
 #include "lpcnet_private.h"
 #include "plc_data.h"
@@ -25,6 +26,17 @@
 #define OUTPUT_MAGIC "GPPO"
 
 static const float att_table[10] = {0, 0, -.2f, -.2f, -.4f, -.4f, -.8f, -.8f, -1.6f, -1.6f};
+
+static int selected_dnn_dispatch_is_valid(int arch) {
+#if defined(OPUS_HAVE_RTCD) && defined(OPUS_X86_MAY_HAVE_AVX2)
+  if ((arch & OPUS_ARCHMASK) == 4 &&
+      (DNN_COMPUTE_LINEAR_IMPL[arch & OPUS_ARCHMASK] != compute_linear_avx2 ||
+       DNN_COMPUTE_ACTIVATION_IMPL[arch & OPUS_ARCHMASK] != compute_activation_avx2)) return 0;
+#else
+  (void)arch;
+#endif
+  return 1;
+}
 
 static int set_binary_stdio(void) {
 #ifdef _WIN32
@@ -62,47 +74,17 @@ static int write_bits_array(const float *src, int count) {
   return 1;
 }
 
-static void compute_generic_dense_c(const LinearLayer *layer, float *output, const float *input, int activation) {
-  compute_linear_c(layer, output, input);
-  compute_activation_c(output, output, layer->nb_outputs, activation);
-}
-
-static void compute_generic_gru_c(const LinearLayer *input_weights, const LinearLayer *recurrent_weights, float *state, const float *in) {
-  int i;
-  int n;
-  float zrh[3*PLC_GRU1_STATE_SIZE];
-  float recur[3*PLC_GRU1_STATE_SIZE];
-  float *z;
-  float *r;
-  float *h;
-
-  n = recurrent_weights->nb_inputs;
-  z = zrh;
-  r = &zrh[n];
-  h = &zrh[2*n];
-  compute_linear_c(input_weights, zrh, in);
-  compute_linear_c(recurrent_weights, recur, state);
-  for (i = 0; i < 2*n; i++) zrh[i] += recur[i];
-  compute_activation_c(zrh, zrh, 2*n, ACTIVATION_SIGMOID);
-  for (i = 0; i < n; i++) h[i] += recur[2*n+i]*r[i];
-  compute_activation_c(h, h, n, ACTIVATION_TANH);
-  for (i = 0; i < n; i++) {
-    h[i] = z[i]*state[i] + (1-z[i])*h[i];
-    state[i] = h[i];
-  }
-}
-
-static void compute_plc_pred_info(LPCNetPLCState *st, float *out, const float *in) {
+static void compute_plc_pred_info(LPCNetPLCState *st, float *out, const float *in, int arch) {
   float tmp[PLC_DENSE_IN_OUT_SIZE];
   PLCModel *model = &st->model;
   PLCNetState *net = &st->plc_net;
-  compute_generic_dense_c(&model->plc_dense_in, tmp, in, ACTIVATION_TANH);
-  compute_generic_gru_c(&model->plc_gru1_input, &model->plc_gru1_recurrent, net->gru1_state, tmp);
-  compute_generic_gru_c(&model->plc_gru2_input, &model->plc_gru2_recurrent, net->gru2_state, net->gru1_state);
-  compute_generic_dense_c(&model->plc_dense_out, out, net->gru2_state, ACTIVATION_LINEAR);
+  compute_generic_dense(&model->plc_dense_in, tmp, in, ACTIVATION_TANH, arch);
+  compute_generic_gru(&model->plc_gru1_input, &model->plc_gru1_recurrent, net->gru1_state, tmp, arch);
+  compute_generic_gru(&model->plc_gru2_input, &model->plc_gru2_recurrent, net->gru2_state, net->gru1_state, arch);
+  compute_generic_dense(&model->plc_dense_out, out, net->gru2_state, ACTIVATION_LINEAR, arch);
 }
 
-static int get_fec_or_pred_info(LPCNetPLCState *st, float *out) {
+static int get_fec_or_pred_info(LPCNetPLCState *st, float *out, int arch) {
   if (st->fec_read_pos != st->fec_fill_pos && st->fec_skip == 0) {
     float plc_features[2*NB_BANDS + NB_FEATURES + 1] = {0};
     float discard[NB_FEATURES];
@@ -110,11 +92,11 @@ static int get_fec_or_pred_info(LPCNetPLCState *st, float *out) {
     st->fec_read_pos++;
     memcpy(&plc_features[2*NB_BANDS], out, NB_FEATURES * sizeof(float));
     plc_features[2*NB_BANDS + NB_FEATURES] = -1;
-    compute_plc_pred_info(st, discard, plc_features);
+    compute_plc_pred_info(st, discard, plc_features, arch);
     return 1;
   } else {
     float zeros[2*NB_BANDS + NB_FEATURES + 1] = {0};
-    compute_plc_pred_info(st, out, zeros);
+    compute_plc_pred_info(st, out, zeros, arch);
     if (st->fec_skip > 0) st->fec_skip--;
     return 0;
   }
@@ -137,6 +119,7 @@ int main(void) {
   int32_t loss_count;
   int32_t fec_fill_pos;
   int32_t fec_skip;
+  int arch;
   float fec0[NB_FEATURES];
   float fec1[NB_FEATURES];
   LPCNetPLCState st;
@@ -183,6 +166,11 @@ int main(void) {
   st.fec_fill_pos = fec_fill_pos < 0 ? 0 : (fec_fill_pos > 2 ? 2 : fec_fill_pos);
   st.fec_skip = fec_skip < 0 ? 0 : fec_skip;
   st.fec_read_pos = 0;
+  arch = opus_select_arch();
+  if (!selected_dnn_dispatch_is_valid(arch)) {
+    fprintf(stderr, "selected AVX2 DNN dispatch table mismatch\n");
+    return 1;
+  }
   if (st.fec_fill_pos > 0) memcpy(&st.fec[0][0], fec0, NB_FEATURES * sizeof(float));
   if (st.fec_fill_pos > 1) memcpy(&st.fec[1][0], fec1, NB_FEATURES * sizeof(float));
 
@@ -191,14 +179,14 @@ int main(void) {
     st.plc_net = st.plc_bak[0];
     for (i = 0; i < 2; i++) {
       rotate_bak_info(&st);
-      get_fec_or_pred_info(&st, st.features);
+      get_fec_or_pred_info(&st, st.features, arch);
       queue_features_info(&st, st.features);
     }
   }
 
   if (flags & 2u) {
     rotate_bak_info(&st);
-    if (get_fec_or_pred_info(&st, st.features)) st.loss_count = 0;
+    if (get_fec_or_pred_info(&st, st.features, arch)) st.loss_count = 0;
     else st.loss_count++;
     if (st.loss_count >= 10) st.features[0] = MAX16(-15, st.features[0] + att_table[9] - 2 * (st.loss_count - 9));
     else st.features[0] = MAX16(-15, st.features[0] + att_table[st.loss_count]);
@@ -207,6 +195,7 @@ int main(void) {
 
   if (!write_exact(OUTPUT_MAGIC, 4) ||
       !write_exact(&version, sizeof(version)) ||
+      !write_exact(&arch, sizeof(arch)) ||
       !write_exact(&st.loss_count, sizeof(st.loss_count)) ||
       !write_exact(&st.fec_read_pos, sizeof(st.fec_read_pos)) ||
       !write_exact(&st.fec_skip, sizeof(st.fec_skip))) {

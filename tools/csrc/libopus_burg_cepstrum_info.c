@@ -32,11 +32,28 @@ static int write_exact(const void *src, size_t size) {
   return fwrite(src, 1, size, stdout) == size;
 }
 
+static int read_u32(uint32_t *v) {
+  unsigned char b[4];
+  if (!read_exact(b, sizeof(b))) return 0;
+  *v = (uint32_t)b[0] | ((uint32_t)b[1] << 8) |
+      ((uint32_t)b[2] << 16) | ((uint32_t)b[3] << 24);
+  return 1;
+}
+
+static int write_u32(uint32_t v) {
+  unsigned char b[4];
+  b[0] = (unsigned char)v;
+  b[1] = (unsigned char)(v >> 8);
+  b[2] = (unsigned char)(v >> 16);
+  b[3] = (unsigned char)(v >> 24);
+  return write_exact(b, sizeof(b));
+}
+
 static int read_bits_array(float *dst, int count) {
   int i;
   for (i = 0; i < count; i++) {
     uint32_t bits;
-    if (!read_exact(&bits, sizeof(bits))) return 0;
+    if (!read_u32(&bits)) return 0;
     memcpy(&dst[i], &bits, sizeof(bits));
   }
   return 1;
@@ -47,7 +64,7 @@ static int write_bits_array(const float *src, int count) {
   for (i = 0; i < count; i++) {
     uint32_t bits;
     memcpy(&bits, &src[i], sizeof(bits));
-    if (!write_exact(&bits, sizeof(bits))) return 0;
+    if (!write_u32(bits)) return 0;
   }
   return 1;
 }
@@ -66,7 +83,7 @@ int main(void) {
     fprintf(stderr, "invalid input magic\n");
     return 1;
   }
-  if (!read_exact(&version, sizeof(version)) || version != 1) {
+  if (!read_u32(&version) || version != 1) {
     fprintf(stderr, "unsupported input version\n");
     return 1;
   }
@@ -77,7 +94,7 @@ int main(void) {
 
   burg_cepstral_analysis(ceps, frame);
 
-  if (!write_exact(OUTPUT_MAGIC, 4) || !write_exact(&version, sizeof(version))) {
+  if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(version)) {
     fprintf(stderr, "failed to write header\n");
     return 1;
   }

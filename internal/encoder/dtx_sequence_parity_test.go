@@ -31,13 +31,14 @@ import (
 var dtxSeqHelperOnce libopustest.HelperCache
 
 func getDTXSeqHelperPath() (string, error) {
-	return dtxSeqHelperOnce.CHelperPath(libopustest.CHelperConfig{
-		Label:       "dtx sequence",
-		OutputBase:  "gopus_dtx_emit_packets",
-		SourceFile:  "libopus_dtx_emit_packets.c",
-		RefIncludes: []string{"src", "celt", "silk"},
-		CFlags:      []string{"-DHAVE_CONFIG_H"},
-		Libs:        []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
+	return dtxSeqHelperOnce.Path(func() (string, error) {
+		return libopustest.BuildPublicAPIHelper(libopustest.CHelperConfig{
+			Label:       "dtx sequence",
+			OutputBase:  "gopus_dtx_emit_packets",
+			SourceFile:  "libopus_dtx_emit_packets.c",
+			RefIncludes: []string{"src", "celt", "silk"},
+			CFlags:      []string{"-DHAVE_CONFIG_H"},
+		})
 	})
 }
 
@@ -188,6 +189,7 @@ func dtxGopusMode(mode string) Mode {
 func runGopusDTXSequence(t *testing.T, pcm []float32, frameSize, channels, bitrate int, bw, modeStr string) [][]byte {
 	t.Helper()
 	enc := NewEncoder(48000, channels)
+	enc.SetComplexity(10)
 	enc.SetDTX(true)
 	enc.SetMode(dtxGopusMode(modeStr))
 	enc.SetBandwidth(dtxGopusBandwidth(bw))

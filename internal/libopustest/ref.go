@@ -10,83 +10,184 @@ import (
 	"github.com/thesyncim/gopus/internal/libopustooling"
 )
 
-// ScalarRefRequested reports whether the libopus reference oracles must link the
-// scalar (generic-C, no SIMD/RTCD/intrinsics) libopus build instead of the
-// default tree. The pure-Go (-tags purego) gopus build and the celt/custom parity
-// gate set GOPUS_LIBOPUS_REF_SCALAR=1 so the C oracle compares like-with-like:
-// pure-Go-scalar vs scalar-C. The default tree autotools-enables SIMD on amd64
-// and Linux arm64, so comparing a SIMD-C oracle against scalar Go is not bit-exact
-// and is the wrong reference for those lanes.
-func ScalarRefRequested() bool {
-	v := strings.TrimSpace(strings.ToLower(os.Getenv("GOPUS_LIBOPUS_REF_SCALAR")))
-	return v == "1" || v == "true" || v == "yes"
-}
-
-// RefPath returns a path under the pinned libopus reference tree. When
-// GOPUS_LIBOPUS_REF_SCALAR=1 it returns the scalar (generic-C) tree so the pure-Go
-// build and custom parity gate link the bit-reproducible reference.
+// RefPath returns a path under the tree selected by the build-aware paired
+// reference resolver. Invalid or conflicting overrides panic with their cause;
+// helper constructors that return errors resolve the variant directly.
 func RefPath(elem ...string) string {
-	if ScalarRefRequested() {
-		return ScalarRefPath(elem...)
+	variant, err := libopustooling.ResolveLibopusReferenceVariant()
+	if err != nil {
+		panic(err)
 	}
-	base := []string{repoRoot(), "tmp_check", "opus-" + libopustooling.DefaultVersion}
+	suffix, err := libopustooling.LibopusReferenceSourceSuffix(variant)
+	if err != nil {
+		panic(err)
+	}
+	base := []string{repoRoot(), "tmp_check", "opus-" + libopustooling.DefaultVersion + suffix}
 	return filepath.Join(append(base, elem...)...)
 }
 
-// ScalarRefPath returns a path under the scalar (generic-C, built with
-// --disable-asm --disable-rtcd --disable-intrinsics) libopus reference tree. Its
-// config.h leaves the platform SIMD macros undefined, so C oracle helpers built
-// against it exercise the bit-reproducible scalar kernels that match the pure-Go
-// gopus build.
+// ScalarRefPath returns a path under the scalar generic-C reference tree,
+// built without assembly, RTCD, intrinsics, or compiler loop/SLP vectorization.
+// FMA contraction stays enabled to match scalar Go arithmetic.
 func ScalarRefPath(elem ...string) string {
-	base := []string{repoRoot(), "tmp_check", "opus-" + libopustooling.DefaultVersion + "-scalar"}
+	suffix, err := libopustooling.LibopusReferenceSourceSuffix(libopustooling.LibopusReferenceScalar)
+	if err != nil {
+		panic(err)
+	}
+	base := []string{repoRoot(), "tmp_check", "opus-" + libopustooling.DefaultVersion + suffix}
 	return filepath.Join(append(base, elem...)...)
 }
 
-// QEXTRefPath returns a path under the pinned QEXT-enabled libopus reference tree.
+// QEXTRefPath returns a path under the QEXT-enabled reference tree paired with
+// the current Go instruction lane.
 func QEXTRefPath(elem ...string) string {
-	base := []string{repoRoot(), "tmp_check", "opus-" + libopustooling.DefaultVersion + "-qext"}
+	variant, err := libopustooling.ResolveLibopusQEXTReferenceVariant()
+	if err != nil {
+		panic(err)
+	}
+	suffix, err := libopustooling.LibopusReferenceSourceSuffix(variant)
+	if err != nil {
+		panic(err)
+	}
+	base := []string{repoRoot(), "tmp_check", "opus-" + libopustooling.DefaultVersion + suffix}
 	return filepath.Join(append(base, elem...)...)
 }
 
-// FixedRefPath returns a path under the pinned fixed-point (--enable-fixed-point)
-// libopus reference tree. Its config.h defines FIXED_POINT, so C oracle helpers
-// built against it exercise the integer CELT/SILK kernels.
+// FixedRefPath returns a FIXED_POINT tree paired with the current Go build.
 func FixedRefPath(elem ...string) string {
-	base := []string{repoRoot(), "tmp_check", "opus-" + libopustooling.DefaultVersion + "-fixed"}
+	variant, err := libopustooling.ResolveLibopusFixedReferenceVariant()
+	if err != nil {
+		panic(err)
+	}
+	suffix, err := libopustooling.LibopusReferenceSourceSuffix(variant)
+	if err != nil {
+		panic(err)
+	}
+	base := []string{repoRoot(), "tmp_check", "opus-" + libopustooling.DefaultVersion + suffix}
 	return filepath.Join(append(base, elem...)...)
 }
 
-// SIMDRefPath returns a path under the SIMD/RTCD-enabled libopus PERFORMANCE
-// reference tree (built by `make ensure-libopus-simd`). Its config.h DEFINES the
-// platform SIMD macros (NEON on arm64, SSE/AVX RTCD on amd64), so it is NOT
-// bit-reproducible and must never be used as a parity oracle — it exists only so
-// the perf scoreboard can compare the gopus asm kernels against a SIMD libopus.
+// FixedQEXTRefPath returns a FIXED_POINT + ENABLE_QEXT tree paired with the
+// current Go build's scalar or SIMD instruction lane.
+func FixedQEXTRefPath(elem ...string) string {
+	variant, err := libopustooling.ResolveLibopusFixedQEXTReferenceVariant()
+	if err != nil {
+		panic(err)
+	}
+	suffix, err := libopustooling.LibopusReferenceSourceSuffix(variant)
+	if err != nil {
+		panic(err)
+	}
+	base := []string{repoRoot(), "tmp_check", "opus-" + libopustooling.DefaultVersion + suffix}
+	return filepath.Join(append(base, elem...)...)
+}
+
+// DREDQEXTRefPath returns the ENABLE_DRED + ENABLE_DEEP_PLC + ENABLE_QEXT
+// reference tree paired with the current Go scalar or SIMD instruction lane.
+func DREDQEXTRefPath(elem ...string) string {
+	variant, err := resolveDREDQEXTReferenceVariantForCurrentBuild()
+	if err != nil {
+		panic(err)
+	}
+	suffix, err := libopustooling.LibopusReferenceSourceSuffix(variant)
+	if err != nil {
+		panic(err)
+	}
+	base := []string{repoRoot(), "tmp_check", "opus-" + libopustooling.DefaultVersion + suffix}
+	return filepath.Join(append(base, elem...)...)
+}
+
+// SIMDRefPath returns a path under the SIMD/RTCD-enabled libopus reference tree
+// (built by `make ensure-libopus-simd`). Pair it with a Go SIMD build for
+// build-wide comparisons, or use it for a kernel test that invokes the matching
+// Go SIMD function directly.
 func SIMDRefPath(elem ...string) string {
-	base := []string{repoRoot(), "tmp_check", "opus-" + libopustooling.DefaultVersion + "-simd"}
+	suffix, err := libopustooling.LibopusReferenceSourceSuffix(libopustooling.LibopusReferenceSIMD)
+	if err != nil {
+		panic(err)
+	}
+	base := []string{repoRoot(), "tmp_check", "opus-" + libopustooling.DefaultVersion + suffix}
 	return filepath.Join(append(base, elem...)...)
 }
 
 // CustomRefPath returns a path under the pinned custom-modes (--enable-custom-modes)
 // libopus reference tree. Its config.h defines CUSTOM_MODES and the Opus Custom
 // API, so C oracle helpers built against it can call opus_custom_mode_create /
-// opus_custom_encoder_create / opus_custom_decoder_create. When
-// GOPUS_LIBOPUS_REF_SCALAR=1 it returns the scalar custom tree so the celt/custom
-// parity gate links the bit-reproducible reference.
+// opus_custom_encoder_create / opus_custom_decoder_create. Scalar Go builds use
+// the matching custom-scalar tree.
 func CustomRefPath(elem ...string) string {
-	if ScalarRefRequested() {
-		return CustomScalarRefPath(elem...)
+	variant, err := libopustooling.ResolveLibopusReferenceVariant()
+	if err != nil {
+		panic(err)
 	}
-	base := []string{repoRoot(), "tmp_check", "opus-" + libopustooling.DefaultVersion + "-custom"}
+	if variant == libopustooling.LibopusReferenceScalar {
+		variant = libopustooling.LibopusReferenceCustomScalar
+	} else {
+		variant = libopustooling.LibopusReferenceCustomSIMD
+	}
+	suffix, err := libopustooling.LibopusReferenceSourceSuffix(variant)
+	if err != nil {
+		panic(err)
+	}
+	base := []string{repoRoot(), "tmp_check", "opus-" + libopustooling.DefaultVersion + suffix}
 	return filepath.Join(append(base, elem...)...)
 }
 
 // CustomScalarRefPath returns a path under the scalar custom-modes libopus
 // reference tree (--enable-custom-modes on the generic-C kernels, built with
 // --disable-asm --disable-rtcd --disable-intrinsics). It is the bit-reproducible
-// Opus Custom oracle for the pure-Go celt/custom parity gate.
+// Opus Custom oracle for the scalar Go celt/custom parity gate.
 func CustomScalarRefPath(elem ...string) string {
-	base := []string{repoRoot(), "tmp_check", "opus-" + libopustooling.DefaultVersion + "-custom-scalar"}
+	suffix, err := libopustooling.LibopusReferenceSourceSuffix(libopustooling.LibopusReferenceCustomScalar)
+	if err != nil {
+		panic(err)
+	}
+	base := []string{repoRoot(), "tmp_check", "opus-" + libopustooling.DefaultVersion + suffix}
+	return filepath.Join(append(base, elem...)...)
+}
+
+// CustomQEXTRefPath returns the CUSTOM_MODES + ENABLE_QEXT reference tree
+// paired with the current Go instruction lane.
+func CustomQEXTRefPath(elem ...string) string {
+	variant, err := libopustooling.ResolveLibopusCustomQEXTReferenceVariant()
+	if err != nil {
+		panic(err)
+	}
+	suffix, err := libopustooling.LibopusReferenceSourceSuffix(variant)
+	if err != nil {
+		panic(err)
+	}
+	base := []string{repoRoot(), "tmp_check", "opus-" + libopustooling.DefaultVersion + suffix}
+	return filepath.Join(append(base, elem...)...)
+}
+
+// CustomFixedRefPath returns the CUSTOM_MODES + FIXED_POINT reference tree
+// paired with the current Go instruction lane.
+func CustomFixedRefPath(elem ...string) string {
+	variant, err := libopustooling.ResolveLibopusCustomFixedReferenceVariant()
+	if err != nil {
+		panic(err)
+	}
+	suffix, err := libopustooling.LibopusReferenceSourceSuffix(variant)
+	if err != nil {
+		panic(err)
+	}
+	base := []string{repoRoot(), "tmp_check", "opus-" + libopustooling.DefaultVersion + suffix}
+	return filepath.Join(append(base, elem...)...)
+}
+
+// CustomFixedQEXTRefPath returns the CUSTOM_MODES + FIXED_POINT + ENABLE_QEXT
+// reference tree paired with the current Go instruction lane.
+func CustomFixedQEXTRefPath(elem ...string) string {
+	variant, err := libopustooling.ResolveLibopusCustomFixedQEXTReferenceVariant()
+	if err != nil {
+		panic(err)
+	}
+	suffix, err := libopustooling.LibopusReferenceSourceSuffix(variant)
+	if err != nil {
+		panic(err)
+	}
+	base := []string{repoRoot(), "tmp_check", "opus-" + libopustooling.DefaultVersion + suffix}
 	return filepath.Join(append(base, elem...)...)
 }
 
@@ -95,6 +196,18 @@ func CustomScalarRefPath(elem ...string) string {
 func ReadRefFileOrSkip(t testing.TB, label string, elem ...string) []byte {
 	t.Helper()
 	return ReadRefPathOrSkip(t, RefPath(elem...), label)
+}
+
+// ReadPinnedSourceFileOrSkip reads from the unsuffixed pinned source checkout.
+// It is for source-only checks that do not consume build-specific artifacts.
+func ReadPinnedSourceFileOrSkip(t testing.TB, label string, elem ...string) []byte {
+	t.Helper()
+	return readPinnedSourceFileOrSkip(t, repoRoot(), label, elem...)
+}
+
+func readPinnedSourceFileOrSkip(t testing.TB, root, label string, elem ...string) []byte {
+	t.Helper()
+	return ReadRefPathOrSkip(t, pinnedSourcePath(root, elem...), label)
 }
 
 // ReadRefPathOrSkip is the path-based form of ReadRefFileOrSkip.
@@ -122,4 +235,9 @@ func repoRoot() string {
 		panic("runtime.Caller failed")
 	}
 	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+}
+
+func pinnedSourcePath(root string, elem ...string) string {
+	base := []string{root, "tmp_check", "opus-" + libopustooling.DefaultVersion}
+	return filepath.Join(append(base, elem...)...)
 }

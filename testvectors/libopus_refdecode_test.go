@@ -6,7 +6,6 @@ import (
 
 	"github.com/thesyncim/gopus"
 	"github.com/thesyncim/gopus/internal/libopustest"
-	"github.com/thesyncim/gopus/internal/libopustooling"
 )
 
 const (
@@ -18,15 +17,11 @@ var libopusRefdecodeSingleHelper libopustest.HelperCache
 
 func getLibopusRefdecodeSinglePath() (string, error) {
 	return libopusRefdecodeSingleHelper.Path(func() (string, error) {
-		if _, ok := libopustooling.FindOrEnsureOpusDemo(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots()); !ok {
-			return "", fmt.Errorf("libopus reference tree not found")
-		}
-		return libopustest.BuildCHelper(libopustest.CHelperConfig{
+		return libopustest.BuildPublicAPIHelper(libopustest.CHelperConfig{
 			Label:      "single reference decode",
 			OutputBase: "gopus_libopus_refdecode_single",
 			SourceFile: "libopus_refdecode_single.c",
 			CFlags:     []string{"-O3", "-DNDEBUG"},
-			Libs:       []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
 		})
 	})
 }

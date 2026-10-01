@@ -43,20 +43,20 @@ func TestPitchDNNMatchesLibopusOnRealModel(t *testing.T) {
 		libopustest.HelperUnavailable(t, "pitchdnn", err)
 	}
 	gotPitch1 := pitch.Compute(if1[:], xcorr1[:])
-	assertFloat32Close(t, []float32{gotPitch1}, []float32{wantPitch1}, 1e-3, "pitch value 1")
-	assertFloat32Close(t, pitch.state.gruState[:], wantState1.gruState[:], 5e-3, "pitch gru state 1")
-	assertFloat32Close(t, pitch.state.xcorrMem1[:], wantState1.xcorrMem1[:], 5e-3, "pitch xcorr_mem1 1")
-	assertFloat32Close(t, pitch.state.xcorrMem2[:], wantState1.xcorrMem2[:], 5e-3, "pitch xcorr_mem2 1")
-	assertFloat32Close(t, pitch.state.xcorrMem3[:], wantState1.xcorrMem3[:], 5e-3, "pitch xcorr_mem3 1")
+	assertFloat32BitsMatch(t, []float32{gotPitch1}, []float32{wantPitch1}, "pitch value 1")
+	assertFloat32BitsMatch(t, pitch.state.gruState[:], wantState1.gruState[:], "pitch gru state 1")
+	assertFloat32BitsMatch(t, pitch.state.xcorrMem1[:], wantState1.xcorrMem1[:], "pitch xcorr_mem1 1")
+	assertFloat32BitsMatch(t, pitch.state.xcorrMem2[:], wantState1.xcorrMem2[:], "pitch xcorr_mem2 1")
+	assertFloat32BitsMatch(t, pitch.state.xcorrMem3[:], wantState1.xcorrMem3[:], "pitch xcorr_mem3 1")
 
 	wantPitch2, wantState2, err := probeLibopusPitchDNN(if2[:], xcorr2[:], wantState1)
 	if err != nil {
 		t.Fatalf("probeLibopusPitchDNN(second) error: %v", err)
 	}
 	gotPitch2 := pitch.Compute(if2[:], xcorr2[:])
-	assertFloat32Close(t, []float32{gotPitch2}, []float32{wantPitch2}, 1e-3, "pitch value 2")
-	assertFloat32Close(t, pitch.state.gruState[:], wantState2.gruState[:], 5e-2, "pitch gru state 2")
-	assertFloat32Close(t, pitch.state.xcorrMem1[:], wantState2.xcorrMem1[:], 5e-2, "pitch xcorr_mem1 2")
-	assertFloat32Close(t, pitch.state.xcorrMem2[:], wantState2.xcorrMem2[:], 5e-2, "pitch xcorr_mem2 2")
-	assertFloat32Close(t, pitch.state.xcorrMem3[:], wantState2.xcorrMem3[:], 5e-2, "pitch xcorr_mem3 2")
+	assertFloat32BitsMatch(t, []float32{gotPitch2}, []float32{wantPitch2}, "pitch value 2")
+	assertFloat32BitsMatch(t, pitch.state.gruState[:], wantState2.gruState[:], "pitch gru state 2")
+	assertFloat32BitsMatch(t, pitch.state.xcorrMem1[:], wantState2.xcorrMem1[:], "pitch xcorr_mem1 2")
+	assertFloat32BitsMatch(t, pitch.state.xcorrMem2[:], wantState2.xcorrMem2[:], "pitch xcorr_mem2 2")
+	assertFloat32BitsMatch(t, pitch.state.xcorrMem3[:], wantState2.xcorrMem3[:], "pitch xcorr_mem3 2")
 }

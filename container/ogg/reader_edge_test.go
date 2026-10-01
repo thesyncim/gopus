@@ -2,8 +2,140 @@ package ogg
 
 import (
 	"bytes"
+	"errors"
+	"io"
 	"testing"
 )
+
+type chunkCountingReader struct {
+	data      []byte
+	maxChunk  int
+	bytesRead int
+}
+
+func (r *chunkCountingReader) Read(p []byte) (int, error) {
+	if r.bytesRead == len(r.data) {
+		return 0, io.EOF
+	}
+	n := len(p)
+	if n > r.maxChunk {
+		n = r.maxChunk
+	}
+	if n > len(r.data)-r.bytesRead {
+		n = len(r.data) - r.bytesRead
+	}
+	copy(p, r.data[r.bytesRead:r.bytesRead+n])
+	r.bytesRead += n
+	return n, nil
+}
+
+func audioPageStreamPrefix() []byte {
+	stream := buildAudioPageStream(0, nil)
+	_, firstPageSize, _ := ParsePage(stream)
+	_, secondPageSize, _ := ParsePage(stream[firstPageSize:])
+	return append([]byte(nil), stream[:firstPageSize+secondPageSize]...)
+}
+
+func TestReaderReadPageReturnsPermanentErrorsPromptly(t *testing.T) {
+	const trailingBytes = 64 * 1024
+	trailing := bytes.Repeat([]byte{0x5a}, trailingBytes)
+	headers := audioPageStreamPrefix()
+
+	t.Run("bad capture pattern", func(t *testing.T) {
+		data := append(append([]byte(nil), headers...), 'X')
+		data = append(data, trailing...)
+		raw := &chunkCountingReader{data: data, maxChunk: 1}
+		reader, err := NewReader(raw)
+		if err != nil {
+			t.Fatalf("NewReader() error = %v", err)
+		}
+		_, _, err = reader.ReadPacket()
+		if !errors.Is(err, ErrInvalidPage) {
+			t.Fatalf("ReadPacket() error = %v, want ErrInvalidPage", err)
+		}
+		if want := len(headers) + 1; raw.bytesRead != want {
+			t.Fatalf("reader consumed %d bytes, want %d", raw.bytesRead, want)
+		}
+	})
+
+	t.Run("bad CRC", func(t *testing.T) {
+		pageData := Page{
+			SerialNumber: 0x1234,
+			PageSequence: 2,
+			Segments:     BuildSegmentTable(1),
+			Payload:      []byte{0x08},
+		}
+		page := pageData.Encode()
+		page[22] ^= 1
+		data := append(append([]byte(nil), headers...), page...)
+		data = append(data, trailing...)
+		raw := &chunkCountingReader{data: data, maxChunk: 1}
+		reader, err := NewReader(raw)
+		if err != nil {
+			t.Fatalf("NewReader() error = %v", err)
+		}
+		_, _, err = reader.ReadPacket()
+		if !errors.Is(err, ErrBadCRC) {
+			t.Fatalf("ReadPacket() error = %v, want ErrBadCRC", err)
+		}
+		if want := len(headers) + len(page); raw.bytesRead != want {
+			t.Fatalf("reader consumed %d bytes, want %d", raw.bytesRead, want)
+		}
+	})
+}
+
+func TestReaderReadPageDistinguishesTruncationFromEOF(t *testing.T) {
+	headers := audioPageStreamPrefix()
+	pageData := Page{
+		SerialNumber: 0x1234,
+		PageSequence: 2,
+		Segments:     BuildSegmentTable(1),
+		Payload:      []byte{0x08},
+	}
+	page := pageData.Encode()
+	truncated := append(append([]byte(nil), headers...), page[:len(page)-1]...)
+
+	t.Run("incomplete page at EOF", func(t *testing.T) {
+		reader, err := NewReader(&chunkCountingReader{data: truncated, maxChunk: 3})
+		if err != nil {
+			t.Fatalf("NewReader() error = %v", err)
+		}
+		_, _, err = reader.ReadPacket()
+		if !errors.Is(err, ErrInvalidPage) {
+			t.Fatalf("ReadPacket() error = %v, want ErrInvalidPage", err)
+		}
+	})
+
+	t.Run("empty stream tail", func(t *testing.T) {
+		reader, err := NewReader(&chunkCountingReader{data: headers, maxChunk: 3})
+		if err != nil {
+			t.Fatalf("NewReader() error = %v", err)
+		}
+		_, _, err = reader.ReadPacket()
+		if !errors.Is(err, io.EOF) {
+			t.Fatalf("ReadPacket() error = %v, want io.EOF", err)
+		}
+	})
+}
+
+func TestReaderReadPageAcceptsFragmentedPages(t *testing.T) {
+	packet := []byte{0x08, 0x01}
+	stream := buildAudioPageStream(960, [][]byte{packet})
+	reader, err := NewReader(&chunkCountingReader{data: stream, maxChunk: 3})
+	if err != nil {
+		t.Fatalf("NewReader() error = %v", err)
+	}
+	got, granule, err := reader.ReadPacket()
+	if err != nil {
+		t.Fatalf("ReadPacket() error = %v", err)
+	}
+	if !bytes.Equal(got, packet) {
+		t.Fatalf("ReadPacket() packet = %v, want %v", got, packet)
+	}
+	if granule != 960 {
+		t.Fatalf("ReadPacket() granule = %d, want 960", granule)
+	}
+}
 
 // TestReaderAccessors_NilHeader verifies the zero-value fallbacks of the Reader
 // metadata accessors when no OpusHead has been parsed (Header == nil). NewReader

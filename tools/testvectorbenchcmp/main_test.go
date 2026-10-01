@@ -1,10 +1,42 @@
 package main
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/thesyncim/gopus/internal/libopustooling"
 )
+
+func TestLibopusHelperCompileFlagsIncludeAMD64Target(t *testing.T) {
+	target := []string{"-march=x86-64-v3", "-mtune=generic"}
+	got := libopusHelperCompileFlags(libopustooling.LibopusReferenceScalar, target)
+	want := []string{
+		"-O3", "-DNDEBUG",
+		"-fno-tree-vectorize", "-fno-tree-slp-vectorize",
+		"-march=x86-64-v3", "-mtune=generic",
+	}
+	assertLibopusHelperCompilerDefaults(t, got)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("scalar helper flags=%v want %v", got, want)
+	}
+	got = libopusHelperCompileFlags(libopustooling.LibopusReferenceSIMD, target)
+	want = []string{"-O3", "-DNDEBUG", "-march=x86-64-v3", "-mtune=generic"}
+	assertLibopusHelperCompilerDefaults(t, got)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("SIMD helper flags=%v want %v", got, want)
+	}
+}
+
+func assertLibopusHelperCompilerDefaults(t *testing.T, flags []string) {
+	t.Helper()
+	for _, flag := range flags {
+		if strings.HasPrefix(flag, "-std=") || strings.HasPrefix(flag, "-ffp-contract=") {
+			t.Errorf("libopus helper flag %q overrides compiler-default C dialect or FP contraction: %v", flag, flags)
+		}
+	}
+}
 
 func TestEvaluatePerformanceGuardrails(t *testing.T) {
 	allocs := 0.0

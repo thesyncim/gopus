@@ -82,6 +82,9 @@
 
 static int set_binary_stdio(void) {
 #ifdef _WIN32
+  if (_setmode(_fileno(stdin), _O_BINARY) == -1) {
+    return 0;
+  }
   if (_setmode(_fileno(stdout), _O_BINARY) == -1) {
     return 0;
   }
@@ -133,10 +136,143 @@ static void bbwenet_raw_forward(
       in_buffer,
       features,
       num_samples / 160,
-      0 /*arch=GENERIC*/);
+      opus_select_arch());
+}
+
+static int run_sequence_oracle(void) {
+  enum { MAX_FRAMES = 64 };
+  enum { TRACE_FLOATS = 1701, TRACE_INTS = OSCE_BWE_OUTPUT_DELAY };
+  enum { LATENT_FLOATS = 2 * BBWENET_COND_DIM };
+  enum { AF3_DENSE_FLOATS = BBWENET_AF3_KERNEL_OUT_SIZE + 2 * BBWENET_AF3_GAIN_OUT_SIZE };
+  static const char input_tag[4] = {'B', 'S', 'E', 'Q'};
+  static const char output_tag[8] = {'B', 'S', 'E', 'Q', 'O', '\0', '\0', '\0'};
+  char got_tag[4];
+  int32_t header[2];
+  int16_t input[MAX_FRAMES * 160];
+  float features[MAX_FRAMES * OSCE_BWE_FEATURE_DIM];
+  float latent_trace[MAX_FRAMES * LATENT_FLOATS];
+  float af3_dense_trace[MAX_FRAMES * AF3_DENSE_FLOATS];
+  int16_t output[MAX_FRAMES * 480];
+  float output_float[MAX_FRAMES * 480];
+  float state_trace[MAX_FRAMES * TRACE_FLOATS];
+  int16_t delay_trace[MAX_FRAMES * TRACE_INTS];
+
+  if (!set_binary_stdio()) return 1;
+  if (fread(got_tag, 1, sizeof(got_tag), stdin) != sizeof(got_tag) ||
+      memcmp(got_tag, input_tag, sizeof(input_tag)) != 0) return 2;
+  if (fread(header, sizeof(header[0]), 2, stdin) != 2) return 3;
+  if (header[0] != 1 || header[1] <= 0 || header[1] > MAX_FRAMES) return 4;
+  const int frames = header[1];
+  if (fread(input, sizeof(input[0]), (size_t)frames * 160, stdin) != (size_t)frames * 160) return 5;
+
+  OSCEModel *model = (OSCEModel *)calloc(1, sizeof(OSCEModel));
+  if (model == NULL) return 6;
+  if (gopus_helper_osce_load_models(model, NULL, 0) != 0) {
+    free(model);
+    return 7;
+  }
+
+  silk_OSCE_BWE_struct feature_state;
+  silk_OSCE_BWE_struct bwe_state;
+  memset(&feature_state, 0, sizeof(feature_state));
+  memset(&bwe_state, 0, sizeof(bwe_state));
+  for (int k = 0; k <= OSCE_BWE_MAX_INSTAFREQ_BIN; k++) {
+    feature_state.features.last_spec[2 * k] = 1e-9f;
+    bwe_state.features.last_spec[2 * k] = 1e-9f;
+  }
+
+  for (int frame = 0; frame < frames; frame++) {
+    int16_t *frame_input = input + frame * 160;
+    osce_bwe_calculate_features(&feature_state.features,
+        features + frame * OSCE_BWE_FEATURE_DIM, frame_input, 160);
+    BBWENetState latent_state;
+    memset(&latent_state, 0, sizeof(latent_state));
+    memcpy(latent_state.feature_net_conv1_state, bwe_state.state.bbwenet.feature_net_conv1_state,
+        sizeof(latent_state.feature_net_conv1_state));
+    memcpy(latent_state.feature_net_conv2_state, bwe_state.state.bbwenet.feature_net_conv2_state,
+        sizeof(latent_state.feature_net_conv2_state));
+    memcpy(latent_state.feature_net_gru_state, bwe_state.state.bbwenet.feature_net_gru_state,
+        sizeof(latent_state.feature_net_gru_state));
+    bbwe_feature_net(&model->bbwenet, &latent_state,
+        latent_trace + frame * LATENT_FLOATS,
+        features + frame * OSCE_BWE_FEATURE_DIM, 1, opus_select_arch());
+    float *af3_dense = af3_dense_trace + frame * AF3_DENSE_FLOATS;
+    compute_generic_dense(&model->bbwenet.layers.bbwenet_af3_kernel,
+        af3_dense, latent_trace + frame * LATENT_FLOATS + BBWENET_COND_DIM,
+        ACTIVATION_LINEAR, opus_select_arch());
+    compute_linear(&model->bbwenet.layers.bbwenet_af3_gain,
+        af3_dense + BBWENET_AF3_KERNEL_OUT_SIZE,
+        latent_trace + frame * LATENT_FLOATS + BBWENET_COND_DIM, opus_select_arch());
+    compute_generic_dense(&model->bbwenet.layers.bbwenet_af3_gain,
+        af3_dense + BBWENET_AF3_KERNEL_OUT_SIZE + BBWENET_AF3_GAIN_OUT_SIZE,
+        latent_trace + frame * LATENT_FLOATS + BBWENET_COND_DIM,
+        ACTIVATION_TANH, opus_select_arch());
+    gopus_helper_osce_bwe(model, &bwe_state, output + frame * 480,
+        frame_input, 160, opus_select_arch());
+
+    float *trace = state_trace + frame * TRACE_FLOATS;
+    int trace_index = 0;
+#define APPEND_STATE(src, count) do { \
+      memcpy(trace + trace_index, (src), (size_t)(count) * sizeof(float)); \
+      trace_index += (count); \
+    } while (0)
+    BBWENetState *state = &bwe_state.state.bbwenet;
+    APPEND_STATE(state->feature_net_conv1_state, BBWENET_FNET_CONV1_STATE_SIZE);
+    APPEND_STATE(state->feature_net_conv2_state, BBWENET_FNET_CONV2_STATE_SIZE);
+    APPEND_STATE(state->feature_net_gru_state, BBWENET_FNET_GRU_STATE_SIZE);
+    APPEND_STATE(state->af1_state.history, BBWENET_AF1_KERNEL_SIZE * BBWENET_AF1_IN_CHANNELS);
+    APPEND_STATE(state->af1_state.last_kernel, BBWENET_AF1_KERNEL_OUT_SIZE);
+    APPEND_STATE(&state->af1_state.last_gain, 1);
+    APPEND_STATE(state->af2_state.history, BBWENET_AF2_KERNEL_SIZE * BBWENET_AF2_IN_CHANNELS);
+    APPEND_STATE(state->af2_state.last_kernel, BBWENET_AF2_KERNEL_OUT_SIZE);
+    APPEND_STATE(&state->af2_state.last_gain, 1);
+    APPEND_STATE(state->af3_state.history, BBWENET_AF3_KERNEL_SIZE * BBWENET_AF3_IN_CHANNELS);
+    APPEND_STATE(state->af3_state.last_kernel, BBWENET_AF3_KERNEL_OUT_SIZE);
+    APPEND_STATE(&state->af3_state.last_gain, 1);
+    APPEND_STATE(state->tdshape1_state.conv_alpha1f_state, BBWENET_TDSHAPE1_ALPHA1_F_STATE_SIZE);
+    APPEND_STATE(state->tdshape1_state.conv_alpha1t_state, BBWENET_TDSHAPE1_ALPHA1_T_STATE_SIZE);
+    APPEND_STATE(state->tdshape1_state.conv_alpha2_state, BBWENET_TDSHAPE1_ALPHA2_STATE_SIZE);
+    APPEND_STATE(state->tdshape1_state.interpolate_state, 1);
+    APPEND_STATE(state->tdshape2_state.conv_alpha1f_state, BBWENET_TDSHAPE2_ALPHA1_F_STATE_SIZE);
+    APPEND_STATE(state->tdshape2_state.conv_alpha1t_state, BBWENET_TDSHAPE2_ALPHA1_T_STATE_SIZE);
+    APPEND_STATE(state->tdshape2_state.conv_alpha2_state, BBWENET_TDSHAPE2_ALPHA2_STATE_SIZE);
+    APPEND_STATE(state->tdshape2_state.interpolate_state, 1);
+    for (int channel = 0; channel < 3; channel++) {
+      APPEND_STATE(state->resampler_state[channel].upsamp_buffer, 2 * 3);
+      APPEND_STATE(state->resampler_state[channel].interpol_buffer, 8);
+    }
+#undef APPEND_STATE
+    if (trace_index != TRACE_FLOATS) {
+      free(model);
+      return 8;
+    }
+    memcpy(delay_trace + frame * TRACE_INTS, state->outbut_buffer,
+        TRACE_INTS * sizeof(delay_trace[0]));
+  }
+  for (int i = 0; i < frames * 480; i++) {
+    output_float[i] = (float)output[i] * (1.0f / 32768.0f);
+  }
+
+  int32_t output_header[7] = {4, frames, frames * 480, TRACE_FLOATS, TRACE_INTS, LATENT_FLOATS, AF3_DENSE_FLOATS};
+  if (fwrite(output_tag, 1, sizeof(output_tag), stdout) != sizeof(output_tag) ||
+      fwrite(output_header, sizeof(output_header[0]), 7, stdout) != 7 ||
+      fwrite(features, sizeof(features[0]), (size_t)frames * OSCE_BWE_FEATURE_DIM, stdout) != (size_t)frames * OSCE_BWE_FEATURE_DIM ||
+      fwrite(latent_trace, sizeof(latent_trace[0]), (size_t)frames * LATENT_FLOATS, stdout) != (size_t)frames * LATENT_FLOATS ||
+      fwrite(af3_dense_trace, sizeof(af3_dense_trace[0]), (size_t)frames * AF3_DENSE_FLOATS, stdout) != (size_t)frames * AF3_DENSE_FLOATS ||
+      fwrite(output_float, sizeof(output_float[0]), (size_t)frames * 480, stdout) != (size_t)frames * 480 ||
+      fwrite(state_trace, sizeof(state_trace[0]), (size_t)frames * TRACE_FLOATS, stdout) != (size_t)frames * TRACE_FLOATS ||
+      fwrite(delay_trace, sizeof(delay_trace[0]), (size_t)frames * TRACE_INTS, stdout) != (size_t)frames * TRACE_INTS) {
+    free(model);
+    return 9;
+  }
+  free(model);
+  return 0;
 }
 
 int main(int argc, char *argv[]) {
+  if (argc >= 3 && strcmp(argv[2], "sequence") == 0) {
+    return run_sequence_oracle();
+  }
   if (argc < 2) {
     fprintf(stderr, "usage: %s NUM_SAMPLES_16K [MODE]\n"
                     "  MODE: forward (default), consecutive, crossfade, raw, raw-consecutive\n", argv[0]);
@@ -213,12 +349,12 @@ int main(int argc, char *argv[]) {
      *
      * Both frames use the same sinusoid input -- this isolates the
      * state-continuity issue from input-variability noise. */
-    gopus_helper_osce_bwe(model, &bweState, xq48, xq16, num_samples, 0 /*arch=GENERIC*/);
+    gopus_helper_osce_bwe(model, &bweState, xq48, xq16, num_samples, opus_select_arch());
     /* Snapshot features for the second frame using a separate feature state
      * that has consumed the first frame already. */
     osce_bwe_calculate_features(&featState.features, features, xq16, num_samples);
     /* Second frame -- bweState carries over signal_history, last_spec, etc. */
-    gopus_helper_osce_bwe(model, &bweState, xq48_second, xq16, num_samples, 0 /*arch=GENERIC*/);
+    gopus_helper_osce_bwe(model, &bweState, xq48_second, xq16, num_samples, opus_select_arch());
     /* Use the second-frame output as the canonical xq48 emitted below. */
     memcpy(xq48, xq48_second, sizeof(xq48));
   } else if (strcmp(mode, "crossfade") == 0) {
@@ -229,7 +365,7 @@ int main(int argc, char *argv[]) {
      * leave them populated with the forward-mode output for diagnostic
      * compatibility with the header parser, but mark numOut = 480 (10 ms
      * @ 48 kHz) which is the natural cross-fade window length. */
-    gopus_helper_osce_bwe(model, &bweState, xq48, xq16, num_samples, 0 /*arch=GENERIC*/);
+    gopus_helper_osce_bwe(model, &bweState, xq48, xq16, num_samples, opus_select_arch());
     num_out = 480;
     /* Generate two distinct ramps and emit the crossfaded result. */
     int16_t fadein[480];
@@ -259,7 +395,7 @@ int main(int argc, char *argv[]) {
     emit_raw = 1;
   } else {
     /* Default "forward" mode: single BWE pass on the sinusoid. */
-    gopus_helper_osce_bwe(model, &bweState, xq48, xq16, num_samples, 0 /*arch=GENERIC*/);
+    gopus_helper_osce_bwe(model, &bweState, xq48, xq16, num_samples, opus_select_arch());
   }
 
   /* Emit header + binary payload. */

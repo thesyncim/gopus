@@ -6,22 +6,14 @@ const (
 )
 
 var celtQuantAllBandsHelper HelperCache
-
-func buildCELTQuantAllBandsHelper() (string, error) {
-	return BuildCHelper(CHelperConfig{
-		Label:       "celt quant_all_bands fixed",
-		OutputBase:  "gopus_libopus_celt_quant_all_bands_fixed",
-		SourceFile:  "libopus_celt_quant_all_bands_fixed_info.c",
-		FixedRef:    true,
-		CFlags:      []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"},
-		RefIncludes: []string{"celt", "silk"},
-		Libs:        []string{FixedRefPath(".libs", "libopus.a"), "-lm"},
-		DeadStrip:   true,
-	})
-}
+var celtQuantAllBandsQ15Helper HelperCache
 
 func getCELTQuantAllBandsHelperPath() (string, error) {
 	return celtQuantAllBandsHelper.Path(buildCELTQuantAllBandsHelper)
+}
+
+func getCELTQuantAllBandsQ15HelperPath() (string, error) {
+	return celtQuantAllBandsQ15Helper.Path(buildCELTQuantAllBandsQ15Helper)
 }
 
 // CELTQuantAllBandsParams describes a quant_all_bands decode pass against the
@@ -29,23 +21,27 @@ func getCELTQuantAllBandsHelperPath() (string, error) {
 // over Coded; the energy/allocation/tf inputs are supplied directly so the
 // comparison is decoupled from surrounding decoder state.
 type CELTQuantAllBandsParams struct {
-	Channels    int
-	LM          int
-	Start       int
-	End         int
-	ShortBlocks int
-	Spread      int
-	DualStereo  int
-	Intensity   int
-	TotalBits   int32
-	Balance     int32
-	CodedBands  int
-	DisableInv  bool
-	Seed        uint32
-	NbEBands    int
-	Pulses      []int32
-	TfRes       []int32
-	Coded       []byte
+	Channels      int
+	LM            int
+	Start         int
+	End           int
+	ShortBlocks   int
+	Spread        int
+	DualStereo    int
+	Intensity     int
+	TotalBits     int32
+	Balance       int32
+	CodedBands    int
+	DisableInv    bool
+	Seed          uint32
+	NbEBands      int
+	Pulses        []int32
+	TfRes         []int32
+	Coded         []byte
+	QEXTCoded     []byte
+	QEXTTotalBits int32
+	QEXTPulses    []int32
+	QEXTCaps      []int32
 }
 
 // CELTQuantAllBandsResult holds the reference quant_all_bands decode output:
@@ -53,18 +49,33 @@ type CELTQuantAllBandsParams struct {
 // per-band collapse masks (channels*NbEBands), the channel sample count N and
 // the threaded LCG seed.
 type CELTQuantAllBandsResult struct {
-	N        int
-	Channels int
-	Seed     uint32
-	X        []int32
-	Collapse []byte
+	N                                 int
+	Channels                          int
+	Seed                              uint32
+	MainRange, MainVal                uint32
+	MainTell, MainTellFrac, MainError uint32
+	ExtRange, ExtVal                  uint32
+	ExtTell, ExtTellFrac, ExtError    uint32
+	X                                 []int32
+	Collapse                          []byte
 }
 
-// ProbeCELTFixedQuantAllBands runs the real FIXED_POINT libopus quant_all_bands
-// (decode side, QEXT off) over the supplied inputs and returns the resulting
-// normalized X[] (channels*N) plus collapse masks.
+// ProbeCELTFixedQuantAllBands runs the build-selected FIXED_POINT libopus
+// quant_all_bands implementation over the supplied inputs and returns the
+// resulting normalized X[] (channels*N) plus collapse masks.
 func ProbeCELTFixedQuantAllBands(p CELTQuantAllBandsParams) (*CELTQuantAllBandsResult, error) {
-	binPath, err := getCELTQuantAllBandsHelperPath()
+	return probeCELTFixedQuantAllBands(p, getCELTQuantAllBandsHelperPath)
+}
+
+// ProbeCELTFixedQuantAllBandsQ15 runs the non-QEXT FIXED_POINT Q15 kernel.
+// It selects a fixed-only archive when the caller binary also compiles the
+// separate QEXT coefficient-domain implementation.
+func ProbeCELTFixedQuantAllBandsQ15(p CELTQuantAllBandsParams) (*CELTQuantAllBandsResult, error) {
+	return probeCELTFixedQuantAllBands(p, getCELTQuantAllBandsQ15HelperPath)
+}
+
+func probeCELTFixedQuantAllBands(p CELTQuantAllBandsParams, helperPath func() (string, error)) (*CELTQuantAllBandsResult, error) {
+	binPath, err := helperPath()
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +85,7 @@ func ProbeCELTFixedQuantAllBands(p CELTQuantAllBandsParams) (*CELTQuantAllBandsR
 		disableInv = 1
 	}
 
-	payload := NewOraclePayload(celtQuantAllBandsInputMagic)
+	payload := NewOraclePayloadVersion(celtQuantAllBandsInputMagic, 2)
 	payload.U32(uint32(p.Channels))
 	payload.U32(uint32(p.LM))
 	payload.U32(uint32(p.Start))
@@ -96,14 +107,27 @@ func ProbeCELTFixedQuantAllBands(p CELTQuantAllBandsParams) (*CELTQuantAllBandsR
 	if pad := (4 - len(p.Coded)%4) % 4; pad > 0 {
 		payload.Raw(make([]byte, pad))
 	}
+	payload.U32(uint32(len(p.QEXTCoded)))
+	payload.Raw(p.QEXTCoded)
+	if pad := (4 - len(p.QEXTCoded)%4) % 4; pad > 0 {
+		payload.Raw(make([]byte, pad))
+	}
+	payload.I32(p.QEXTTotalBits)
+	extraBands := p.NbEBands + 14
+	payload.I32s(padInt32(p.QEXTPulses, extraBands)...)
+	payload.I32s(padInt32(p.QEXTCaps, extraBands)...)
 
-	reader, err := RunOracle(binPath, payload.Bytes(), "celt fixed quant_all_bands", celtQuantAllBandsOutputMagic)
+	reader, err := RunOracleVersion(binPath, payload.Bytes(), "celt fixed quant_all_bands", celtQuantAllBandsOutputMagic, 2)
 	if err != nil {
 		return nil, err
 	}
 	n := int(reader.U32())
 	channels := int(reader.U32())
 	seed := reader.U32()
+	mainRange, mainVal := reader.U32(), reader.U32()
+	mainTell, mainTellFrac, mainError := reader.U32(), reader.U32(), reader.U32()
+	extRange, extVal := reader.U32(), reader.U32()
+	extTell, extTellFrac, extError := reader.U32(), reader.U32(), reader.U32()
 	if err := reader.Err(); err != nil {
 		return nil, err
 	}
@@ -121,10 +145,11 @@ func ProbeCELTFixedQuantAllBands(p CELTQuantAllBandsParams) (*CELTQuantAllBandsR
 		return nil, err
 	}
 	return &CELTQuantAllBandsResult{
-		N:        n,
-		Channels: channels,
-		Seed:     seed,
-		X:        x,
-		Collapse: masks,
+		N: n, Channels: channels, Seed: seed,
+		MainRange: mainRange, MainVal: mainVal,
+		MainTell: mainTell, MainTellFrac: mainTellFrac, MainError: mainError,
+		ExtRange: extRange, ExtVal: extVal,
+		ExtTell: extTell, ExtTellFrac: extTellFrac, ExtError: extError,
+		X: x, Collapse: masks,
 	}, nil
 }

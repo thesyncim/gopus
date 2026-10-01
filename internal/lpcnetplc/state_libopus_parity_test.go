@@ -76,12 +76,12 @@ func TestPrefillAndConcealmentFeatureStepMatchLibopus(t *testing.T) {
 	if st.fecSkip != want.FECSkip {
 		t.Fatalf("fecSkip=%d want %d", st.fecSkip, want.FECSkip)
 	}
-	assertFloat32Close(t, st.features[:], want.Features, 5e-2, "plc features")
-	assertFloat32Close(t, st.cont[:], want.Cont, 5e-2, "plc cont")
-	assertFloat32Close(t, st.plcNet.gru1[:], want.PLCNet.gru1[:], 5e-2, "plc net gru1")
-	assertFloat32Close(t, st.plcNet.gru2[:], want.PLCNet.gru2[:], 5e-2, "plc net gru2")
-	assertFloat32Close(t, st.plcBak[0].gru1[:], want.PLCBak[0].gru1[:], 5e-2, "plc bak0 gru1")
-	assertFloat32Close(t, st.plcBak[0].gru2[:], want.PLCBak[0].gru2[:], 5e-2, "plc bak0 gru2")
-	assertFloat32Close(t, st.plcBak[1].gru1[:], want.PLCBak[1].gru1[:], 5e-2, "plc bak1 gru1")
-	assertFloat32Close(t, st.plcBak[1].gru2[:], want.PLCBak[1].gru2[:], 5e-2, "plc bak1 gru2")
+	assertFloat32BitsMatch(t, st.features[:], want.Features, "plc features")
+	assertFloat32BitsMatch(t, st.cont[:], want.Cont, "plc cont")
+	assertFloat32BitsMatch(t, st.plcNet.gru1[:], want.PLCNet.gru1[:], "plc net gru1")
+	assertFloat32BitsMatch(t, st.plcNet.gru2[:], want.PLCNet.gru2[:], "plc net gru2")
+	assertFloat32BitsMatch(t, st.plcBak[0].gru1[:], want.PLCBak[0].gru1[:], "plc bak0 gru1")
+	assertFloat32BitsMatch(t, st.plcBak[0].gru2[:], want.PLCBak[0].gru2[:], "plc bak0 gru2")
+	assertFloat32BitsMatch(t, st.plcBak[1].gru1[:], want.PLCBak[1].gru1[:], "plc bak1 gru1")
+	assertFloat32BitsMatch(t, st.plcBak[1].gru2[:], want.PLCBak[1].gru2[:], "plc bak1 gru2")
 }

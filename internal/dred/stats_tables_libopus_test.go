@@ -41,7 +41,7 @@ func TestDREDStatsTablesMatchLibopusReference(t *testing.T) {
 
 func readLibopusDREDStatsSource(t *testing.T) string {
 	t.Helper()
-	data := libopustest.ReadRefFileOrSkip(t, "DRED stats source", "dnn", "dred_rdovae_stats_data.c")
+	data := libopustest.ReadPinnedSourceFileOrSkip(t, "DRED stats source", "dnn", "dred_rdovae_stats_data.c")
 	return string(data)
 }
 

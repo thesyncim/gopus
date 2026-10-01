@@ -14,15 +14,12 @@ import (
 	silkpkg "github.com/thesyncim/gopus/internal/silk"
 )
 
-// assertDecodedPCMQuality is the canonical end-to-end audio gate for this file's
-// DRED/PLC decode + concealment cases. It scores the decoder's output PCM against
-// the libopus reference PCM with the trusted opus_compare-based comparator
-// (qualitycompare), replacing the historical sub-perceptual sample-wise PCM
-// tolerances on the OUTPUT audio.
+// assertDecodedPCMQuality applies the independent opus_compare quality gate to
+// float PCM. Same-format decoder parity tests also use
+// assertDecodedPCMExactAndQuality so the quality score supplements exact samples.
 //
-// Two-tier discipline: this governs end-to-end decoded/concealed audio ONLY.
-// Internal DRED/FARGAN/CELT/SILK state snapshots remain bit-exact-tier oracles
-// (assertDecoderDRED*StateApproxEqual*) and are NOT routed through this gate.
+// This remains useful for quantized int24 output converted back to float, where
+// exact comparison against a float32 oracle is not meaningful.
 //
 // opus_compare's Q metric requires 48 kHz and >=480 samples/channel. It is the
 // trusted metric, but it is a *windowed* psychoacoustic model: on a single
@@ -74,6 +71,15 @@ func assertDecodedPCMQuality(t *testing.T, candidate, reference []float32, sampl
 		bar.MinQ = math.Inf(-1)
 	}
 	qualitycompare.AssertQuality(t, cmp, bar, label)
+}
+
+func assertDecodedPCMExactAndQuality(t *testing.T, got, want []float32, sampleRate, channels int, label string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("%s PCM lengths got=%d want=%d", label, len(got), len(want))
+	}
+	assertFloat32BitsEqual(t, got, want, label+" PCM bits")
+	assertDecodedPCMQuality(t, got, want, sampleRate, channels, label)
 }
 
 const (
@@ -178,7 +184,7 @@ func probeLibopusDecoderDREDDecodeAndNextFloatWithGain(seedPacket, packet, nextP
 		payload.Raw(chunk)
 	}
 
-	reader, err := libopustest.RunOracleVersion(binPath, payload.Bytes(), "decoder dred decode", libopusDecoderDREDDecodeFloatOutputMagic, 5)
+	reader, err := libopustest.RunOracleVersion(binPath, payload.Bytes(), "decoder dred decode", libopusDecoderDREDDecodeFloatOutputMagic, 6)
 	if err != nil {
 		return libopusDecoderDREDDecodeFloatInfo{}, err
 	}
@@ -269,9 +275,17 @@ func probeLibopusDecoderDREDDecodeAndNextFloatWithGain(seedPacket, packet, nextP
 	for _, dst := range [][]float32{
 		info.silk.SMid[:],
 		info.silk.OutBuf[:],
-		info.silk.SLPCQ14[:],
-		info.silk.ExcQ14[:],
-		info.silk.ResamplerIIR[:],
+	} {
+		if err := readBits(dst); err != nil {
+			return libopusDecoderDREDDecodeFloatInfo{}, err
+		}
+	}
+	for _, dst := range [][]int32{info.silk.SLPCQ14[:], info.silk.ExcQ14[:], info.silk.ResamplerIIR[:]} {
+		for i := range dst {
+			dst[i] = reader.I32()
+		}
+	}
+	for _, dst := range [][]float32{
 		info.silk.ResamplerFIR[:],
 		info.silk.ResamplerDelay[:],
 	} {
@@ -308,12 +322,7 @@ func requireLibopusDREDDecodeParsed(t testing.TB, info libopusDecoderDREDDecodeF
 	}
 }
 
-func assertDecoderDREDPLCStateApproxEqual(t *testing.T, got, want lpcnetplc.StateSnapshot, label string) {
-	t.Helper()
-	assertDecoderDREDPLCStateApproxEqualWithin(t, got, want, label, 1e-4)
-}
-
-func assertDecoderDREDPLCStateApproxEqualWithin(t *testing.T, got, want lpcnetplc.StateSnapshot, label string, tol float64) {
+func assertDecoderDREDPLCStateBitsMatch(t *testing.T, got, want lpcnetplc.StateSnapshot, label string) {
 	t.Helper()
 	if got.Blend != want.Blend ||
 		got.LossCount != want.LossCount ||
@@ -323,46 +332,40 @@ func assertDecoderDREDPLCStateApproxEqualWithin(t *testing.T, got, want lpcnetpl
 		got.FECReadPos != want.FECReadPos ||
 		got.FECFillPos != want.FECFillPos ||
 		got.FECSkip != want.FECSkip {
-		t.Fatalf("%s header=%+v want %+v", label, got, want)
+		t.Fatalf("%s header={blend:%d loss:%d gap:%d analysis:%d predict:%d fecRead:%d fecFill:%d fecSkip:%d} want {blend:%d loss:%d gap:%d analysis:%d predict:%d fecRead:%d fecFill:%d fecSkip:%d}",
+			label,
+			got.Blend, got.LossCount, got.AnalysisGap, got.AnalysisPos, got.PredictPos, got.FECReadPos, got.FECFillPos, got.FECSkip,
+			want.Blend, want.LossCount, want.AnalysisGap, want.AnalysisPos, want.PredictPos, want.FECReadPos, want.FECFillPos, want.FECSkip,
+		)
 	}
-	assertFloat32ApproxEqual(t, got.Features[:lpcnetplc.NumFeatures], want.Features[:lpcnetplc.NumFeatures], label+" features", tol)
-	assertFloat32ApproxEqual(t, got.Cont[:], want.Cont[:], label+" continuity", tol)
-	assertFloat32ApproxEqual(t, got.PCM[:], want.PCM[:], label+" pcm history", tol)
-	assertFloat32ApproxEqual(t, got.PLCNet.GRU1[:], want.PLCNet.GRU1[:], label+" plc net gru1", tol)
-	assertFloat32ApproxEqual(t, got.PLCNet.GRU2[:], want.PLCNet.GRU2[:], label+" plc net gru2", tol)
-	assertFloat32ApproxEqual(t, got.PLCBak[0].GRU1[:], want.PLCBak[0].GRU1[:], label+" plc bak0 gru1", tol)
-	assertFloat32ApproxEqual(t, got.PLCBak[0].GRU2[:], want.PLCBak[0].GRU2[:], label+" plc bak0 gru2", tol)
-	assertFloat32ApproxEqual(t, got.PLCBak[1].GRU1[:], want.PLCBak[1].GRU1[:], label+" plc bak1 gru1", tol)
-	assertFloat32ApproxEqual(t, got.PLCBak[1].GRU2[:], want.PLCBak[1].GRU2[:], label+" plc bak1 gru2", tol)
+	assertFloat32BitsEqual(t, got.Features[:lpcnetplc.NumFeatures], want.Features[:lpcnetplc.NumFeatures], label+" features")
+	assertFloat32BitsEqual(t, got.Cont[:], want.Cont[:], label+" continuity")
+	assertFloat32BitsEqual(t, got.PCM[:], want.PCM[:], label+" pcm history")
+	assertFloat32BitsEqual(t, got.PLCNet.GRU1[:], want.PLCNet.GRU1[:], label+" plc net gru1")
+	assertFloat32BitsEqual(t, got.PLCNet.GRU2[:], want.PLCNet.GRU2[:], label+" plc net gru2")
+	assertFloat32BitsEqual(t, got.PLCBak[0].GRU1[:], want.PLCBak[0].GRU1[:], label+" plc bak0 gru1")
+	assertFloat32BitsEqual(t, got.PLCBak[0].GRU2[:], want.PLCBak[0].GRU2[:], label+" plc bak0 gru2")
+	assertFloat32BitsEqual(t, got.PLCBak[1].GRU1[:], want.PLCBak[1].GRU1[:], label+" plc bak1 gru1")
+	assertFloat32BitsEqual(t, got.PLCBak[1].GRU2[:], want.PLCBak[1].GRU2[:], label+" plc bak1 gru2")
 }
 
-func assertDecoderDREDFARGANStateApproxEqual(t *testing.T, got, want lpcnetplc.FARGANSnapshot, label string) {
-	t.Helper()
-	assertDecoderDREDFARGANStateApproxEqualWithin(t, got, want, label, 1e-4)
-}
-
-func assertDecoderDREDFARGANStateApproxEqualWithin(t *testing.T, got, want lpcnetplc.FARGANSnapshot, label string, tol float64) {
+func assertDecoderDREDFARGANStateBitsMatch(t *testing.T, got, want lpcnetplc.FARGANSnapshot, label string) {
 	t.Helper()
 	if got.ContInitialized != want.ContInitialized || got.LastPeriod != want.LastPeriod {
 		t.Fatalf("%s header=%+v want %+v", label, got, want)
 	}
-	if math.Abs(float64(got.DeemphMem-want.DeemphMem)) > tol {
+	if math.Float32bits(got.DeemphMem) != math.Float32bits(want.DeemphMem) {
 		t.Fatalf("%s deemph=%f want %f", label, got.DeemphMem, want.DeemphMem)
 	}
-	assertFloat32ApproxEqual(t, got.PitchBuf[:], want.PitchBuf[:], label+" pitch", tol)
-	assertFloat32ApproxEqual(t, got.CondConv1State[:], want.CondConv1State[:], label+" cond", tol)
-	assertFloat32ApproxEqual(t, got.FWC0Mem[:], want.FWC0Mem[:], label+" fwc0", tol)
-	assertFloat32ApproxEqual(t, got.GRU1State[:], want.GRU1State[:], label+" gru1", tol)
-	assertFloat32ApproxEqual(t, got.GRU2State[:], want.GRU2State[:], label+" gru2", tol)
-	assertFloat32ApproxEqual(t, got.GRU3State[:], want.GRU3State[:], label+" gru3", tol)
+	assertFloat32BitsEqual(t, got.PitchBuf[:], want.PitchBuf[:], label+" pitch")
+	assertFloat32BitsEqual(t, got.CondConv1State[:], want.CondConv1State[:], label+" cond")
+	assertFloat32BitsEqual(t, got.FWC0Mem[:], want.FWC0Mem[:], label+" fwc0")
+	assertFloat32BitsEqual(t, got.GRU1State[:], want.GRU1State[:], label+" gru1")
+	assertFloat32BitsEqual(t, got.GRU2State[:], want.GRU2State[:], label+" gru2")
+	assertFloat32BitsEqual(t, got.GRU3State[:], want.GRU3State[:], label+" gru3")
 }
 
-func assertDecoderDREDCELT48kBridgeApproxEqual(t *testing.T, dec *Decoder, want libopusDecoderDREDCELTSnapshot, label string) {
-	t.Helper()
-	assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want, label, 1e-4)
-}
-
-func assertDecoderDREDCELT48kBridgeApproxEqualWithin(t *testing.T, dec *Decoder, want libopusDecoderDREDCELTSnapshot, label string, tol float64) {
+func assertDecoderDREDCELT48kBridgeBitsMatch(t *testing.T, dec *Decoder, want libopusDecoderDREDCELTSnapshot, label string) {
 	t.Helper()
 	var plcState celt.PLCStateSnapshot
 	var preemphMem [2]float32
@@ -383,21 +386,21 @@ func assertDecoderDREDCELT48kBridgeApproxEqualWithin(t *testing.T, dec *Decoder,
 	if plcState.LastFrameType != want.LastFrameType || plcState.PLCDuration != want.PLCDuration || plcState.SkipPLC != (want.SkipPLC != 0) {
 		t.Fatalf("%s celt plc state=%+v want {LastFrameType:%d PLCDuration:%d SkipPLC:%t}", label, plcState, want.LastFrameType, want.PLCDuration, want.SkipPLC != 0)
 	}
-	assertFloat32ApproxEqual(t, preemphMem[:], want.PreemphMem[:], label+" celt preemph_memD", tol)
+	assertFloat32BitsEqual(t, preemphMem[:], want.PreemphMem[:], label+" celt preemph_memD")
 	if plcFill != want.PLCFill {
 		t.Fatalf("%s fill=%d want %d (lastFrameType=%d plcDuration=%d skipPLC=%d preemph=%f)", label, plcFill, want.PLCFill, want.LastFrameType, want.PLCDuration, want.SkipPLC, want.PLCPreemphasisMem)
 	}
-	if math.Abs(float64(plcPreemphasisMem-want.PLCPreemphasisMem)) > tol {
+	if math.Float32bits(plcPreemphasisMem) != math.Float32bits(want.PLCPreemphasisMem) {
 		t.Fatalf("%s preemph=%f want %f", label, plcPreemphasisMem, want.PLCPreemphasisMem)
 	}
 	wantNeural := want.LastFrameType == libopusCELTFramePLCNeural || want.LastFrameType == libopusCELTFrameDRED
 	if lastNeural != wantNeural {
 		t.Fatalf("%s lastNeural=%v want %v (lastFrameType=%d)", label, lastNeural, wantNeural, want.LastFrameType)
 	}
-	assertFloat32ApproxEqual(t, plcPCM[:], want.PLCPCM[:], label+" plc pcm", tol)
+	assertFloat32BitsEqual(t, plcPCM[:], want.PLCPCM[:], label+" plc pcm")
 }
 
-func assertDecoderDREDSILKStateApproxEqualWithin(t *testing.T, dec *Decoder, want libopusDecoderDREDSILKSnapshot, bandwidth silkpkg.Bandwidth, label string, tol float64) {
+func assertDecoderDREDSILKStateBitsMatch(t *testing.T, dec *Decoder, want libopusDecoderDREDSILKSnapshot, bandwidth silkpkg.Bandwidth, label string) {
 	t.Helper()
 	if dec == nil || dec.silkDecoder == nil {
 		t.Fatalf("%s missing SILK decoder", label)
@@ -412,13 +415,19 @@ func assertDecoderDREDSILKStateApproxEqualWithin(t *testing.T, dec *Decoder, wan
 			got.LagPrev, got.LastGainIndex, got.LossCount, got.PrevSignalType,
 			want.LagPrev, want.LastGainIndex, want.LossCount, want.PrevSignalType)
 	}
-	assertFloat32ApproxEqual(t, got.SMid[:], want.SMid[:], label+" smid", tol)
-	assertFloat32ApproxEqual(t, got.OutBuf[:], want.OutBuf[:], label+" outbuf", tol)
-	assertFloat32ApproxEqual(t, got.SLPCQ14[:], want.SLPCQ14[:], label+" slpc_q14", tol)
-	assertFloat32ApproxEqual(t, got.ExcQ14[:], want.ExcQ14[:], label+" exc_q14", tol)
-	assertFloat32ApproxEqual(t, got.ResamplerIIR[:], want.ResamplerIIR[:], label+" resampler iir", tol)
-	assertFloat32ApproxEqual(t, got.ResamplerFIR[:], want.ResamplerFIR[:], label+" resampler fir", tol)
-	assertFloat32ApproxEqual(t, got.ResamplerDelay[:], want.ResamplerDelay[:], label+" resampler delay", tol)
+	assertFloat32BitsEqual(t, got.SMid[:], want.SMid[:], label+" smid")
+	assertFloat32BitsEqual(t, got.OutBuf[:], want.OutBuf[:], label+" outbuf")
+	if got.SLPCQ14 != want.SLPCQ14 {
+		t.Fatalf("%s slpc_q14 integer bits differ: Go=%v C=%v", label, got.SLPCQ14, want.SLPCQ14)
+	}
+	if got.ExcQ14 != want.ExcQ14 {
+		t.Fatalf("%s exc_q14 integer bits differ", label)
+	}
+	if got.ResamplerIIR != want.ResamplerIIR {
+		t.Fatalf("%s resampler IIR integer bits differ: Go=%v C=%v", label, got.ResamplerIIR, want.ResamplerIIR)
+	}
+	assertFloat32BitsEqual(t, got.ResamplerFIR[:], want.ResamplerFIR[:], label+" resampler fir")
+	assertFloat32BitsEqual(t, got.ResamplerDelay[:], want.ResamplerDelay[:], label+" resampler delay")
 }
 
 func copyDREDPLCPCMInt16ToFloat32(dst *[4 * lpcnetplc.FrameSize]float32, src *[4 * lpcnetplc.FrameSize]int16) {
@@ -472,15 +481,15 @@ func prepareExplicitDREDDecodeParityStateForDecoderRateAndPacketConfig(t *testin
 		channels = 2
 	}
 	if channels < 1 || channels > 2 {
-		t.Skipf("explicit DRED decode parity requires mono or stereo packet, got sampleRate=%d channels=%d", packetInfo.sampleRate, channels)
+		t.Fatalf("explicit DRED decode parity requires mono or stereo packet, got sampleRate=%d channels=%d", packetInfo.sampleRate, channels)
 	}
 	if packetCfg.ForceMode != toc.Mode {
-		t.Skipf("explicit DRED decode parity requires mode=%v packet, got mode=%v", packetCfg.ForceMode, toc.Mode)
+		t.Fatalf("explicit DRED decode parity requires mode=%v packet, got mode=%v", packetCfg.ForceMode, toc.Mode)
 	}
 	if packetCfg.Bandwidth != toc.Bandwidth {
-		t.Skipf("explicit DRED decode parity requires bandwidth=%v packet, got bandwidth=%v", packetCfg.Bandwidth, toc.Bandwidth)
+		t.Fatalf("explicit DRED decode parity requires bandwidth=%v packet, got bandwidth=%v", packetCfg.Bandwidth, toc.Bandwidth)
 	}
-	decoderBlob := requireLibopusDecoderNeuralModelBlob(t)
+	decoderBlob := dredHistoryDecoderModelBlob(t)
 	seedPacket := makeValidMonoPacketForModeBandwidthFrameSizeForDREDTest(t, toc.Mode, toc.Bandwidth, toc.FrameSize)
 
 	dec, err := NewDecoder(DefaultDecoderConfig(decoderSampleRate, channels))
@@ -498,7 +507,7 @@ func prepareExplicitDREDDecodeParityStateForDecoderRateAndPacketConfig(t *testin
 		t.Fatalf("Decode(seed packet) error: %v", err)
 	}
 	if n <= 0 {
-		t.Skip("carrier packet returned no audio")
+		t.Fatal("carrier packet returned no audio")
 	}
 
 	standalone := NewDREDDecoder()
@@ -532,7 +541,7 @@ func prepareCachedDREDDecodeParityStateForDecoderRateAndPacket(t *testing.T, dec
 func prepareCachedDREDDecodeParityStateForDecoderRateAndPacketWithChannels(t *testing.T, decoderSampleRate int, packetInfo libopusDREDPacket, wantChannels int) (*Decoder, int) {
 	t.Helper()
 
-	decoderBlob := requireLibopusDecoderNeuralModelBlob(t)
+	decoderBlob := dredHistoryDecoderModelBlob(t)
 	modelBlob, err := probeLibopusDREDModelBlob()
 	if err != nil {
 		libopustest.HelperUnavailable(t, "dred model", err)
@@ -544,7 +553,7 @@ func prepareCachedDREDDecodeParityStateForDecoderRateAndPacketWithChannels(t *te
 		channels = 2
 	}
 	if wantChannels > 0 && channels != wantChannels {
-		t.Skipf("cached DRED decode parity requires %d-channel packet, got sampleRate=%d channels=%d", wantChannels, packetInfo.sampleRate, channels)
+		t.Fatalf("cached DRED decode parity requires %d-channel packet, got sampleRate=%d channels=%d", wantChannels, packetInfo.sampleRate, channels)
 	}
 
 	dec, err := NewDecoder(DefaultDecoderConfig(decoderSampleRate, channels))
@@ -613,9 +622,8 @@ func parseCarrierDREDForExplicitDecode(t *testing.T, decoderSampleRate int, pack
 
 // decodeCachedCarrierDREDViaExplicit drives the explicit DRED-decode path with a
 // standalone *DRED parsed from the carrier packet, recovering one lost frame at
-// the given decoder-rate dred offset. This replaces the removed auto-on-loss
-// cached-DRED application (a libopus feature opus_decode lacks); the explicit
-// path matches the SourceCarrierDRED oracle (opus_decoder_dred_decode_float).
+// the given decoder-rate DRED offset. The result is compared with the
+// SourceCarrierDRED oracle (opus_decoder_dred_decode_float).
 func decodeCachedCarrierDREDViaExplicit(t *testing.T, dec *Decoder, dred *DRED, dredOffsetSamples int, pcm []float32, frameSizeSamples int) int {
 	t.Helper()
 	got, err := dec.decodeExplicitDREDFloat(dred, dredOffsetSamples, pcm, frameSizeSamples)
@@ -625,7 +633,7 @@ func decodeCachedCarrierDREDViaExplicit(t *testing.T, dec *Decoder, dred *DRED, 
 	return got
 }
 
-func assertDecoderCachedDREDFirstLossMatchesLiveSequenceOracleWithTolerances(t *testing.T, label string, packetInfo libopusDREDPacket, pcmTol, plcTol, farganTol, celtTol float64) {
+func assertDecoderCachedDREDFirstLossMatchesLiveSequenceOracle(t *testing.T, label string, packetInfo libopusDREDPacket) {
 	t.Helper()
 
 	dec, n := prepareCachedDREDDecodeParityStateForPacket(t, packetInfo)
@@ -647,13 +655,13 @@ func assertDecoderCachedDREDFirstLossMatchesLiveSequenceOracleWithTolerances(t *
 		t.Fatalf("%s explicit DRED decode=%d want %d", label, got, n)
 	}
 
-	assertDecodedPCMQuality(t, pcm[:got*dec.Channels()], want.step0.pcm[:got*dec.Channels()], packetInfo.sampleRate, dec.Channels(), label+" first-loss live-sequence pcm")
-	assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step0.state, label+" first-loss live-sequence plc", plcTol)
-	assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step0.fargan, label+" first-loss live-sequence fargan", farganTol)
-	assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.step0.celt48k, label+" first-loss live-sequence celt", celtTol)
+	assertDecodedPCMExactAndQuality(t, pcm[:got*dec.Channels()], want.step0.pcm[:got*dec.Channels()], packetInfo.sampleRate, dec.Channels(), label+" first-loss live-sequence pcm")
+	assertDecoderDREDPLCStateBitsMatch(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step0.state, label+" first-loss live-sequence plc")
+	assertDecoderDREDFARGANStateBitsMatch(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step0.fargan, label+" first-loss live-sequence fargan")
+	assertDecoderDREDCELT48kBridgeBitsMatch(t, dec, want.step0.celt48k, label+" first-loss live-sequence celt")
 }
 
-func assertDecoderCachedDREDSecondLossMatchesLiveSequenceOracleWithTolerances(t *testing.T, label string, packetInfo libopusDREDPacket, pcmTol, plcTol, farganTol, celtTol float64) {
+func assertDecoderCachedDREDSecondLossMatchesLiveSequenceOracle(t *testing.T, label string, packetInfo libopusDREDPacket) {
 	t.Helper()
 
 	dec, n := prepareCachedDREDDecodeParityStateForPacket(t, packetInfo)
@@ -676,33 +684,20 @@ func assertDecoderCachedDREDSecondLossMatchesLiveSequenceOracleWithTolerances(t 
 	if got != n {
 		t.Fatalf("%s explicit DRED decode(first)=%d want %d", label, got, n)
 	}
-	assertDecodedPCMQuality(t, pcm0[:got*dec.Channels()], want.step0.pcm[:got*dec.Channels()], packetInfo.sampleRate, dec.Channels(), label+" warmup live-sequence pcm")
-	assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step0.state, label+" warmup live-sequence plc", plcTol)
-	assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step0.fargan, label+" warmup live-sequence fargan", farganTol)
-	assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.step0.celt48k, label+" warmup live-sequence celt", celtTol)
+	assertDecodedPCMExactAndQuality(t, pcm0[:got*dec.Channels()], want.step0.pcm[:got*dec.Channels()], packetInfo.sampleRate, dec.Channels(), label+" warmup live-sequence pcm")
+	assertDecoderDREDPLCStateBitsMatch(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step0.state, label+" warmup live-sequence plc")
+	assertDecoderDREDFARGANStateBitsMatch(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step0.fargan, label+" warmup live-sequence fargan")
+	assertDecoderDREDCELT48kBridgeBitsMatch(t, dec, want.step0.celt48k, label+" warmup live-sequence celt")
 
 	pcm1 := make([]float32, n*dec.Channels())
 	got = decodeCachedCarrierDREDViaExplicit(t, dec, dred, 2*n, pcm1, n)
 	if got != n {
 		t.Fatalf("%s explicit DRED decode(second)=%d want %d", label, got, n)
 	}
-	assertDecodedPCMQuality(t, pcm1[:got*dec.Channels()], want.step1.pcm[:got*dec.Channels()], packetInfo.sampleRate, dec.Channels(), label+" second-loss live-sequence pcm")
-	assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step1.state, label+" second-loss live-sequence plc", plcTol)
-	assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step1.fargan, label+" second-loss live-sequence fargan", farganTol)
-	assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.step1.celt48k, label+" second-loss live-sequence celt", celtTol)
-}
-
-func decoderDREDLiveSequenceTolerances(frameSize int) (pcmTol, plcTol, farganTol, celtTol float64) {
-	pcmTol, plcTol, farganTol, celtTol = 1e-4, 1e-4, 1e-4, 1e-4
-	if frameSize >= 480 {
-		pcmTol, plcTol, farganTol, celtTol = 1e-2, 1e-1, 2.5e-1, 3e-2
-	}
-	if frameSize >= 960 {
-		// A 20 ms 48 kHz loss synthesizes three 16 kHz FARGAN frames.
-		// Keep the sensitive recurrent state envelope, but pin PLC history tighter.
-		return 5e-3, 6e-3, 9e-2, 5e-3
-	}
-	return pcmTol, plcTol, farganTol, celtTol
+	assertDecodedPCMExactAndQuality(t, pcm1[:got*dec.Channels()], want.step1.pcm[:got*dec.Channels()], packetInfo.sampleRate, dec.Channels(), label+" second-loss live-sequence pcm")
+	assertDecoderDREDPLCStateBitsMatch(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step1.state, label+" second-loss live-sequence plc")
+	assertDecoderDREDFARGANStateBitsMatch(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step1.fargan, label+" second-loss live-sequence fargan")
+	assertDecoderDREDCELT48kBridgeBitsMatch(t, dec, want.step1.celt48k, label+" second-loss live-sequence celt")
 }
 
 func assertInterleavedStereoDuplicated(t *testing.T, pcm []float32, samples int, label string) {
@@ -774,7 +769,7 @@ func assertDecoderCachedStereoDREDLiveSequenceMatchesLibopus(t *testing.T, label
 	dec, n := prepareCachedDREDDecodeParityStateForDecoderRateAndPacketWithChannels(t, packetInfo.sampleRate, packetInfo, 2)
 	dred := parseCarrierDREDForExplicitDecode(t, packetInfo.sampleRate, packetInfo)
 	if packetInfo.sampleRate != 48000 || n != packetCfg.FrameSize {
-		t.Skipf("%s cached stereo live-sequence parity requires 48 kHz frame=%d packet, got sampleRate=%d frame=%d", label, packetCfg.FrameSize, packetInfo.sampleRate, n)
+		t.Fatalf("%s cached stereo live-sequence parity requires 48 kHz frame=%d packet, got sampleRate=%d frame=%d", label, packetCfg.FrameSize, packetInfo.sampleRate, n)
 	}
 
 	step1Source := 0
@@ -806,8 +801,6 @@ func assertDecoderCachedStereoDREDLiveSequenceMatchesLibopus(t *testing.T, label
 		t.Fatalf("%s libopus cached stereo follow-up ret=%d want >0", label, want.next.ret)
 	}
 
-	const stereoStateTol = 3e-3
-	const stereoCELTTol = 3e-3
 	const duplicateTol = 1e-2
 
 	pcm0 := make([]float32, n*dec.Channels())
@@ -852,10 +845,10 @@ func assertDecoderCachedStereoDREDLiveSequenceMatchesLibopus(t *testing.T, label
 		compareLabel = label + " next-packet"
 	}
 
-	assertDecodedPCMQuality(t, comparePCM, compareState.pcm[:compareSamples*dec.Channels()], packetInfo.sampleRate, dec.Channels(), compareLabel+" live-sequence pcm")
-	assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), compareState.state, compareLabel+" live-sequence plc", stereoStateTol)
-	assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), compareState.fargan, compareLabel+" live-sequence fargan", stereoStateTol)
-	assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, compareState.celt48k, compareLabel+" live-sequence celt", stereoCELTTol)
+	assertDecodedPCMExactAndQuality(t, comparePCM, compareState.pcm[:compareSamples*dec.Channels()], packetInfo.sampleRate, dec.Channels(), compareLabel+" live-sequence pcm")
+	assertDecoderDREDPLCStateBitsMatch(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), compareState.state, compareLabel+" live-sequence plc")
+	assertDecoderDREDFARGANStateBitsMatch(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), compareState.fargan, compareLabel+" live-sequence fargan")
+	assertDecoderDREDCELT48kBridgeBitsMatch(t, dec, compareState.celt48k, compareLabel+" live-sequence celt")
 }
 
 type hybridDREDAPIRateCase struct {
@@ -874,9 +867,4 @@ func hybridDREDAPIRateCases() []hybridDREDAPIRateCase {
 		{name: "24k_swb_10ms", sampleRate: 24000, bandwidth: BandwidthSuperwideband, frameSize: 480},
 		{name: "24k_fb_20ms", sampleRate: 24000, bandwidth: BandwidthFullband, frameSize: 960},
 	}
-}
-
-func cachedHybridLiveSequenceTolerances(_ Bandwidth, frameSize int) (pcmTol, plcTol, farganTol, celtTol float64) {
-	pcmTol, plcTol, farganTol, celtTol = decoderDREDLiveSequenceTolerances(frameSize)
-	return pcmTol, plcTol, farganTol, celtTol
 }

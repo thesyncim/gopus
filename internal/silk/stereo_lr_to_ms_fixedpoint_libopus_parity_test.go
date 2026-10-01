@@ -267,17 +267,17 @@ func TestSILKStereoLRToMSFixedLibopusParity(t *testing.T) {
 		}
 
 		fl := tc.frameLength
-		// Build Go inputs: mid slice (len fl+2) with mid[2:] = x1's current
-		// frame (x1[-2..] history at [0,1] are immediately overwritten by
-		// state, so feed the current samples x1[2:]). side scratch (len fl+2).
+		// Build Go inputs: the two channel input buffers (len fl+2) with the
+		// current frame at [2:] (x1/x2; the history slots [0,1] are replaced
+		// by the state). The side output lands at side[1:fl+1].
 		mid := make([]int16, fl+2)
 		copy(mid[2:], tc.x1[2:]) // x1[0..fl-1] current frame
 		side := make([]int16, fl+2)
-		x2cur := make([]int16, fl)
-		copy(x2cur, tc.x2[2:]) // x2[0..fl-1] current frame
+		copy(side[2:], tc.x2[2:]) // x2[0..fl-1] current frame
+		var scratch stereoLRToMSScratch
 
-		ix, midOnly, rates := silkStereoLRToMS(&st, mid, side, x2cur,
-			tc.totalRateBps, tc.prevSpeechActQ8, tc.toMono != 0, tc.fsKHz, fl)
+		ix, midOnly, rates := silkStereoLRToMS(&st, mid, side,
+			tc.totalRateBps, tc.prevSpeechActQ8, tc.toMono != 0, tc.fsKHz, fl, &scratch)
 
 		w := want[i]
 

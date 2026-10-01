@@ -2,6 +2,20 @@ name: Verify Production Exhaustive
 
 on:
   workflow_dispatch:
+    inputs:
+      task:
+        description: Evidence to collect in the existing job
+        type: choice
+        default: release-evidence
+        options:
+          - release-evidence
+          - goamd64-kernel-audit
+          - goamd64-benchmark
+          - goamd64-analyzer-benchmark
+      benchmark_baseline:
+        description: Baseline revision (assembly for the full matrix, Go for analyzer comparisons)
+        type: string
+        default: 8ac93c851facc1146ffe248c943cbe619f13344d
   schedule:
     # Weekly on Monday at 07:00 UTC.
     - cron: "0 7 * * 1"
@@ -27,9 +41,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Checkout benchmark baseline
+        if: inputs.task == 'goamd64-benchmark' || inputs.task == 'goamd64-analyzer-benchmark'
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.benchmark_baseline }}
+          path: tmp_check/goamd64-baseline
+
       - name: Setup Go
         uses: actions/setup-go@v7
         with:
+          go-version: ${{ startsWith(inputs.task, 'goamd64-') && '1.27.1' || '' }}
           go-version-file: go.mod
           cache: true
 
@@ -39,6 +61,8 @@ jobs:
           path: |
             tmp_check/opus-${{ env.LIBOPUS_VERSION }}
             tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}-amd64-*-scalar
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}-amd64-*-simd
           key: libopus-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
 
       - name: Install codec tools (if missing)
@@ -51,10 +75,144 @@ jobs:
           sudo apt-get install -y --no-install-recommends ffmpeg opus-tools
 
       - name: Generate release evidence bundle
+        if: ${{ !inputs.task || inputs.task == 'release-evidence' }}
         run: make release-evidence
 
+      - name: Run optional GOAMD64 kernel audit
+        if: inputs.task == 'goamd64-kernel-audit' || inputs.task == 'goamd64-analyzer-benchmark'
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/goamd64-evidence/helpers" "$RUNNER_TEMP/goamd64-scratch"
+          project_env="${CODEX_PROJECT_ENV:-/Users/thesyncim/.codex/bin/project-env}"
+          if [[ -x "$project_env" ]]; then
+            go_cmd=("$project_env" go)
+          else
+            go_cmd=(go)
+          fi
+          { "${go_cmd[@]}" version; cc --version; lscpu; git rev-parse HEAD; } > "$RUNNER_TEMP/goamd64-evidence/environment.txt"
+          status=0
+          for mode in nosimd simd; do
+            env -u GOPUS_LIBOPUS_REF_SCALAR GOAMD64=v3 GOEXPERIMENT="$mode" GOPUS_LIBOPUS_AMD64_TARGET=v3 \
+              GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 TMPDIR="$RUNNER_TEMP/goamd64-scratch" \
+              python3 scripts/run_goamd64_kernel_audit.py "$mode" "$RUNNER_TEMP/goamd64-evidence/$mode-root-parity" \
+              > "$RUNNER_TEMP/goamd64-evidence/$mode-root-parity-validator.log" 2>&1 || status=1
+            env -u GOPUS_LIBOPUS_REF_SCALAR GOAMD64=v3 GOEXPERIMENT="$mode" GOPUS_LIBOPUS_AMD64_TARGET=v3 \
+              GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 TMPDIR="$RUNNER_TEMP/goamd64-scratch" \
+              "${go_cmd[@]}" test ./internal/celt -count=1 -v -timeout=15m \
+              -run '^Test(KissFFT32ToScratchMatchesLibopusC|IMDCTOverlapWithPrevScratchF32MatchesLibopusC|IMDCTTransientInPlaceScratchF32MatchesLibopusC|MDCTForwardOverlapF32MatchesLibopusC|MDCTForwardShortBlocksMatchesLibopusC|MDCTForwardOverlapF32CELTSignalScaleMatchesLibopusC)$' \
+              > "$RUNNER_TEMP/goamd64-evidence/$mode.log" 2>&1 || status=1
+            env -u GOPUS_LIBOPUS_REF_SCALAR GOAMD64=v3 GOEXPERIMENT="$mode" GOPUS_LIBOPUS_AMD64_TARGET=v3 \
+              GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 TMPDIR="$RUNNER_TEMP/goamd64-scratch" \
+              "${go_cmd[@]}" test ./internal/celt -count=1 -v -timeout=15m \
+              -run '^Test(KissMulSource.*|KfBfly.*|KissFFTBoundedFastPathMatchesScalar|MDCTFMALikeMixUsesFusedSourceShape|MDCTNegativeForwardFoldUsesTargetContractionOrder|IMDCTRotateAMD64MatchesScalar|IMDCTTDACWindowFMA32MatchesScalar|IMDCTTDACWindowScalarRandomMatchesReference|MDCTForwardRotationsMatchScalar|ExpRotation1StrideSIMDBitExact|ThetaRDODistortionMatchesLibopusFloatPath|ThetaRDODistortionZeroAlloc|CELTV3LPCMatchesLinkedLibopusAndSeparateErrorUpdate|CELTV3PLCLPCZeroAllocs|CELTLPCInactiveInputMatchesLibopus|ComputePLCLPCMatchesLibopus|StereoIthetaNonStereoEnergyMatchesLibopusCapturedBand18|StereoIthetaNonStereoEnergyZeroAlloc|CELTV3PitchFIR5ShortHeadsFMA|CELTV3SIMDPLCFIRActualInputsMatchesLibopus|CELTV3SIMDXcorrKernelTailMatchesLibopus|CELTV3IIRFeedbackTailsMatchLibopus|PitchAutocorrFMA32MatchesLibopus|PitchDownsampleSigMatchesLibopus|CELTPitchDownsampleIntermediateTraceDiagnostic|PrefilterDualInnerProdV3MatchesLinkedLibopus|PrefilterDualInnerProdV3NoAllocs|RemoveDoublingMatchesLegacyYYLookup|RemoveDoublingWarmScratchZeroAllocs|CELTPitchGainMatchesOriginalFloatSource|CELTPitchGainWarmNoAllocs)$' \
+              > "$RUNNER_TEMP/goamd64-evidence/$mode-units.log" 2>&1 || status=1
+            env -u GOPUS_LIBOPUS_REF_SCALAR GOAMD64=v3 GOEXPERIMENT="$mode" GOPUS_LIBOPUS_AMD64_TARGET=v3 \
+              GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 TMPDIR="$RUNNER_TEMP/goamd64-scratch" \
+              "${go_cmd[@]}" test ./internal/celt ./internal/encoder ./internal/opusmath -count=1 -v -timeout=15m \
+              -run '^Test(ApplyPreemphasisWithScalingMatchesLibopus|CELTBandEnergyMatchesLiveLibopus|LibopusCELTDynallocAnalysisMatchesReference|LibopusCELTEnergy(QuantFine|Finalise)MatchesReference|CELTLog2MatchesLibopusFloatApprox|CELTLog2MatchesLibopusOracle|CELTExp2MatchesLibopusFloatApprox|CELTExp2MatchesLibopusOracle|CELTExp2x4MatchesLibopus|CELTAngleMathMatchesLibopusFloatPath|OPPVQSearchMatchesLibopusFloatPath|AlgUnquantMatchesLibopusFloatPath|ExpRotationMatchesLibopusFloatPath|RenormalizeVectorMatchesLibopusFloatPath|RenormalizeVectorZeroAllocs|CombFilterWithSquareMatchesLibopus|CombFilterConstSSEOrderZeroAllocs|CombFilterKernelsZeroAllocs|CombFilterWithInputF32MatchesLibopus|CombFilterConstantBodyHistorySeamMatchesLibopus|CombFilterRampedHistorySeamMatchesLibopus|CombFilterWindowSquareV3OverlapSeamMatchesLibopus|CELTPostfilterStagesMatchLibopusC|CELTPLCFIRMatchesLibopus|CELTPLCIIRMatchesLibopus|CELTPLCFIRActualPeriodicPLCInputsMatchLibopus|PeriodicPLCSynthesisStagesMatchLibopusBits|CELTDecodeV3FirstDivergenceMatchesLibopusC|CELTV3CBRLongStreamFirstDecodeDivergence|CELTV3CoarseEnergyMatchesLibopusKernel|CELTV3QuantCoarseEnergyEncoderMatchesLibopusKernel|CELTV3StereoSplitMatchesLibopusKernel|CELTV3StereoSplitZeroAllocs|StereoSplitMatchesScalar|StereoMergeRescaleBitExact|StereoMergeRescaleNoAllocs|StereoMergeVsLibopus|Haar1MatchesLibopus|Haar1NormMatchesLibopus|Haar1NoAllocs|AnalysisMeanStdTraceDisabledRunAnalysisZeroAlloc|HPCutoffMatchesLibopus|DCRejectMatchesLibopus|GainFadeMatchesLibopus|StereoFadeMatchesLibopus)$' \
+              > "$RUNNER_TEMP/goamd64-evidence/$mode-celt-stages.log" 2>&1 || status=1
+            env -u GOPUS_LIBOPUS_REF_SCALAR GOAMD64=v3 GOEXPERIMENT="$mode" GOPUS_LIBOPUS_AMD64_TARGET=v3 \
+              GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 TMPDIR="$RUNNER_TEMP/goamd64-scratch" \
+              "${go_cmd[@]}" test ./internal/silk -count=1 -v -timeout=15m \
+              -run '^TestSILK(PitchAnalysisCoreMatchesLibopus|PitchXcorrMatchesLibopusOracle|WarpedAutocorrelationFLPMatchesLibopusOracle|WarpedAutocorrelationNativeV3MatchesLinkedLibopus|K2ANativeV3MatchesLinkedLibopus|WarpedGainNativeV3MatchesLibopusSource|WarpedGainF32ZeroAlloc|ApplySineWindowFLPMatchesLibopusOracle|ProcessGainsFLPMatchesLibopusOracle|GainTweakFMA32MatchesCExpression|GainTweak32ZeroAlloc|BurgModifiedFLPMatchesLibopusOracle|LPCAnalysisFilterFLPMatchesLibopusOracle|InnerProductFLPMatchesLibopusOracle|EnergyFLPMatchesLibopusOracle|FloatToInt16SliceScaledMatchesLibopusFloat2ShortArray|AutocorrelationF32MatchesLibopusOracle|FindLPCFLPMatchesLibopusOracle)$|^Test(LPCAnalysisFilterF32V3ScalarZeroAlloc|FloatToInt16ScaledMatchesRaw|SchurF32MatchesReference|SILKVQWMatECMatchesReference|SILKNLSFDelDecQuantMatchesReference|SILKNLSFVQMatchesReference|DownsamplingFIRInterpolateMatchesReference|RewhitenLTPMatchesGuardedScalar|BuildLTPResidualLinkedKernelDiagnostic|LTPResidualOracleProtocolRejectsMalformedOutput)$' \
+              > "$RUNNER_TEMP/goamd64-evidence/$mode-silk-primitives.log" 2>&1 || status=1
+            env -u GOPUS_LIBOPUS_REF_SCALAR GOAMD64=v3 GOEXPERIMENT="$mode" GOPUS_LIBOPUS_AMD64_TARGET=v3 \
+              GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 TMPDIR="$RUNNER_TEMP/goamd64-scratch" \
+              "${go_cmd[@]}" test ./testvectors ./internal/silk -tags gopus_silk_trace -count=1 -v -timeout=15m \
+              -run '^Test(SILKCBRControlOracle|SILKFindLPCInterpolationTraceAgainstLibopus)$' \
+              > "$RUNNER_TEMP/goamd64-evidence/$mode-silk-controls.log" 2>&1 || status=1
+            env -u GOPUS_LIBOPUS_REF_SCALAR GOAMD64=v3 GOEXPERIMENT="$mode" GOPUS_LIBOPUS_AMD64_TARGET=v3 \
+              GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 TMPDIR="$RUNNER_TEMP/goamd64-scratch" \
+              "${go_cmd[@]}" test ./testvectors -count=1 -v -timeout=15m -run '^TestEncoderCBRPairedOracleExact$' \
+              > "$RUNNER_TEMP/goamd64-evidence/$mode-cbr.log" 2>&1 || status=1
+            env -u GOPUS_LIBOPUS_REF_SCALAR GOAMD64=v3 GOEXPERIMENT="$mode" GOPUS_LIBOPUS_AMD64_TARGET=v3 \
+              GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 TMPDIR="$RUNNER_TEMP/goamd64-scratch" \
+              "${go_cmd[@]}" test ./testvectors -count=1 -v -timeout=15m -run '^TestEncoderCBRPairedOracleContract$' \
+              > "$RUNNER_TEMP/goamd64-evidence/$mode-cbr-contract.log" 2>&1 || status=1
+            trace_native=()
+            if [[ "$mode" == simd ]]; then trace_native=(GOPUS_REQUIRE_NATIVE_AVX2_FMA=1); fi
+            env -u GOPUS_LIBOPUS_REF_SCALAR "${trace_native[@]}" GOAMD64=v3 GOEXPERIMENT="$mode" GOPUS_LIBOPUS_AMD64_TARGET=v3 \
+              GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 TMPDIR="$RUNNER_TEMP/goamd64-scratch" \
+              "${go_cmd[@]}" test ./internal/encoder -tags 'gopus_celt_trace gopus_remove_doubling_trace' -count=1 -v -timeout=15m \
+              -run '^Test(CELT(FirstFrame|LateCBRFrame)StageDiagnostic|EncodeDiffCELTVBRFrame1Trace|CELTStageTraceMDCTCallCapacity|CELTTraceFloat32StatsPreservesFirstDifference|CELTQuantBandTraceNonQEXTQ30StorageDifference|CELTQuantBandTraceWireValidation|CELTQuantBandTracePVQUsesActiveThetaGeometry|CELTQuantBandTraceForTargetKeepsFrameAndBandStrict|CELTQuantCoefficient98MapsToFiveMillisecondBand18|CELTQuantBandTraceAcceptsDualStereoMonoPartitions|CELTQuantTraceLinkMapRejectsUninstrumentedBands|CELTOnlyCBRSelectedFrameStageDiagnostic|CELTOnlyCBRQuantBandTraceDiagnostic|CELTCoderRangeTraceRejectsMalformed|CELTQuantityTFTraceRejectsMalformed|CELTQuantityTFTraceComparisonReportsFirstActualDifference|CELTOnlyCBRMDCTGeometrySequences|CELTRemoveDoublingMathBoundariesAgainstPinnedSource|AnalysisInputFFTStageTrace|AnalysisInputFFTStageTraceParserRejectsMalformedWire|AnalysisDown2HPV3MatchesLibopusSourceKernel|AnalysisAtan2SIMDV3MatchesOriginalLibopusKernel|AnalysisAtan2SIMDV3ZeroAllocs|AnalysisChirpBandSlopeTrace|AnalysisChirpBandSlopeTraceParserRejectsMalformedWire|RunAnalysisSlopeV3ZeroAllocs|AnalysisNonzeroHistoryAvgModTrace|AnalysisNonzeroHistoryAvgModMixed5msTrace|AnalysisNonzeroHistoryAvgModCastanet16kTrace|AnalysisGetInfoFrameZeroReplayTrace|AnalysisGetInfoMinMaxHistoryThresholdReplayTrace|ParseAnalysisGetInfoTraceRejectsMalformed|AnalysisMeanStdLiveTrace|AnalysisStdLaterActualInputsTrace|ParseAnalysisStdLaterTraceRejectsMalformedPackets|AnalysisSpecVariabilityCorpusMusicTrace|AnalysisSpecVariabilityZeroAlloc|ParseAnalysisSpecVariabilityTraceRejectsMalformedGVAR|AnalysisMLPGEMMMatchesLibopusV3|AnalysisMLPStageTrace|ParseAnalysisMLPStageTraceRejectsMalformedGAML|AnalysisMLPStageTraceDriverAnchorsAreUnique|GemmAccumF32MatchesGenericReference|GemmAccumF32Rows24PairMatchesSeparatePasses|GemmAccumF32Rows24TripleMatchesSeparatePasses)$' \
+              > "$RUNNER_TEMP/goamd64-evidence/$mode-celt-encode-trace.log" 2>&1 || status=1
+            if [[ "$mode" == nosimd ]]; then
+              env -u GOPUS_LIBOPUS_REF_SCALAR GOAMD64=v3 GOEXPERIMENT=nosimd GOPUS_LIBOPUS_AMD64_TARGET=v3 \
+                GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 TMPDIR="$RUNNER_TEMP/goamd64-scratch" \
+                "${go_cmd[@]}" test ./internal/celt -count=1 -v -timeout=15m \
+                -run '^TestCELT(DecodeFailingPacketV3FirstStageWitness|AntiCollapseRenormaliseBoundaryV3)$' \
+                > "$RUNNER_TEMP/goamd64-evidence/nosimd-celt-v3-scalar-first-stage.log" 2>&1 || status=1
+            fi
+            if [[ "$mode" == simd ]]; then
+              env -u GOPUS_LIBOPUS_REF_SCALAR GOAMD64=v3 GOEXPERIMENT=simd GOPUS_LIBOPUS_AMD64_TARGET=v3 \
+                GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 GOPUS_REQUIRE_NATIVE_AVX2_FMA=1 TMPDIR="$RUNNER_TEMP/goamd64-scratch" \
+                "${go_cmd[@]}" test ./internal/celt ./internal/silk -count=1 -v -timeout=15m \
+                -run '^Test(PitchXCorrPairedLibopusSIMDRawBits|SilkPitchXCorrPairedLibopusSIMDRawBits)$' \
+                > "$RUNNER_TEMP/goamd64-evidence/simd-pitch-dispatch.log" 2>&1 || status=1
+            fi
+            variant="$mode"
+            if [[ "$mode" == nosimd ]]; then variant=scalar; fi
+            reference="tmp_check/opus-${LIBOPUS_VERSION}-amd64-v3-$variant"
+            if [[ -f "$reference/.libs/libopus.a" ]]; then
+              cp "$reference/.gopus-libopus-build" "$RUNNER_TEMP/goamd64-evidence/$mode-build-stamp.txt"
+              cp "$reference/config.h" "$RUNNER_TEMP/goamd64-evidence/$mode-config.h"
+              sha256sum "$reference/.libs/libopus.a" > "$RUNNER_TEMP/goamd64-evidence/$mode-archive.sha256"
+              objdump -d "$reference/.libs/libopus.a" > "$RUNNER_TEMP/goamd64-evidence/$mode-disassembly.txt"
+            else
+              status=1
+            fi
+          done
+          shopt -s nullglob
+          helper_count=0
+          for helper in "$RUNNER_TEMP/goamd64-scratch/gopus_libopus_test_helpers"/gopus_libopus_celt_* "$RUNNER_TEMP/goamd64-scratch/gopus_libopus_test_helpers"/gopus_libopus_cbr_celt_* "$RUNNER_TEMP/goamd64-scratch/gopus_libopus_test_helpers"/gopus_libopus_analysis_* "$RUNNER_TEMP/goamd64-scratch/gopus_libopus_test_helpers"/gopus_libopus_silk_* "$RUNNER_TEMP/goamd64-scratch/gopus_libopus_test_helpers"/gopus_libopus_public_vbr_celt_entropy_trace_* "$RUNNER_TEMP/goamd64-scratch/gopus_libopus_test_helpers"/gopus_libopus_public_vbr_celt_quant_trace_* "$RUNNER_TEMP/goamd64-scratch/gopus_libopus_test_helpers"/gopus_libopus_hybrid_coder_boundary_* "$RUNNER_TEMP/goamd64-scratch/gopus_libopus_test_helpers"/gopus_libopus_hp_cutoff_* "$RUNNER_TEMP/goamd64-scratch/gopus_libopus_test_helpers"/gopus_libopus_dc_reject_* "$RUNNER_TEMP/goamd64-scratch/gopus_libopus_test_helpers"/gopus_libopus_gain_fade_* "$RUNNER_TEMP/goamd64-scratch/gopus_libopus_test_helpers"/gopus_libopus_stereo_fade_* "$RUNNER_TEMP/goamd64-scratch/gopus_libopus_test_helpers"/gopus_libopus_stereo_width_*; do
+            if [[ ! -x "$helper" ]]; then continue; fi
+            name="$(basename "$helper")"
+            cp "$helper" "$RUNNER_TEMP/goamd64-evidence/helpers/$name"
+            if [[ -f "$helper.map" ]]; then cp "$helper.map" "$RUNNER_TEMP/goamd64-evidence/helpers/$name.map"; fi
+            objdump -d "$helper" > "$RUNNER_TEMP/goamd64-evidence/helpers/$name.disassembly.txt"
+            helper_count=$((helper_count + 1))
+          done
+          if [[ "$helper_count" -lt 2 ]]; then status=1; fi
+          exit "$status"
+
+      - name: Upload GOAMD64 kernel evidence
+        if: always() && (inputs.task == 'goamd64-kernel-audit' || inputs.task == 'goamd64-analyzer-benchmark')
+        uses: actions/upload-artifact@v4
+        with:
+          name: goamd64-kernels-${{ github.run_id }}
+          path: ${{ runner.temp }}/goamd64-evidence
+          if-no-files-found: error
+
+      - name: Run optional GOAMD64 benchmark
+        if: inputs.task == 'goamd64-benchmark'
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_*goamd64*.py'
+          bash scripts/benchmark_goamd64.sh tmp_check/goamd64-baseline . "$RUNNER_TEMP/goamd64-benchmark"
+
+      - name: Upload GOAMD64 benchmark evidence
+        if: always() && inputs.task == 'goamd64-benchmark'
+        uses: actions/upload-artifact@v4
+        with:
+          name: goamd64-benchmark-${{ github.run_id }}
+          path: ${{ runner.temp }}/goamd64-benchmark
+          if-no-files-found: error
+
+      - name: Measure analyzer changes in matching Go lanes
+        if: inputs.task == 'goamd64-analyzer-benchmark'
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_*goamd64*.py'
+          python3 scripts/benchmark_analysis_parity.py tmp_check/goamd64-baseline . "$RUNNER_TEMP/goamd64-analyzer-benchmark"
+
+      - name: Upload matching-lane analyzer timings
+        if: always() && inputs.task == 'goamd64-analyzer-benchmark'
+        uses: actions/upload-artifact@v4
+        with:
+          name: goamd64-analyzer-benchmark-${{ github.run_id }}
+          path: ${{ runner.temp }}/goamd64-analyzer-benchmark
+          if-no-files-found: error
+
       - name: Upload release evidence artifact
-        if: always()
+        if: always() && (!inputs.task || inputs.task == 'release-evidence')
         uses: actions/upload-artifact@v4
         with:
           name: release-evidence-${{ github.run_id }}

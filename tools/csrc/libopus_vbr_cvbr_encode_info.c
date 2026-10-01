@@ -1,6 +1,6 @@
 /* libopus_vbr_cvbr_encode_info.c
  *
- * Oracle helper: encode a PCM stream with libopus 1.5.1 in either VBR or CVBR
+ * Oracle helper: encode a PCM stream with libopus 1.6.1 in either VBR or CVBR
  * mode and emit per-packet (length, final_range, bytes) tuples.
  *
  * Wire format (little-endian throughout):
@@ -14,7 +14,7 @@
  *         1 = CVBR (OPUS_SET_VBR(1), OPUS_SET_VBR_CONSTRAINT(1))
  *
  *   application: 2048=OPUS_APPLICATION_VOIP, 2049=OPUS_APPLICATION_AUDIO,
- *                2050=OPUS_APPLICATION_RESTRICTED_LOWDELAY
+ *                2051=OPUS_APPLICATION_RESTRICTED_LOWDELAY
  *
  *   bandwidth: 1101=NB, 1102=MB, 1103=WB, 1104=SWB, 1105=FB, -1000=auto
  *
@@ -171,15 +171,7 @@ int main(void) {
     free(packet);
     return 1;
   }
-  if (channels == 2) {
-    if (opus_encoder_ctl(enc, OPUS_SET_FORCE_CHANNELS(2)) != OPUS_OK) {
-      fprintf(stderr, "OPUS_SET_FORCE_CHANNELS failed\n");
-      opus_encoder_destroy(enc);
-      free(pcm);
-      free(packet);
-      return 1;
-    }
-  }
+  /* Both public encoder drivers use automatic stream-channel selection. */
 
   /* --- write output header --- */
   if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(1) || !write_u32(n_frames)) {

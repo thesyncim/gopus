@@ -22,13 +22,12 @@ func TestMultiFrameConvergence(t *testing.T) {
 	}
 
 	// Encode all frames
-	enc := NewEncoder(BandwidthWideband)
+	enc := newTestPacketEncoder(BandwidthWideband, 1)
 	encodedFrames := make([][]byte, numFrames)
 	for f := range numFrames {
 		start := f * frameSamples
 		end := start + frameSamples
-		encoded := enc.EncodeFrame(pcmFloat[start:end], nil, true)
-		encodedFrames[f] = append([]byte(nil), encoded...)
+		encodedFrames[f] = enc.encode(t, pcmFloat[start:end])
 		t.Logf("Frame %d: encoded %d bytes", f, len(encodedFrames[f]))
 	}
 
@@ -88,12 +87,12 @@ func TestSILKRoundtripWithWarmup(t *testing.T) {
 	}
 
 	// Encode
-	enc := NewEncoder(BandwidthWideband)
+	enc := newTestPacketEncoder(BandwidthWideband, 1)
 	var allEncoded []byte
 	for f := range numFrames {
 		start := f * frameSamples
 		end := start + frameSamples
-		encoded := enc.EncodeFrame(pcmFloat[start:end], nil, true)
+		encoded := enc.encode(t, pcmFloat[start:end])
 		allEncoded = append(allEncoded, encoded...)
 		t.Logf("Frame %d: %d bytes", f, len(encoded))
 	}

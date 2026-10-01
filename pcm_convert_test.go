@@ -3,6 +3,7 @@ package gopus
 import (
 	"math"
 	"runtime"
+	"strconv"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/opusmath"
@@ -28,9 +29,13 @@ func TestConvertFloat32ToInt16Unit(t *testing.T) {
 		t.Fatal("arm64 conversion rejected in-range samples")
 	}
 	for i, v := range src {
-		// The arm64 NEON block kernel uses FCVTNS (round to nearest, ties to
-		// even), matching libopus float2int (lrintf) and the scalar tail.
 		want := float32ToInt16(v)
+		if pcmInt16VectorTiesAway && i < len(src)&^15 {
+			// celt_float2int16_neon uses FCVTAS for complete 16-sample
+			// blocks and FCVTNS for the remainder.
+			rounded := int32(math.Round(float64(v * 32768)))
+			want = int16(max(-32768, min(32767, rounded)))
+		}
 		if dst[i] != want {
 			t.Fatalf("dst[%d] = %d, want %d", i, dst[i], want)
 		}
@@ -40,6 +45,43 @@ func TestConvertFloat32ToInt16Unit(t *testing.T) {
 	outOfRange[8] = 1.01
 	if convertFloat32ToInt16Unit(make([]int16, len(outOfRange)), outOfRange, len(outOfRange)) {
 		t.Fatal("arm64 conversion accepted out-of-range samples")
+	}
+}
+
+func TestConvertFloat32ToInt16UnitRejectsEveryInvalidVectorLane(t *testing.T) {
+	if runtime.GOARCH != "arm64" {
+		t.Skip("unit SIMD conversion is arm64-only")
+	}
+	const n = 16
+	valid := make([]float32, n)
+	for i := range valid {
+		valid[i] = 0.5
+	}
+	if !convertFloat32ToInt16Unit(make([]int16, n), valid, n) {
+		t.Fatal("unit conversion rejected a fully valid vector")
+	}
+
+	invalidValues := []struct {
+		name  string
+		value float32
+	}{
+		{name: "above-one", value: math.Nextafter32(1, float32(math.Inf(1)))},
+		{name: "below-minus-one", value: math.Nextafter32(-1, float32(math.Inf(-1)))},
+		{name: "positive-infinity", value: float32(math.Inf(1))},
+		{name: "negative-infinity", value: float32(math.Inf(-1))},
+		{name: "quiet-nan", value: math.Float32frombits(0x7fc12345)},
+		{name: "signaling-nan", value: math.Float32frombits(0x7fa12345)},
+	}
+	for _, invalid := range invalidValues {
+		for lane := 0; lane < n; lane++ {
+			t.Run(invalid.name+"/lane_"+strconv.Itoa(lane), func(t *testing.T) {
+				src := append([]float32(nil), valid...)
+				src[lane] = invalid.value
+				if convertFloat32ToInt16Unit(make([]int16, n), src, n) {
+					t.Fatalf("accepted %s in lane %d", invalid.name, lane)
+				}
+			})
+		}
 	}
 }
 

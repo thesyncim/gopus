@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/dnnmath"
+	"github.com/thesyncim/gopus/internal/libopustooling"
 )
 
 func TestUpdateActivityHistory(t *testing.T) {
@@ -67,7 +68,11 @@ func TestQuantizeDREDLatentsUsesLibopusVectorTail(t *testing.T) {
 	x := float32(-0.75)
 	scale := uint8(255)
 	dzone := uint8(255)
-	if runtime.GOARCH == "arm64" {
+	variant, err := libopustooling.ResolveLibopusReferenceVariant()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOARCH == "arm64" && variant == libopustooling.LibopusReferenceSIMD {
 		found := false
 		for step := -20000; step <= 20000; step++ {
 			candidate := float32(step) * (1.0 / 1024.0)

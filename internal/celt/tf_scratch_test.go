@@ -15,12 +15,9 @@ func TestTFAnalysisScratchUsesLibopusNormWidth(t *testing.T) {
 		libopustest.HelperUnavailable(t, "celt vq", err)
 	}
 	var scratch TFAnalysisScratch
-	scratch.EnsureTFAnalysisScratch(MaxBands, 384)
-	if got := unsafe.Sizeof(scratch.Tmp[0]); got != uintptr(sizes.celtNorm) {
-		t.Fatalf("Tmp element size=%d want libopus celt_norm size %d", got, sizes.celtNorm)
-	}
-	if got := unsafe.Sizeof(scratch.Tmp1[0]); got != uintptr(sizes.celtNorm) {
-		t.Fatalf("Tmp1 element size=%d want libopus celt_norm size %d", got, sizes.celtNorm)
+	scratch.EnsureTFAnalysisScratch(MaxBands, 384, 3)
+	if got := unsafe.Sizeof(scratch.Levels[0]); got != uintptr(sizes.celtNorm) {
+		t.Fatalf("Levels element size=%d want libopus celt_norm size %d", got, sizes.celtNorm)
 	}
 }
 
@@ -69,7 +66,7 @@ func TestTFAnalysisWithScratchMatchesAllocatingPath(t *testing.T) {
 			xNorm := float64sToNorms(x)
 			wantRes, wantSelect := TFAnalysis(xNorm, n0, nbBands, tc.transient, tc.lm, opusVal16(tc.tfEstimate), tc.effective, tc.importance)
 			var scratch TFAnalysisScratch
-			gotRes, gotSelect := TFAnalysisWithScratch(xNorm, n0, nbBands, tc.transient, tc.lm, opusVal16(tc.tfEstimate), tc.effective, tc.importance, &scratch)
+			gotRes, gotSelect := TFAnalysisWithScratch(xNorm, n0, nbBands, tc.transient, tc.lm, opusVal16(tc.tfEstimate), tc.effective, tc.importance, &scratch, EBands[:])
 			if gotSelect != wantSelect || !reflect.DeepEqual(gotRes, wantRes) {
 				t.Fatalf("scratch TF = select %d res %v, want select %d res %v", gotSelect, gotRes, wantSelect, wantRes)
 			}

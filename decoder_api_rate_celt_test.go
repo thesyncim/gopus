@@ -117,6 +117,7 @@ func TestDecodeCELTAPIRatePCMMatchesLibopus(t *testing.T) {
 					got = append(got, frame[:n*channels]...)
 				}
 				assertAPIRateQualityFloat32(t, got, want, sampleRate, channels, "CELT api-rate decode")
+				assertAPIRateFloat32BitsExact(t, got, want, "CELT api-rate decode")
 			})
 		}
 	}
@@ -166,6 +167,7 @@ func TestDecodeCELTRequestedPLCDurationMatchesLibopus(t *testing.T) {
 					got = append(got, frame[:n*channels]...)
 
 					assertAPIRateQualityFloat32PLC(t, got, want, sampleRate, channels, true, "CELT requested PLC duration")
+					assertAPIRateFloat32BitsExact(t, got, want, "CELT requested PLC duration")
 				})
 			}
 		}
@@ -183,9 +185,6 @@ func TestDecodeInt16CELTRequestedPLCDurationMatchesLibopus(t *testing.T) {
 			}
 			for _, requestedFrameSize := range []int{sampleRate / 25, sampleRate * 3 / 50} {
 				t.Run("ch_"+itoaSmall(channels)+"_fs_"+itoaSmall(sampleRate)+"_request_"+itoaSmall(requestedFrameSize), func(t *testing.T) {
-					if celtIntegerPLCActive && sampleRate == 48000 {
-						t.Skip("48k CELT PLC routes to the integer decoder under gopus_fixed_point (vs float oracle); see TestDecoderFixedPointCELTPLCParity")
-					}
 					sequence := [][]byte{packet, nil}
 					want, err := decodeWithLibopusReferenceAPIRateInt16(sampleRate, channels, requestedFrameSize, sequence)
 					if err != nil {
@@ -219,6 +218,7 @@ func TestDecodeInt16CELTRequestedPLCDurationMatchesLibopus(t *testing.T) {
 					got = append(got, frame[:n*channels]...)
 
 					assertAPIRateQualityInt16PLC(t, got, want, sampleRate, channels, true, "CELT requested int16 PLC duration")
+					assertAPIRateInt16Exact(t, got, want, "CELT requested int16 PLC duration")
 				})
 			}
 		}

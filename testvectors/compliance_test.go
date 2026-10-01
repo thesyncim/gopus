@@ -166,8 +166,8 @@ func ensureTestVectors(t testing.TB) error {
 // truncated vector on disk and surface later as a spurious sample-count or
 // final-range mismatch.
 func doEnsureTestVectors(t testing.TB) error {
-	// Check if test vectors already exist and are complete (a previously
-	// truncated cache fails this and triggers a fresh download below).
+	// Check whether the test vectors already exist and are complete. A truncated
+	// cache fails this check and triggers a fresh download below.
 	if ok, err := testVectorsComplete(); err != nil {
 		return err
 	} else if ok {

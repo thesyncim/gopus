@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/benchutil"
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 func firstOpusDemoQEXTPacketForMultistreamTest(path string) ([]byte, error) {
@@ -65,6 +66,16 @@ type qextStreamFrame struct {
 	toc         streamTOC
 }
 
+func qextMultistreamExpectedDecode(t *testing.T, p libopustest.QEXTDecode96kParams) []float32 {
+	t.Helper()
+	result, err := libopustest.ProbeQEXTDecodePublic(p)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "selected public QEXT decoder", err)
+		return nil
+	}
+	return result.PCM
+}
+
 func makeQEXTSinePCMForMultistreamTest(channels int, freq, phaseShift float64) []float32 {
 	pcm := make([]float32, 960*channels)
 	for i := 0; i < 960; i++ {
@@ -104,7 +115,7 @@ func parseQEXTStreamFrameForTest(t *testing.T, label string, packet []byte) qext
 	return qextStreamFrame{}
 }
 
-func makeLibopusQEXTMultiFrameStreamPacketForTest(t *testing.T, opusDemo string, channels int) ([]byte, []qextStreamFrame) {
+func makeLibopusQEXTMultiFrameStreamPacketForTest(t *testing.T, opusDemo string, channels int) ([]byte, [][]byte, []qextStreamFrame) {
 	t.Helper()
 	packetA := encodeLibopusQEXTPacketForMultistreamTest(t, opusDemo, channels, makeQEXTSinePCMForMultistreamTest(channels, 997, 0.0))
 	packetB := encodeLibopusQEXTPacketForMultistreamTest(t, opusDemo, channels, makeQEXTSinePCMForMultistreamTest(channels, 1237, 0.23))
@@ -143,7 +154,7 @@ func makeLibopusQEXTMultiFrameStreamPacketForTest(t *testing.T, opusDemo string,
 	if len(extensions) != 2 || extensions[0].Frame != 0 || extensions[1].Frame != 1 {
 		t.Fatalf("built extensions=%+v want one QEXT payload per frame", extensions)
 	}
-	return packet, []qextStreamFrame{frameA, frameB}
+	return packet, [][]byte{packetA, packetB}, []qextStreamFrame{frameA, frameB}
 }
 
 func makeMalformedQEXTPaddingStreamPacketForTest(t *testing.T, frame qextStreamFrame, selfDelimited bool) []byte {
@@ -164,11 +175,8 @@ func TestDecoderQEXTIgnoreExtensionsToggleMatchesExplicitStreamPayloads(t *testi
 	}
 
 	type streamFrame struct {
-		packet      []byte
-		rawFrame    []byte
-		qextPayload []byte
-		toc         streamTOC
-		ignore      bool
+		packet []byte
+		ignore bool
 	}
 
 	newSine := func(channels int, freq float64, rightPhase float64, rightGain float64) []float32 {
@@ -218,42 +226,44 @@ func TestDecoderQEXTIgnoreExtensionsToggleMatchesExplicitStreamPayloads(t *testi
 			t.Fatalf("packet[%d] missing QEXT payload", i)
 		}
 		sequence = append(sequence, streamFrame{
-			packet:      packet,
-			rawFrame:    parsed.frames[0],
-			qextPayload: qextPayload,
-			toc:         parseStreamTOC(packet[0]),
-			ignore:      tc.ignore,
+			packet: packet,
+			ignore: tc.ignore,
 		})
 	}
 
-	wantStream := newStreamDecoder(48000, 2)
+	packets := make([][]byte, len(sequence))
+	ignoreByPacket := make([]bool, len(sequence))
+	for i, frame := range sequence {
+		packets[i] = frame.packet
+		ignoreByPacket[i] = frame.ignore
+	}
+	want := qextMultistreamExpectedDecode(t, libopustest.QEXTDecode96kParams{
+		SampleFormat:             libopustest.QEXTDecode96kFormatFloat32,
+		Channels:                 2,
+		SampleRate:               48000,
+		MaxFrameSize:             960,
+		Packets:                  packets,
+		IgnoreExtensionsByPacket: ignoreByPacket,
+	})
 	gotDec, err := NewDecoder(48000, 2, 1, 1, []byte{0, 1})
 	if err != nil {
 		t.Fatalf("NewDecoder: %v", err)
 	}
 
 	for i, tc := range sequence {
-		payload := tc.qextPayload
-		if tc.ignore {
-			payload = nil
-		}
-		wantStream.recordDecodeCall(960, len(tc.packet))
-		want, err := wantStream.finishDecode(wantStream.decodeFramePayload(tc.rawFrame, 960, tc.toc, payload))
-		if err != nil {
-			t.Fatalf("decodeFramePayload[%d]: %v", i, err)
-		}
-
 		gotDec.SetIgnoreExtensions(tc.ignore)
 		got, err := gotDec.Decode(tc.packet, 960)
 		if err != nil {
 			t.Fatalf("Decode[%d] ignore=%v: %v", i, tc.ignore, err)
 		}
-		if len(got) != len(want) {
-			t.Fatalf("Decode[%d] len=%d want %d", i, len(got), len(want))
+		start := i * 960 * 2
+		wantFrame := want[start : start+len(got)]
+		if len(got) != len(wantFrame) {
+			t.Fatalf("Decode[%d] len=%d want %d", i, len(got), len(wantFrame))
 		}
 		for j := range got {
-			if got[j] != want[j] {
-				t.Fatalf("Decode[%d] sample[%d]=%v want %v", i, j, got[j], want[j])
+			if got[j] != wantFrame[j] {
+				t.Fatalf("Decode[%d] sample[%d]=%v want %v", i, j, got[j], wantFrame[j])
 			}
 		}
 	}
@@ -268,22 +278,20 @@ func TestDecoderQEXTMultiFramePacketMatchesExplicitPayloads(t *testing.T) {
 	for _, channels := range []int{1, 2} {
 		channels := channels
 		t.Run(fmt.Sprintf("%dch", channels), func(t *testing.T) {
-			packet, frames := makeLibopusQEXTMultiFrameStreamPacketForTest(t, opusDemo, channels)
+			packet, sourcePackets, frames := makeLibopusQEXTMultiFrameStreamPacketForTest(t, opusDemo, channels)
 
-			wantStream := newStreamDecoder(48000, channels)
-			wantStream.recordDecodeCall(960*len(frames), len(packet))
-			want := make([]float32, 0, 960*channels*len(frames))
-			for i, frame := range frames {
-				decoded, err := wantStream.decodeFramePayload(frame.rawFrame, 960, frame.toc, frame.qextPayload)
-				if err != nil {
-					t.Fatalf("decodeFramePayload[%d]: %v", i, err)
-				}
-				want = append(want, decoded...)
-			}
-			want, err = wantStream.finishDecode(want, nil)
+			wantCombined, err := libopustest.ProbeQEXTDecodePublic(libopustest.QEXTDecode96kParams{
+				SampleFormat: libopustest.QEXTDecode96kFormatFloat32,
+				Channels:     channels,
+				SampleRate:   48000,
+				MaxFrameSize: 960 * len(frames),
+				Packets:      [][]byte{packet},
+			})
 			if err != nil {
-				t.Fatalf("finishDecode: %v", err)
+				libopustest.HelperUnavailable(t, "selected public QEXT decoder for combined packet", err)
+				return
 			}
+			want := wantCombined.PCM
 
 			coupledStreams := 0
 			mapping := []byte{0}
@@ -302,10 +310,86 @@ func TestDecoderQEXTMultiFramePacketMatchesExplicitPayloads(t *testing.T) {
 			if len(got) != len(want) {
 				t.Fatalf("Decode len=%d want %d", len(got), len(want))
 			}
-			for i := range got {
-				if got[i] != want[i] {
-					t.Fatalf("sample[%d]=%v want %v", i, got[i], want[i])
+			if len(wantCombined.FinalRanges) != 1 {
+				t.Fatalf("combined C final ranges=%d want 1", len(wantCombined.FinalRanges))
+			}
+			if gotRange := gotDec.FinalRange(); gotRange != wantCombined.FinalRanges[0] {
+				t.Fatalf("combined final range Go=%08x selected C=%08x", gotRange, wantCombined.FinalRanges[0])
+			}
+			wantSeparate, err := libopustest.ProbeQEXTDecodePublic(libopustest.QEXTDecode96kParams{
+				SampleFormat: libopustest.QEXTDecode96kFormatFloat32,
+				Channels:     channels,
+				SampleRate:   48000,
+				MaxFrameSize: 960,
+				Packets:      sourcePackets,
+			})
+			if err != nil {
+				libopustest.HelperUnavailable(t, "selected public QEXT decoder for source packet sequence", err)
+				return
+			}
+			if len(wantSeparate.FinalRanges) != len(sourcePackets) {
+				t.Fatalf("separate C final ranges=%d want %d", len(wantSeparate.FinalRanges), len(sourcePackets))
+			}
+			gotSeparateDec, err := NewDecoder(48000, channels, 1, coupledStreams, mapping)
+			if err != nil {
+				t.Fatalf("NewDecoder separate sequence: %v", err)
+			}
+			gotSeparate := make([]float32, 0, len(got))
+			for i, sourcePacket := range sourcePackets {
+				frame, err := gotSeparateDec.Decode(sourcePacket, 960)
+				if err != nil {
+					t.Fatalf("Decode separate packet[%d]: %v", i, err)
 				}
+				if gotRange := gotSeparateDec.FinalRange(); gotRange != wantSeparate.FinalRanges[i] {
+					t.Fatalf("separate packet[%d] final range Go=%08x selected C=%08x", i, gotRange, wantSeparate.FinalRanges[i])
+				}
+				gotSeparate = append(gotSeparate, frame...)
+			}
+			if len(wantSeparate.PCM) != len(got) || len(gotSeparate) != len(got) {
+				t.Fatalf("separate sequence lengths: C=%d Go=%d combined=%d", len(wantSeparate.PCM), len(gotSeparate), len(got))
+			}
+			for i := range got {
+				if math.Float32bits(gotSeparate[i]) != math.Float32bits(wantSeparate.PCM[i]) {
+					t.Fatalf("source packet sequence differs at sample[%d]: Go=%08x C=%08x", i, math.Float32bits(gotSeparate[i]), math.Float32bits(wantSeparate.PCM[i]))
+				}
+			}
+			for i := range got {
+				if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
+					t.Fatalf("combined sample[%d]=%08x want %08x", i, math.Float32bits(got[i]), math.Float32bits(want[i]))
+				}
+			}
+
+			allocDec, err := NewDecoder(48000, channels, 1, coupledStreams, mapping)
+			if err != nil {
+				t.Fatalf("NewDecoder allocation check: %v", err)
+			}
+			output := make([]float32, 960*len(frames)*channels)
+			decodeInto := func() error {
+				n, err := allocDec.DecodeIntoFloat32(packet, output, 960*len(frames))
+				if err != nil {
+					return err
+				}
+				if n != 960*len(frames) {
+					return fmt.Errorf("DecodeIntoFloat32 samples=%d want %d", n, 960*len(frames))
+				}
+				return nil
+			}
+			for range 2 {
+				if err := decodeInto(); err != nil {
+					t.Fatalf("warm DecodeIntoFloat32: %v", err)
+				}
+			}
+			var allocErr error
+			allocs := testing.AllocsPerRun(10, func() {
+				if err := decodeInto(); err != nil && allocErr == nil {
+					allocErr = err
+				}
+			})
+			if allocErr != nil {
+				t.Fatalf("allocation DecodeIntoFloat32: %v", allocErr)
+			}
+			if allocs != 0 {
+				t.Fatalf("warm %d-channel QEXT multiframe DecodeIntoFloat32 allocated %g times/op", channels, allocs)
 			}
 		})
 	}
@@ -320,22 +404,16 @@ func TestDecoderQEXTMultiFrameIgnoreExtensionsMatchesInactivePayloads(t *testing
 	for _, channels := range []int{1, 2} {
 		channels := channels
 		t.Run(fmt.Sprintf("%dch", channels), func(t *testing.T) {
-			packet, frames := makeLibopusQEXTMultiFrameStreamPacketForTest(t, opusDemo, channels)
+			packet, _, frames := makeLibopusQEXTMultiFrameStreamPacketForTest(t, opusDemo, channels)
 
-			wantStream := newStreamDecoder(48000, channels)
-			wantStream.recordDecodeCall(960*len(frames), len(packet))
-			want := make([]float32, 0, 960*channels*len(frames))
-			for i, frame := range frames {
-				decoded, err := wantStream.decodeFramePayload(frame.rawFrame, 960, frame.toc, nil)
-				if err != nil {
-					t.Fatalf("decodeFramePayload[%d]: %v", i, err)
-				}
-				want = append(want, decoded...)
-			}
-			want, err = wantStream.finishDecode(want, nil)
-			if err != nil {
-				t.Fatalf("finishDecode: %v", err)
-			}
+			want := qextMultistreamExpectedDecode(t, libopustest.QEXTDecode96kParams{
+				SampleFormat:     libopustest.QEXTDecode96kFormatFloat32,
+				Channels:         channels,
+				SampleRate:       48000,
+				IgnoreExtensions: true,
+				MaxFrameSize:     960 * len(frames),
+				Packets:          [][]byte{packet},
+			})
 
 			coupledStreams := 0
 			mapping := []byte{0}
@@ -370,30 +448,6 @@ func TestDecoderQEXTTwoStreamPacketMatchesExplicitStreamPayloads(t *testing.T) {
 		t.Skipf("QEXT-enabled opus_demo unavailable: %v", err)
 	}
 
-	parseQEXTFrame := func(label string, packet []byte) (rawFrame []byte, payload []byte, toc streamTOC) {
-		parsed, err := parseOpusPacket(packet, false)
-		if err != nil {
-			t.Fatalf("parseOpusPacket(%s): %v", label, err)
-		}
-		if len(parsed.frames) != 1 {
-			t.Fatalf("%s frame count=%d want 1", label, len(parsed.frames))
-		}
-		extensions, err := parsePacketExtensionList(parsed.padding, parsed.paddingFrameCount)
-		if err != nil {
-			t.Fatalf("parsePacketExtensionList(%s): %v", label, err)
-		}
-		for _, ext := range extensions {
-			if ext.ID == qextPacketExtensionID && ext.Frame == 0 {
-				payload = ext.Data
-				break
-			}
-		}
-		if len(payload) == 0 {
-			t.Fatalf("%s missing QEXT payload", label)
-		}
-		return parsed.frames[0], payload, parseStreamTOC(packet[0])
-	}
-
 	stereoPCM := make([]float32, 960*2)
 	monoPCM := make([]float32, 960)
 	for i := 0; i < 960; i++ {
@@ -405,8 +459,6 @@ func TestDecoderQEXTTwoStreamPacketMatchesExplicitStreamPayloads(t *testing.T) {
 
 	coupledPacket := encodeLibopusQEXTPacketForMultistreamTest(t, opusDemo, 2, stereoPCM)
 	monoPacket := encodeLibopusQEXTPacketForMultistreamTest(t, opusDemo, 1, monoPCM)
-	coupledFrame, coupledPayload, coupledTOC := parseQEXTFrame("coupled", coupledPacket)
-	monoFrame, monoPayload, monoTOC := parseQEXTFrame("mono", monoPacket)
 
 	selfDelimitedCoupled, err := makeSelfDelimitedPacket(coupledPacket)
 	if err != nil {
@@ -417,33 +469,28 @@ func TestDecoderQEXTTwoStreamPacketMatchesExplicitStreamPayloads(t *testing.T) {
 	packet = append(packet, monoPacket...)
 
 	for _, ignore := range []bool{false, true} {
-		coupledWant := newStreamDecoder(48000, 2)
-		coupledPayloadForDecode := coupledPayload
-		if ignore {
-			coupledPayloadForDecode = nil
-		}
-		coupledWant.recordDecodeCall(960, len(coupledPacket))
-		coupledOut, err := coupledWant.finishDecode(coupledWant.decodeFramePayload(coupledFrame, 960, coupledTOC, coupledPayloadForDecode))
-		if err != nil {
-			t.Fatalf("decode coupled ignore=%v: %v", ignore, err)
-		}
-
-		monoWant := newStreamDecoder(48000, 1)
-		monoPayloadForDecode := monoPayload
-		if ignore {
-			monoPayloadForDecode = nil
-		}
-		monoWant.recordDecodeCall(960, len(monoPacket))
-		monoOut, err := monoWant.finishDecode(monoWant.decodeFramePayload(monoFrame, 960, monoTOC, monoPayloadForDecode))
-		if err != nil {
-			t.Fatalf("decode mono ignore=%v: %v", ignore, err)
-		}
+		coupledWant := qextMultistreamExpectedDecode(t, libopustest.QEXTDecode96kParams{
+			SampleFormat:     libopustest.QEXTDecode96kFormatFloat32,
+			Channels:         2,
+			SampleRate:       48000,
+			IgnoreExtensions: ignore,
+			MaxFrameSize:     960,
+			Packets:          [][]byte{coupledPacket},
+		})
+		monoWant := qextMultistreamExpectedDecode(t, libopustest.QEXTDecode96kParams{
+			SampleFormat:     libopustest.QEXTDecode96kFormatFloat32,
+			Channels:         1,
+			SampleRate:       48000,
+			IgnoreExtensions: ignore,
+			MaxFrameSize:     960,
+			Packets:          [][]byte{monoPacket},
+		})
 
 		want := make([]float32, 960*3)
 		for i := 0; i < 960; i++ {
-			want[3*i] = coupledOut[2*i]
-			want[3*i+1] = coupledOut[2*i+1]
-			want[3*i+2] = monoOut[i]
+			want[3*i] = coupledWant[2*i]
+			want[3*i+1] = coupledWant[2*i+1]
+			want[3*i+2] = monoWant[i]
 		}
 
 		dec, err := NewDecoder(48000, 3, 2, 1, []byte{0, 1, 2})
@@ -483,33 +530,26 @@ func TestDecoderQEXTTwoStreamOpaquePaddingMatchesExplicitStreamPayloads(t *testi
 	if err != nil {
 		t.Fatalf("makeSelfDelimitedPacket: %v", err)
 	}
-	coupledMalformed := makeMalformedQEXTPaddingStreamPacketForTest(t, coupledFrame, false)
 	coupledMalformedSelfDelimited := makeMalformedQEXTPaddingStreamPacketForTest(t, coupledFrame, true)
 	monoMalformed := makeMalformedQEXTPaddingStreamPacketForTest(t, monoFrame, false)
 
 	cases := []struct {
-		name             string
-		packet           []byte
-		coupledPacketLen int
-		coupledPayload   []byte
-		monoPacketLen    int
-		monoPayload      []byte
+		name           string
+		packet         []byte
+		coupledPayload []byte
+		monoPayload    []byte
 	}{
 		{
-			name:             "self_delimited_coupled",
-			packet:           append(append([]byte(nil), coupledMalformedSelfDelimited...), monoPacket...),
-			coupledPacketLen: len(coupledMalformed),
-			coupledPayload:   nil,
-			monoPacketLen:    len(monoPacket),
-			monoPayload:      monoFrame.qextPayload,
+			name:           "self_delimited_coupled",
+			packet:         append(append([]byte(nil), coupledMalformedSelfDelimited...), monoPacket...),
+			coupledPayload: nil,
+			monoPayload:    monoFrame.qextPayload,
 		},
 		{
-			name:             "last_mono",
-			packet:           append(append([]byte(nil), coupledSelfDelimited...), monoMalformed...),
-			coupledPacketLen: len(coupledPacket),
-			coupledPayload:   coupledFrame.qextPayload,
-			monoPacketLen:    len(monoMalformed),
-			monoPayload:      nil,
+			name:           "last_mono",
+			packet:         append(append([]byte(nil), coupledSelfDelimited...), monoMalformed...),
+			coupledPayload: coupledFrame.qextPayload,
+			monoPayload:    nil,
 		},
 	}
 
@@ -517,32 +557,30 @@ func TestDecoderQEXTTwoStreamOpaquePaddingMatchesExplicitStreamPayloads(t *testi
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			for _, ignore := range []bool{false, true} {
-				coupledPayload := tc.coupledPayload
-				monoPayload := tc.monoPayload
-				if ignore {
-					coupledPayload = nil
-					monoPayload = nil
-				}
-
-				coupledWant := newStreamDecoder(48000, 2)
-				coupledWant.recordDecodeCall(960, tc.coupledPacketLen)
-				coupledOut, err := coupledWant.finishDecode(coupledWant.decodeFramePayload(coupledFrame.rawFrame, 960, coupledFrame.toc, coupledPayload))
-				if err != nil {
-					t.Fatalf("decode coupled ignore=%v: %v", ignore, err)
-				}
-
-				monoWant := newStreamDecoder(48000, 1)
-				monoWant.recordDecodeCall(960, tc.monoPacketLen)
-				monoOut, err := monoWant.finishDecode(monoWant.decodeFramePayload(monoFrame.rawFrame, 960, monoFrame.toc, monoPayload))
-				if err != nil {
-					t.Fatalf("decode mono ignore=%v: %v", ignore, err)
-				}
+				coupledIgnore := ignore || len(tc.coupledPayload) == 0
+				coupledWant := qextMultistreamExpectedDecode(t, libopustest.QEXTDecode96kParams{
+					SampleFormat:     libopustest.QEXTDecode96kFormatFloat32,
+					Channels:         2,
+					SampleRate:       48000,
+					IgnoreExtensions: coupledIgnore,
+					MaxFrameSize:     960,
+					Packets:          [][]byte{coupledPacket},
+				})
+				monoIgnore := ignore || len(tc.monoPayload) == 0
+				monoWant := qextMultistreamExpectedDecode(t, libopustest.QEXTDecode96kParams{
+					SampleFormat:     libopustest.QEXTDecode96kFormatFloat32,
+					Channels:         1,
+					SampleRate:       48000,
+					IgnoreExtensions: monoIgnore,
+					MaxFrameSize:     960,
+					Packets:          [][]byte{monoPacket},
+				})
 
 				want := make([]float32, 960*3)
 				for i := 0; i < 960; i++ {
-					want[3*i] = coupledOut[2*i]
-					want[3*i+1] = coupledOut[2*i+1]
-					want[3*i+2] = monoOut[i]
+					want[3*i] = coupledWant[2*i]
+					want[3*i+1] = coupledWant[2*i+1]
+					want[3*i+2] = monoWant[i]
 				}
 
 				dec, err := NewDecoder(48000, 3, 2, 1, []byte{0, 1, 2})

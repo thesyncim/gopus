@@ -1,5 +1,5 @@
 /* Drives libopus clt_compute_extra_allocation() (the ENABLE_QEXT extension-band
-   allocation in celt/rate.c) for the native 96 kHz CELT mode and dumps the
+   allocation in celt/rate.c) for the native 48 or 96 kHz CELT mode and dumps the
    resulting per-band extra_pulses/extra_quant arrays for both the encode and
    decode side, plus the bytes produced by the encode-side range coder.
 
@@ -9,17 +9,22 @@
    mismatch fails on every platform.
 
    Protocol (little-endian):
-     in : "GQAI" magic, u32 version,
-          u32 channels (C), u32 LM, u32 start, u32 end, u32 qextEnd,
-          i32 totalQ3, f32 toneFreq, f32 toneishness, u32 storageBytes,
-          u32 nLogE,    f32 bandLogE[nLogE],      nLogE = C*nbEBands
-          u32 nQLogE,   f32 qextBandLogE[nQLogE], nQLogE = C*NB_QEXT_BANDS
-     out: "GQAO" magic, u32 version(=1),
+     v1 is the float QEXT allocator helper protocol used by celt tests:
+       in : "GQAI" magic, u32 version(=1), then its historical float fields.
+       out: "GQAO" magic, u32 version(=1), then totBands and its historical result fields.
+     v2 is the fixed QEXT helper protocol:
+       in : "GQAI" magic, u32 version(=2),
+            u32 sampleRate, u32 frameSize,
+            u32 channels (C), u32 LM, u32 start, u32 end, u32 qextEnd,
+            i32 totalQ3, i16 toneFreq, i32 toneishness, u32 storageBytes,
+            u32 nLogE,    i32 bandLogE[nLogE],      nLogE = C*nbEBands
+            u32 nQLogE,   i32 qextBandLogE[nQLogE], nQLogE = C*NB_QEXT_BANDS
+       out: "GQAO" magic, u32 version(=2),
           u32 totBands,                            totBands = end + qextEnd
           u32 n, i32 enc_extra_pulses[n],          n = totBands
           u32 n, i32 enc_extra_quant[n],
           u32 nbytes, u8 enc_bytes[nbytes],        nbytes = storageBytes
-          u32 enc_tell_frac,
+            u32 enc_tell_frac, u32 enc_range,
           u32 n, i32 dec_extra_pulses[n],
           u32 n, i32 dec_extra_quant[n]            */
 #include <stdint.h>
@@ -76,6 +81,17 @@ static uint32_t read_u32(void) {
 
 static int32_t read_i32(void) { return (int32_t)read_u32(); }
 
+static uint16_t read_u16(void) {
+  unsigned char b[2];
+  if (!read_exact(b, 2)) {
+    fprintf(stderr, "short read u16\n");
+    exit(1);
+  }
+  return (uint16_t)b[0] | ((uint16_t)b[1] << 8);
+}
+
+static int16_t read_i16(void) { return (int16_t)read_u16(); }
+
 static float read_f32(void) {
   uint32_t u = read_u32();
   float f;
@@ -104,30 +120,53 @@ int main(void) {
     fprintf(stderr, "bad input magic\n");
     return 1;
   }
-  (void)read_u32(); /* input version */
+  uint32_t version = read_u32();
+  if (version != 1u && version != 2u) {
+    fprintf(stderr, "unsupported input version %u\n", version);
+    return 1;
+  }
 
+  int sample_rate = 96000;
+  int frame_size = 1920;
+  if (version == 2u) {
+    sample_rate = (int)read_u32();
+    frame_size = (int)read_u32();
+  }
   int C = (int)read_u32();
   int LM = (int)read_u32();
   int start = (int)read_u32();
   int end = (int)read_u32();
   int qext_end = (int)read_u32();
   opus_int32 total = (opus_int32)read_i32();
-  float tone_freq = read_f32();
-  float toneishness = read_f32();
+  opus_val16 tone_freq;
+  opus_val32 toneishness;
+  if (version == 2u) {
+    tone_freq = (opus_val16)read_i16();
+    toneishness = (opus_val32)read_i32();
+  } else {
+    tone_freq = (opus_val16)read_f32();
+    toneishness = (opus_val32)read_f32();
+  }
   int storage = (int)read_u32();
 
   int nLogE = (int)read_u32();
   celt_glog *bandLogE = (celt_glog *)malloc(sizeof(celt_glog) * (size_t)nLogE);
-  for (int i = 0; i < nLogE; i++) bandLogE[i] = (celt_glog)read_f32();
+  for (int i = 0; i < nLogE; i++) {
+    if (version == 2u) bandLogE[i] = (celt_glog)read_i32();
+    else bandLogE[i] = (celt_glog)read_f32();
+  }
 
   int nQLogE = (int)read_u32();
   celt_glog *qext_bandLogE = (celt_glog *)malloc(sizeof(celt_glog) * (size_t)nQLogE);
-  for (int i = 0; i < nQLogE; i++) qext_bandLogE[i] = (celt_glog)read_f32();
+  for (int i = 0; i < nQLogE; i++) {
+    if (version == 2u) qext_bandLogE[i] = (celt_glog)read_i32();
+    else qext_bandLogE[i] = (celt_glog)read_f32();
+  }
 
   int err = OPUS_OK;
-  CELTMode *mode = opus_custom_mode_create(96000, 1920, &err);
+  CELTMode *mode = opus_custom_mode_create(sample_rate, frame_size, &err);
   if (mode == NULL || err != OPUS_OK) {
-    fprintf(stderr, "opus_custom_mode_create(96000,1920) failed err=%d\n", err);
+    fprintf(stderr, "opus_custom_mode_create(%d,%d) failed err=%d\n", sample_rate, frame_size, err);
     return 1;
   }
 
@@ -148,6 +187,7 @@ int main(void) {
   clt_compute_extra_allocation(mode, &qext, start, end, qext_end, bandLogE, qext_bandLogE,
                                total, enc_pulses, enc_quant, C, LM, &enc, 1, tone_freq, toneishness);
   opus_uint32 enc_tell = ec_tell_frac(&enc);
+  opus_uint32 enc_range = enc.rng;
   ec_enc_done(&enc);
 
   /* Decode side, replaying the bytes the encoder just produced. */
@@ -157,7 +197,8 @@ int main(void) {
                                total, dec_pulses, dec_quant, C, LM, &dec, 0, 0, 0);
 
   if (!write_exact(GQAO_MAGIC, 4)) return 1;
-  write_u32(1u);
+  write_u32(version);
+  if (version == 2u) write_u32(1u);
   write_u32((uint32_t)tot_bands);
 
   write_u32((uint32_t)tot_bands);
@@ -168,6 +209,7 @@ int main(void) {
   write_u32((uint32_t)storage);
   if (storage > 0 && !write_exact(buf, (size_t)storage)) return 1;
   write_u32((uint32_t)enc_tell);
+  if (version == 2u) write_u32((uint32_t)enc_range);
 
   write_u32((uint32_t)tot_bands);
   for (int i = 0; i < tot_bands; i++) write_i32((int32_t)dec_pulses[i]);

@@ -1,0 +1,1088 @@
+//go:build linux && amd64.v3 && gopus_celt_trace && !gopus_fixed_point && !gopus_qext
+
+package encoder
+
+import (
+	"bytes"
+	"encoding/binary"
+	"fmt"
+	"math"
+	"os"
+	"strings"
+	"testing"
+
+	"github.com/thesyncim/gopus/internal/celt"
+	"github.com/thesyncim/gopus/internal/libopustest"
+	"github.com/thesyncim/gopus/internal/testsignal"
+	"github.com/thesyncim/gopus/types"
+)
+
+const (
+	vbrTraceFrameSize           = 240
+	vbrTraceChannels            = 2
+	vbrTraceFrames              = 2
+	vbrTraceBitrate             = 128000
+	vbrTraceQuantBand           = 18
+	vbrTraceQuantBandLM         = 1
+	vbrTraceQuantBandLocal      = 2
+	vbrTraceQuantBandIndexLeft  = 98
+	vbrTraceQuantBandIndexRight = 298
+)
+
+// TestEncodeDiffCELTVBRFrame1Trace records the first divergence for the exact
+// scalar public VBR fuzz case while proving that C and Go tracing leave both
+// frames' packets and final ranges unchanged.
+func TestEncodeDiffCELTVBRFrame1Trace(t *testing.T) {
+	libopustest.RequireOracle(t)
+	requireCELTTraceV3(t, "public VBR frame-1")
+	assertCELTVBRBand18SourceMapping(t)
+
+	pcm, err := testsignal.GenerateCorpusSignal(
+		testsignal.CorpusBellClusterV1,
+		48000,
+		vbrTraceFrameSize*vbrTraceChannels*vbrTraceFrames,
+		vbrTraceChannels,
+	)
+	if err != nil {
+		t.Fatalf("generate BellCluster V1 PCM: %v", err)
+	}
+	params := libopustest.EncodeDiffParams{
+		SampleRate:    48000,
+		Channels:      vbrTraceChannels,
+		Application:   libopustest.EncodeDiffApplicationAudio,
+		ForceMode:     libopustest.EncodeDiffForceModeCELTOnly,
+		Bandwidth:     libopustest.EncodeDiffBandwidthFullband,
+		MaxBandwidth:  libopustest.EncodeDiffBandwidthFullband,
+		Bitrate:       vbrTraceBitrate,
+		Complexity:    10,
+		Signal:        libopustest.EncodeDiffSignalMusic,
+		VBR:           true,
+		VBRConstraint: true,
+		ForceChannels: vbrTraceChannels,
+		FrameSize:     vbrTraceFrameSize,
+		FrameCount:    vbrTraceFrames,
+		PCM:           pcm,
+	}
+
+	ordinaryC, err := libopustest.ProbeEncodeDiff(params)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "ordinary public VBR encode oracle", err)
+		return
+	}
+	if len(ordinaryC) != vbrTraceFrames {
+		t.Fatalf("ordinary public C oracle returned %d records, want %d", len(ordinaryC), vbrTraceFrames)
+	}
+
+	var quantTraceCache libopustest.HelperCache
+	tracePath := buildCELTQuantTraceOracleAtFrameBand(t, 1, vbrTraceQuantBand, false, &quantTraceCache)
+	traceBytes, err := libopustest.RunHelper(tracePath, encodeDiffCELTVBRInput(params))
+	if err != nil {
+		t.Fatalf("run traced public VBR oracle: %v", err)
+	}
+	tracedC, trailerOffset, err := parseEncodeDiffCELTVBRPrefix(traceBytes)
+	if err != nil {
+		t.Fatalf("parse traced public VBR packet prefix: %v", err)
+	}
+	if !sameEncodeDiffRecords(ordinaryC, tracedC) {
+		t.Fatalf("C trace wrappers changed the two-frame public stream: ordinary=%s traced=%s",
+			formatEncodeDiffRecords(ordinaryC), formatEncodeDiffRecords(tracedC))
+	}
+
+	stageBytes, err := scanCELTVBRStageTrace(traceBytes[trailerOffset:])
+	if err != nil {
+		t.Fatalf("scan C CELT stage trace: %v", err)
+	}
+	cTrace, err := parseCELTEncodeTrace(traceBytes[trailerOffset : trailerOffset+stageBytes])
+	if err != nil {
+		t.Fatalf("parse C CELT stage trace: %v", err)
+	}
+	if cTrace.TraceFrame != 1 || cTrace.Overflow != 0 {
+		t.Fatalf("C stage trace selected frame=%d overflow=%d, want frame 1 and no overflow", cTrace.TraceFrame, cTrace.Overflow)
+	}
+	if cTrace.BandCalls == 0 || cTrace.LogCalls == 0 || cTrace.NormalizationCalls == 0 || cTrace.CoarseCalls == 0 || cTrace.QuantCalls == 0 || cTrace.PreemphasisCalls != vbrTraceChannels {
+		t.Fatalf("C wrappers did not cover every CELT stage: %s", cTrace.counts())
+	}
+	if cTrace.MDCTCalls == 0 {
+		t.Fatalf("C MDCT wrapper did not capture frame 1: %s", cTrace.counts())
+	}
+	for i, band := range cTrace.Bands {
+		if band.FrameCoeffs != vbrTraceFrameSize || band.Bands != celtTraceBandCount || band.Channels != vbrTraceChannels || band.LM != 1 {
+			t.Fatalf("C VBR band stage %d dimensions are frame=%d bands=%d channels=%d LM=%d",
+				i, band.FrameCoeffs, band.Bands, band.Channels, band.LM)
+		}
+	}
+
+	goTraced := newCELTVBRTraceEncoder()
+	goPlain := newCELTVBRTraceEncoder()
+	tracedGo := make([]libopustest.EncodeDiffRecord, vbrTraceFrames)
+	plainGo := make([]libopustest.EncodeDiffRecord, vbrTraceFrames)
+	goQuantEvents := make([]celt.CELTQuantBandTraceSnapshot, 0, celtQuantTraceWireMaxEvents)
+	var goQuantOverflow bool
+	for frame := range vbrTraceFrames {
+		framePCM := pcm[frame*vbrTraceFrameSize*vbrTraceChannels : (frame+1)*vbrTraceFrameSize*vbrTraceChannels]
+		if frame == 1 {
+			if goTraced.celtEncoder == nil {
+				t.Fatal("Go public CELT encoder was not initialized after frame 0")
+			}
+			goTraced.celtEncoder.EnableEncodeStageTraceForTesting()
+		}
+		var tracedPacket []byte
+		var tracedErr error
+		encodeTracedFrame := func() {
+			tracedPacket, tracedErr = goTraced.EncodeFloat32WithAnalysisMaxBytes(framePCM, vbrTraceFrameSize, framePCM, 4000)
+		}
+		if frame == 1 {
+			goQuantOverflow = celt.WithCELTQuantBandTraceHookForTesting(vbrTraceQuantBand, func(event *celt.CELTQuantBandTraceSnapshot) {
+				goQuantEvents = append(goQuantEvents, *event)
+			}, encodeTracedFrame)
+		} else {
+			encodeTracedFrame()
+		}
+		if goQuantOverflow {
+			t.Fatal("Go quant-band trace exceeded its bounded event capture")
+		}
+		if tracedErr != nil {
+			t.Fatalf("encode traced Go VBR frame %d: %v", frame, tracedErr)
+		}
+		plainPacket, plainErr := goPlain.EncodeFloat32WithAnalysisMaxBytes(framePCM, vbrTraceFrameSize, framePCM, 4000)
+		if plainErr != nil {
+			t.Fatalf("encode plain Go VBR frame %d: %v", frame, plainErr)
+		}
+		tracedGo[frame] = libopustest.EncodeDiffRecord{Ret: len(tracedPacket), FinalRange: goTraced.FinalRange(), Packet: append([]byte(nil), tracedPacket...)}
+		plainGo[frame] = libopustest.EncodeDiffRecord{Ret: len(plainPacket), FinalRange: goPlain.FinalRange(), Packet: append([]byte(nil), plainPacket...)}
+	}
+	if !sameEncodeDiffRecords(tracedGo, plainGo) {
+		t.Fatalf("Go stage trace changed the two-frame public stream: traced=%s plain=%s",
+			formatEncodeDiffRecords(tracedGo), formatEncodeDiffRecords(plainGo))
+	}
+	goTrace := goTraced.celtEncoder.EncodeStageTraceForTesting()
+	// C records the logical output stride B; Go's stride-less MDCT helper uses the equivalent b+i*B layout.
+	if err := validateCELTTraceShapes(goTrace, cTrace); err != nil {
+		t.Fatalf("invalid Go/C CELT stage trace shapes: %v", err)
+	}
+	if err := validateCELTTraceExpectedDimensions(goTrace, cTrace, vbrTraceFrameSize, celtTraceBandCount, vbrTraceChannels, celtTraceActive, 1); err != nil {
+		t.Fatalf("unexpected Go/C public VBR frame-1 CELT dimensions: %v", err)
+	}
+
+	entropyOffset := trailerOffset + stageBytes
+	entropyBytes, err := scanCELTVBREntropyTrace(traceBytes[entropyOffset:])
+	if err != nil {
+		t.Fatalf("scan C frame-1 entropy trace: %v", err)
+	}
+	entropyTrace, err := parseCELTVBREntropyTrace(traceBytes[entropyOffset : entropyOffset+entropyBytes])
+	if err != nil {
+		t.Fatalf("parse C frame-1 entropy trace: %v", err)
+	}
+	if entropyTrace.Frame != 1 || entropyTrace.Overflow != 0 || entropyTrace.RawCalls == 0 || entropyTrace.DoneCalls == 0 {
+		t.Fatalf("C entropy trace incomplete: %+v", entropyTrace.summary())
+	}
+	gqtrData := traceBytes[entropyOffset+entropyBytes:]
+	cQuantTrace, gqtrBytes, err := parseCELTQuantBandTraceForTarget(gqtrData, 1, vbrTraceQuantBand)
+	if err != nil {
+		t.Fatalf("parse C frame-1 quant-band trace: %v", err)
+	}
+	if gqtrBytes != len(gqtrData) {
+		t.Fatalf("GQTR trailer has %d trailing bytes", len(gqtrData)-gqtrBytes)
+	}
+	if len(goQuantEvents) == 0 {
+		t.Fatal("Go quant-band trace captured no frame-1 band-18 events")
+	}
+	if err := validateCELTQuantBandTraceEventsForBand(goQuantEvents, vbrTraceQuantBand); err != nil {
+		t.Fatalf("invalid Go frame-1 quant-band trace: %v", err)
+	}
+	if difference := compareCELTQuantBandTraceForTarget(goQuantEvents, cQuantTrace, 1, vbrTraceQuantBand); difference != "" {
+		t.Logf("first band-18 quant-stage difference: %s", difference)
+	} else {
+		t.Logf("band-18 quant-stage trace: all %d bounded events match bit-for-bit", len(goQuantEvents))
+	}
+	for _, difference := range compareCELTQuantBandTracePayloads(goQuantEvents, cQuantTrace) {
+		t.Logf("band-18 quant payload sweep: %s", difference)
+	}
+	logCELTVBRBand18RawThetaOracle(t, goQuantEvents, cQuantTrace.Events)
+	logCELTVBRBand18RDO(t, goQuantEvents, cQuantTrace.Events)
+	logCELTVBRBand18CoefficientMapping(t, goTrace, cTrace, goQuantEvents, cQuantTrace.Events)
+
+	t.Logf("public VBR frame 0: Go bytes=%d C bytes=%d first byte diff=%d Go range=%08x C range=%08x",
+		len(tracedGo[0].Packet), len(ordinaryC[0].Packet), firstCELTTraceByteDifference(tracedGo[0].Packet, ordinaryC[0].Packet), tracedGo[0].FinalRange, ordinaryC[0].FinalRange)
+	frame1Diff := firstCELTTraceByteDifference(tracedGo[1].Packet, ordinaryC[1].Packet)
+	t.Logf("public VBR frame 1: Go bytes=%d C bytes=%d first byte diff=%d Go range=%08x C range=%08x",
+		len(tracedGo[1].Packet), len(ordinaryC[1].Packet), frame1Diff, tracedGo[1].FinalRange, ordinaryC[1].FinalRange)
+	t.Logf("C frame-1 entropy trace: %s", entropyTrace.summary())
+	if frame1Diff >= 0 {
+		logCELTVBREntropyByteClass(t, frame1Diff, ordinaryC[1].Packet, entropyTrace)
+	}
+	t.Log("CELT stage-bit comparisons are diagnostic; packet/range transparency checks are strict")
+	logCELTTraceDifferences(t, goTrace, cTrace)
+}
+
+func logCELTVBRBand18RawThetaOracle(t *testing.T, goEvents, cEvents []celt.CELTQuantBandTraceSnapshot) {
+	t.Helper()
+	count := min(len(goEvents), len(cEvents))
+	for i := 0; i < count; i++ {
+		goEvent, cEvent := goEvents[i], cEvents[i]
+		if goEvent.Stage != uint32(celt.CELTQuantBandTraceTheta) || goEvent.RawIthetaQ30 == cEvent.RawIthetaQ30 {
+			continue
+		}
+		if goEvent.N == 0 || goEvent.N != cEvent.N || goEvent.N > celtQuantTraceWireMaxWidth {
+			t.Logf("band-18 raw theta event %d cannot replay mismatched widths Go=%d C=%d", i, goEvent.N, cEvent.N)
+			return
+		}
+		n := int(goEvent.N)
+		goInput := libopustest.CELTStereoIthetaCase{
+			Stereo: goEvent.Stereo != 0,
+			X:      append([]float32(nil), goEvent.XBefore[:n]...),
+			Y:      append([]float32(nil), goEvent.YBefore[:n]...),
+		}
+		cInput := libopustest.CELTStereoIthetaCase{
+			Stereo: cEvent.Stereo != 0,
+			X:      append([]float32(nil), cEvent.XBefore[:n]...),
+			Y:      append([]float32(nil), cEvent.YBefore[:n]...),
+		}
+		oracle, err := libopustest.ProbeCELTStereoIthetaQ30([]libopustest.CELTStereoIthetaCase{goInput, cInput})
+		if err != nil {
+			t.Fatalf("replay band-18 raw theta inputs through linked C oracle: %v", err)
+		}
+		if got := int32(oracle.Values[1]); got != cEvent.RawIthetaQ30 {
+			t.Fatalf("linked C replay of captured C theta inputs=%d, want captured value %d", got, cEvent.RawIthetaQ30)
+		}
+		sameInputs := goInput.Stereo == cInput.Stereo && equalFloat32SliceBits(goInput.X, cInput.X) && equalFloat32SliceBits(goInput.Y, cInput.Y)
+		t.Logf("band-18 raw theta event %d round=%d stereo Go/C=%d/%d n=%d operands-bit-identical=%t Go=%d/%#08x C=%d/%#08x direct-C-on-Go=%d/%#08x direct-C-on-C=%d/%#08x oracle-arch=%d rtcd=%t",
+			i, goEvent.ThetaRound, goEvent.Stereo, cEvent.Stereo, n, sameInputs,
+			goEvent.RawIthetaQ30, uint32(goEvent.RawIthetaQ30), cEvent.RawIthetaQ30, uint32(cEvent.RawIthetaQ30),
+			int32(oracle.Values[0]), oracle.Values[0], int32(oracle.Values[1]), oracle.Values[1], oracle.SelectedArch, oracle.RTCDEnabled)
+		t.Logf("band-18 raw theta event %d operands Go X=%s Y=%s C X=%s Y=%s", i,
+			formatCELTQuantTraceVectorBits(&goEvent.XBefore, goEvent.N), formatCELTQuantTraceVectorBits(&goEvent.YBefore, goEvent.N),
+			formatCELTQuantTraceVectorBits(&cEvent.XBefore, cEvent.N), formatCELTQuantTraceVectorBits(&cEvent.YBefore, cEvent.N))
+		if goInput.Stereo == false && cInput.Stereo == false {
+			goSeparateX, goSeparateY := celtTraceSumSquaresSeparate(goInput.X), celtTraceSumSquaresSeparate(goInput.Y)
+			cSeparateX, cSeparateY := celtTraceSumSquaresSeparate(cInput.X), celtTraceSumSquaresSeparate(cInput.Y)
+			goFusedX, goFusedY := celtTraceSumSquaresFused(goInput.X), celtTraceSumSquaresFused(goInput.Y)
+			cFusedX, cFusedY := celtTraceSumSquaresFused(cInput.X), celtTraceSumSquaresFused(cInput.Y)
+			t.Logf("band-18 raw theta event %d scalar non-stereo sum candidates: Go-input separate=(%08x,%08x) fused=(%08x,%08x); C-input separate=(%08x,%08x) fused=(%08x,%08x)",
+				i, math.Float32bits(goSeparateX), math.Float32bits(goSeparateY), math.Float32bits(goFusedX), math.Float32bits(goFusedY),
+				math.Float32bits(cSeparateX), math.Float32bits(cSeparateY), math.Float32bits(cFusedX), math.Float32bits(cFusedY))
+		} else {
+			t.Logf("band-18 raw theta event %d candidate sum models skipped because C/Go stereo=%d/%d", i, cEvent.Stereo, goEvent.Stereo)
+		}
+		return
+	}
+	t.Log("band-18 raw theta oracle replay: no raw theta mismatch in aligned events")
+}
+
+func equalFloat32SliceBits(a, b []float32) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if math.Float32bits(a[i]) != math.Float32bits(b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func celtTraceSumSquaresSeparate(values []float32) float32 {
+	var sum float32
+	for _, value := range values {
+		product := celtTraceMul32(value, value)
+		sum = celtTraceAdd32(sum, product)
+	}
+	return sum
+}
+
+func celtTraceSumSquaresFused(values []float32) float32 {
+	var sum float32
+	for _, value := range values {
+		sum = value*value + sum
+	}
+	return sum
+}
+
+//go:noinline
+func celtTraceMul32(a, b float32) float32 { return a * b }
+
+//go:noinline
+func celtTraceAdd32(a, b float32) float32 { return a + b }
+
+func logCELTVBRBand18RDO(t *testing.T, goEvents, cEvents []celt.CELTQuantBandTraceSnapshot) {
+	t.Helper()
+	log := func(label string, events []celt.CELTQuantBandTraceSnapshot) {
+		found := false
+		for i := len(events) - 1; i >= 0; i-- {
+			event := events[i]
+			if event.Stage == uint32(celt.CELTQuantBandTraceTheta) && event.Stereo == 1 && (event.ThetaRound == -1 || event.ThetaRound == 1) {
+				w0, w1 := celtTraceChannelWeights(event.EnergyL, event.EnergyR)
+				t.Logf("band-18 %s RDO round=%d saved-energy L=%g/%#08x R=%g/%#08x source-derived weights w0=%g/%#08x w1=%g/%#08x XSave=%s YSave=%s",
+					label, event.ThetaRound, event.EnergyL, math.Float32bits(event.EnergyL), event.EnergyR, math.Float32bits(event.EnergyR),
+					w0, math.Float32bits(w0), w1, math.Float32bits(w1),
+					formatCELTQuantTraceVectorBits(&event.XBefore, event.N), formatCELTQuantTraceVectorBits(&event.YBefore, event.N))
+			}
+			if event.Stage == uint32(celt.CELTQuantBandTraceBandOutput) && event.Stereo == 1 {
+				t.Logf("band-18 %s RDO trial output round=%d XAfter=%s YAfter=%s",
+					label, event.ThetaRound,
+					formatCELTQuantTraceVectorBits(&event.XAfter, event.N), formatCELTQuantTraceVectorBits(&event.YAfter, event.N))
+			}
+			if event.Stage != uint32(celt.CELTQuantBandTraceRDOSelect) {
+				continue
+			}
+			found = true
+			t.Logf("band-18 %s RDO event %d ordinal=%d theta=%d round=%d selected=%d dist0=%g/%#08x dist1=%g/%#08x XAfter[2]=%#08x YAfter[2]=%#08x",
+				label, i, event.Ordinal, event.ThetaOrdinal, event.ThetaRound, event.SelectedRound,
+				event.Dist0, math.Float32bits(event.Dist0), event.Dist1, math.Float32bits(event.Dist1),
+				math.Float32bits(event.XAfter[vbrTraceQuantBandLocal]), math.Float32bits(event.YAfter[vbrTraceQuantBandLocal]))
+		}
+		if !found {
+			t.Logf("band-18 %s RDO event unavailable", label)
+		}
+	}
+	log("Go", goEvents)
+	log("C", cEvents)
+	if os.Getenv("GOEXPERIMENT") == "nosimd" {
+		logCELTVBRBand18ScalarScoreModels(t, goEvents, cEvents)
+	}
+}
+
+func logCELTVBRBand18ScalarScoreModels(t *testing.T, goEvents, cEvents []celt.CELTQuantBandTraceSnapshot) {
+	t.Helper()
+	for _, round := range []int32{-1, 1} {
+		var goInput, cInput, goOutput, cOutput *celt.CELTQuantBandTraceSnapshot
+		for i := range goEvents {
+			event := &goEvents[i]
+			if event.Stereo != 1 || event.ThetaRound != round {
+				continue
+			}
+			if event.Stage == uint32(celt.CELTQuantBandTraceTheta) {
+				goInput = event
+			} else if event.Stage == uint32(celt.CELTQuantBandTraceBandOutput) {
+				goOutput = event
+			}
+		}
+		for i := range cEvents {
+			event := &cEvents[i]
+			if event.Stereo != 1 || event.ThetaRound != round {
+				continue
+			}
+			if event.Stage == uint32(celt.CELTQuantBandTraceTheta) {
+				cInput = event
+			} else if event.Stage == uint32(celt.CELTQuantBandTraceBandOutput) {
+				cOutput = event
+			}
+		}
+		if goInput == nil || cInput == nil || goOutput == nil || cOutput == nil {
+			t.Logf("band-18 scalar score replay round=%d unavailable: input/output Go=%t/%t C=%t/%t", round,
+				goInput != nil, goOutput != nil, cInput != nil, cOutput != nil)
+			continue
+		}
+		w0, w1 := celtTraceChannelWeights(goInput.EnergyL, goInput.EnergyR)
+		goIPX := celtTraceDotFMA32(&goInput.XBefore, &goOutput.XAfter, goInput.N)
+		goIPY := celtTraceDotFMA32(&goInput.YBefore, &goOutput.YAfter, goInput.N)
+		cIPX := celtTraceDotSeparate32(&cInput.XBefore, &cOutput.XAfter, cInput.N)
+		cIPY := celtTraceDotSeparate32(&cInput.YBefore, &cOutput.YAfter, cInput.N)
+		cDotsCOrder := celtTraceRDOScoreC(w0, w1, cIPX, cIPY)
+		cDotsGoOrder := celtTraceRDOScoreGo(w0, w1, cIPX, cIPY)
+		goDotsCOrder := celtTraceRDOScoreC(w0, w1, goIPX, goIPY)
+		goDotsGoOrder := celtTraceRDOScoreGo(w0, w1, goIPX, goIPY)
+		distIndex := 0
+		if round == 1 {
+			distIndex = 1
+		}
+		goRDO, cRDO := celtTraceRDOEvent(goEvents), celtTraceRDOEvent(cEvents)
+		if goRDO == nil || cRDO == nil {
+			t.Logf("band-18 scalar score replay round=%d RDO result event missing", round)
+			continue
+		}
+		goObserved, cObserved := goRDO.Dist0, cRDO.Dist0
+		if distIndex == 1 {
+			goObserved, cObserved = goRDO.Dist1, cRDO.Dist1
+		}
+		t.Logf("band-18 scalar score replay round=%d C-dot=%#08x/%#08x Go-dot=%#08x/%#08x scores Cdot+Corder=%#08x Cdot+Goorder=%#08x Godot+Corder=%#08x Godot+Goorder=%#08x observed C=%#08x Go=%#08x",
+			round, math.Float32bits(cIPX), math.Float32bits(cIPY), math.Float32bits(goIPX), math.Float32bits(goIPY),
+			math.Float32bits(cDotsCOrder), math.Float32bits(cDotsGoOrder), math.Float32bits(goDotsCOrder), math.Float32bits(goDotsGoOrder),
+			math.Float32bits(cObserved), math.Float32bits(goObserved))
+	}
+}
+
+func celtTraceDotSeparate32(x, y *[celtQuantTraceWireMaxWidth]float32, n uint32) float32 {
+	var sum float32
+	for i := uint32(0); i < n; i++ {
+		product := float32(float64(x[i]) * float64(y[i]))
+		sum = float32(float64(sum) + float64(product))
+	}
+	return sum
+}
+
+func celtTraceDotFMA32(x, y *[celtQuantTraceWireMaxWidth]float32, n uint32) float32 {
+	var sum float32
+	for i := uint32(0); i < n; i++ {
+		sum = float32(math.FMA(float64(x[i]), float64(y[i]), float64(sum)))
+	}
+	return sum
+}
+
+func celtTraceRDOScoreC(w0, w1, ipx, ipy float32) float32 {
+	left := float32(float64(w0) * float64(ipx))
+	return float32(math.FMA(float64(w1), float64(ipy), float64(left)))
+}
+
+func celtTraceRDOScoreGo(w0, w1, ipx, ipy float32) float32 {
+	right := float32(float64(w1) * float64(ipy))
+	return float32(math.FMA(float64(w0), float64(ipx), float64(right)))
+}
+
+func celtTraceRDOEvent(events []celt.CELTQuantBandTraceSnapshot) *celt.CELTQuantBandTraceSnapshot {
+	for i := range events {
+		if events[i].Stage == uint32(celt.CELTQuantBandTraceRDOSelect) {
+			return &events[i]
+		}
+	}
+	return nil
+}
+
+// celtTraceChannelWeights follows bands.c:compute_channel_weights on the
+// float path using the captured band energies; the log labels these values as
+// source-derived rather than direct trace fields.
+func celtTraceChannelWeights(leftEnergy, rightEnergy float32) (float32, float32) {
+	minEnergy := leftEnergy
+	if rightEnergy < minEnergy {
+		minEnergy = rightEnergy
+	}
+	adjustment := minEnergy / 3
+	return leftEnergy + adjustment, rightEnergy + adjustment
+}
+
+func formatCELTQuantTraceVectorBits(values *[celtQuantTraceWireMaxWidth]float32, n uint32) string {
+	var builder strings.Builder
+	builder.Grow(int(n) * 9)
+	builder.WriteByte('[')
+	for i := uint32(0); i < n; i++ {
+		if i != 0 {
+			builder.WriteByte(' ')
+		}
+		fmt.Fprintf(&builder, "%08x", math.Float32bits(values[i]))
+	}
+	builder.WriteByte(']')
+	return builder.String()
+}
+
+// assertCELTVBRBand18SourceMapping pins the diagnostic to eBand5ms band 18:
+// with LM=1, eBands[18:20] selects [96,120), so local coefficient 2 is
+// full-spectrum index 98 in channel 0 and 298 in channel 1 (200 bins/channel).
+func assertCELTVBRBand18SourceMapping(t *testing.T) {
+	t.Helper()
+	start := celt.EBands[vbrTraceQuantBand] << vbrTraceQuantBandLM
+	end := celt.EBands[vbrTraceQuantBand+1] << vbrTraceQuantBandLM
+	channelStride := celt.EBands[celt.MaxBands] << vbrTraceQuantBandLM
+	if start != 96 || end != 120 || end-start != 24 || channelStride != 200 ||
+		start+vbrTraceQuantBandLocal != vbrTraceQuantBandIndexLeft ||
+		channelStride+start+vbrTraceQuantBandLocal != vbrTraceQuantBandIndexRight {
+		t.Fatalf("unexpected eBand5ms frame-1 band-18 mapping: start=%d end=%d channelStride=%d", start, end, channelStride)
+	}
+}
+
+func logCELTVBRBand18CoefficientMapping(t *testing.T, goTrace celt.EncodeStageTrace, cTrace celtCBRStageTrace,
+	goEvents, cEvents []celt.CELTQuantBandTraceSnapshot) {
+	t.Helper()
+	if len(goTrace.BandQuantize) != 1 || len(cTrace.Quant) != 1 {
+		t.Logf("band-18 coefficient mapping unavailable: Go quant stages=%d C quant stages=%d", len(goTrace.BandQuantize), len(cTrace.Quant))
+		return
+	}
+	goOutput, cOutput := goTrace.BandQuantize[0].Output, cTrace.Quant[0].Output
+	if len(goOutput) <= vbrTraceQuantBandIndexRight || len(cOutput) <= vbrTraceQuantBandIndexRight {
+		t.Logf("band-18 coefficient mapping unavailable: Go output=%d C output=%d", len(goOutput), len(cOutput))
+		return
+	}
+	selected := func(events []celt.CELTQuantBandTraceSnapshot) (celt.CELTQuantBandTraceSnapshot, bool) {
+		for i := len(events) - 1; i >= 0; i-- {
+			if events[i].Stage == uint32(celt.CELTQuantBandTraceRDOSelect) {
+				return events[i], true
+			}
+		}
+		for i := len(events) - 1; i >= 0; i-- {
+			if events[i].Stage == uint32(celt.CELTQuantBandTraceBandOutput) {
+				return events[i], true
+			}
+		}
+		return celt.CELTQuantBandTraceSnapshot{}, false
+	}
+	goEvent, goOK := selected(goEvents)
+	cEvent, cOK := selected(cEvents)
+	if !goOK || !cOK || goEvent.N <= vbrTraceQuantBandLocal || cEvent.N <= vbrTraceQuantBandLocal {
+		t.Logf("band-18 coefficient mapping unavailable: selected Go=%t C=%t", goOK, cOK)
+		return
+	}
+	for _, channel := range []struct {
+		name  string
+		index int
+		goVal float32
+		cVal  float32
+	}{
+		{"left", vbrTraceQuantBandIndexLeft, goEvent.XAfter[vbrTraceQuantBandLocal], cEvent.XAfter[vbrTraceQuantBandLocal]},
+		{"right", vbrTraceQuantBandIndexRight, goEvent.YAfter[vbrTraceQuantBandLocal], cEvent.YAfter[vbrTraceQuantBandLocal]},
+	} {
+		goBroad, cBroad := goOutput[channel.index], cOutput[channel.index]
+		t.Logf("band-18 %s local[%d] -> full[%d]: GQTR Go=%#08x C=%#08x; quant output Go=%#08x C=%#08x; within-Go=%t within-C=%t",
+			channel.name, vbrTraceQuantBandLocal, channel.index,
+			math.Float32bits(channel.goVal), math.Float32bits(channel.cVal),
+			math.Float32bits(goBroad), math.Float32bits(cBroad),
+			math.Float32bits(channel.goVal) == math.Float32bits(goBroad),
+			math.Float32bits(channel.cVal) == math.Float32bits(cBroad))
+	}
+}
+
+// compareCELTQuantBandTracePayloads checks numeric stage payloads separately
+// from integer metadata. A first metadata difference must not hide an earlier
+// input-vector match or a later output-vector divergence. Event geometry must
+// align before the corresponding float arrays are interpreted together.
+func compareCELTQuantBandTracePayloads(goEvents []celt.CELTQuantBandTraceSnapshot, cTrace celtQuantBandTrace) []string {
+	var firstInput, firstOutput, firstScalar string
+	limit := min(len(goEvents), len(cTrace.Events))
+	var alignment string
+
+	floatDiff := func(eventIndex int, stage, name string, goValue, cValue float32) string {
+		if math.Float32bits(goValue) == math.Float32bits(cValue) {
+			return ""
+		}
+		return fmt.Sprintf("event %d (%s) %s Go=%#08x C=%#08x", eventIndex, stage, name, math.Float32bits(goValue), math.Float32bits(cValue))
+	}
+	vectorDiff := func(eventIndex int, stage, name string, goValues, cValues *[celtQuantTraceWireMaxWidth]float32, n uint32) string {
+		for i := uint32(0); i < n; i++ {
+			if difference := floatDiff(eventIndex, stage, fmt.Sprintf("%s[%d]", name, i), goValues[i], cValues[i]); difference != "" {
+				return difference
+			}
+		}
+		return ""
+	}
+	record := func(dst *string, difference string) {
+		if *dst == "" && difference != "" {
+			*dst = difference
+		}
+	}
+	for index := 0; index < limit; index++ {
+		goEvent, cEvent := goEvents[index], cTrace.Events[index]
+		stage := celtQuantTraceStageName(goEvent.Stage)
+		if goEvent.Stage != cEvent.Stage || goEvent.N != cEvent.N || goEvent.Band != cEvent.Band || goEvent.ThetaRound != cEvent.ThetaRound ||
+			goEvent.B != cEvent.B || goEvent.B0 != cEvent.B0 || goEvent.LM != cEvent.LM ||
+			goEvent.Channels != cEvent.Channels || goEvent.Encode != cEvent.Encode || goEvent.Stereo != cEvent.Stereo {
+			alignment = fmt.Sprintf("event %d payload pairing stopped: source geometry differs (Go stage=%s band=%d N=%d B=%d B0=%d LM=%d round=%d; C stage=%s band=%d N=%d B=%d B0=%d LM=%d round=%d)",
+				index, stage, goEvent.Band, goEvent.N, goEvent.B, goEvent.B0, goEvent.LM, goEvent.ThetaRound,
+				celtQuantTraceStageName(cEvent.Stage), cEvent.Band, cEvent.N, cEvent.B, cEvent.B0, cEvent.LM, cEvent.ThetaRound)
+			break
+		}
+
+		switch goEvent.Stage {
+		case uint32(celt.CELTQuantBandTraceTheta):
+			record(&firstScalar, floatDiff(index, stage, "energyL", goEvent.EnergyL, cEvent.EnergyL))
+			record(&firstScalar, floatDiff(index, stage, "energyR", goEvent.EnergyR, cEvent.EnergyR))
+			record(&firstInput, vectorDiff(index, stage, "XBefore", &goEvent.XBefore, &cEvent.XBefore, goEvent.N))
+			record(&firstInput, vectorDiff(index, stage, "YBefore", &goEvent.YBefore, &cEvent.YBefore, goEvent.N))
+			record(&firstOutput, vectorDiff(index, stage, "XAfter", &goEvent.XAfter, &cEvent.XAfter, goEvent.N))
+			record(&firstOutput, vectorDiff(index, stage, "YAfter", &goEvent.YAfter, &cEvent.YAfter, goEvent.N))
+		case uint32(celt.CELTQuantBandTracePVQ):
+			record(&firstScalar, floatDiff(index, stage, "gain", goEvent.Gain, cEvent.Gain))
+			record(&firstInput, vectorDiff(index, stage, "XBefore", &goEvent.XBefore, &cEvent.XBefore, goEvent.N))
+			record(&firstOutput, vectorDiff(index, stage, "XAfter", &goEvent.XAfter, &cEvent.XAfter, goEvent.N))
+		case uint32(celt.CELTQuantBandTraceStereoMerge):
+			record(&firstScalar, floatDiff(index, stage, "mid", goEvent.Mid, cEvent.Mid))
+			record(&firstInput, vectorDiff(index, stage, "XBefore", &goEvent.XBefore, &cEvent.XBefore, goEvent.N))
+			record(&firstInput, vectorDiff(index, stage, "YBefore", &goEvent.YBefore, &cEvent.YBefore, goEvent.N))
+			record(&firstOutput, vectorDiff(index, stage, "XAfter", &goEvent.XAfter, &cEvent.XAfter, goEvent.N))
+			record(&firstOutput, vectorDiff(index, stage, "YAfter", &goEvent.YAfter, &cEvent.YAfter, goEvent.N))
+		case uint32(celt.CELTQuantBandTraceBandOutput):
+			record(&firstOutput, vectorDiff(index, stage, "XAfter", &goEvent.XAfter, &cEvent.XAfter, goEvent.N))
+			record(&firstOutput, vectorDiff(index, stage, "YAfter", &goEvent.YAfter, &cEvent.YAfter, goEvent.N))
+		case uint32(celt.CELTQuantBandTraceRDOSelect):
+			record(&firstScalar, floatDiff(index, stage, "dist0", goEvent.Dist0, cEvent.Dist0))
+			record(&firstScalar, floatDiff(index, stage, "dist1", goEvent.Dist1, cEvent.Dist1))
+			record(&firstOutput, vectorDiff(index, stage, "XAfter", &goEvent.XAfter, &cEvent.XAfter, goEvent.N))
+			record(&firstOutput, vectorDiff(index, stage, "YAfter", &goEvent.YAfter, &cEvent.YAfter, goEvent.N))
+		}
+	}
+	if len(goEvents) != len(cTrace.Events) && alignment == "" {
+		alignment = fmt.Sprintf("event payload pairing stopped at common prefix %d: event counts Go=%d C=%d", limit, len(goEvents), len(cTrace.Events))
+	}
+	results := make([]string, 0, 4)
+	if firstInput == "" {
+		results = append(results, "all aligned pre-stage vectors match bit-for-bit")
+	} else {
+		results = append(results, "first pre-stage vector difference: "+firstInput)
+	}
+	if firstOutput == "" {
+		results = append(results, "all aligned post-stage vectors match bit-for-bit")
+	} else {
+		results = append(results, "first post-stage vector difference: "+firstOutput)
+	}
+	if firstScalar == "" {
+		results = append(results, "all aligned scalar float payloads match bit-for-bit")
+	} else {
+		results = append(results, "first scalar float payload difference: "+firstScalar)
+	}
+	if alignment != "" {
+		results = append(results, alignment)
+	}
+	return results
+}
+
+func newCELTVBRTraceEncoder() *Encoder {
+	e := NewEncoder(48000, vbrTraceChannels)
+	e.SetFrameSize(vbrTraceFrameSize)
+	e.SetMode(ModeCELT)
+	e.SetBandwidth(types.BandwidthFullband)
+	e.SetMaxBandwidth(types.BandwidthFullband)
+	e.SetBitrate(vbrTraceBitrate)
+	e.SetBitrateMode(ModeCVBR)
+	e.SetComplexity(10)
+	e.SetSignalType(types.SignalMusic)
+	e.SetForceChannels(vbrTraceChannels)
+	e.SetFEC(false)
+	e.SetDTX(false)
+	return e
+}
+
+func encodeDiffCELTVBRInput(params libopustest.EncodeDiffParams) []byte {
+	nSamples := len(params.PCM)
+	payload := libopustest.NewOraclePayloadVersion("GEDI", 1)
+	values := [...]uint32{
+		uint32(params.SampleRate), uint32(params.Channels), uint32(params.Application),
+		uint32(params.ForceMode), uint32(params.Bandwidth), uint32(params.MaxBandwidth),
+		uint32(params.Bitrate), uint32(params.Complexity), params.Signal,
+		boolToU32(params.VBR), boolToU32(params.VBRConstraint), uint32(params.ForceChannels),
+		uint32(params.InbandFEC), uint32(params.PacketLoss), boolToU32(params.DTX),
+		uint32(params.LSBDepth), boolToU32(params.PredictionDisabled), boolToU32(params.PhaseInvDisabled),
+		uint32(params.FrameSize), uint32(params.FrameCount), uint32(nSamples),
+	}
+	payload.U32s(values[:]...)
+	payload.Float32s(params.PCM...)
+	return payload.Bytes()
+}
+
+func boolToU32(value bool) uint32 {
+	if value {
+		return 1
+	}
+	return 0
+}
+
+func parseEncodeDiffCELTVBRPrefix(data []byte) ([]libopustest.EncodeDiffRecord, int, error) {
+	if len(data) < 12 || string(data[:4]) != "GEDO" || binary.LittleEndian.Uint32(data[4:8]) != 1 {
+		return nil, 0, fmt.Errorf("invalid GEDO v1 header")
+	}
+	count := binary.LittleEndian.Uint32(data[8:12])
+	if count != vbrTraceFrames {
+		return nil, 0, fmt.Errorf("traced C record count=%d, want %d", count, vbrTraceFrames)
+	}
+	off := 12
+	records := make([]libopustest.EncodeDiffRecord, count)
+	for i := range records {
+		if off+12 > len(data) {
+			return nil, 0, fmt.Errorf("truncated GEDO record %d", i)
+		}
+		ret := int(int32(binary.LittleEndian.Uint32(data[off:])))
+		finalRange := binary.LittleEndian.Uint32(data[off+4:])
+		packetLen := uint64(binary.LittleEndian.Uint32(data[off+8:]))
+		off += 12
+		if packetLen > uint64(len(data)-off) {
+			return nil, 0, fmt.Errorf("truncated GEDO packet %d length %d", i, packetLen)
+		}
+		packet := append([]byte(nil), data[off:off+int(packetLen)]...)
+		off += int(packetLen)
+		if packetLen > 0 {
+			padding := (4 - int(packetLen)%4) % 4
+			if off+padding > len(data) {
+				return nil, 0, fmt.Errorf("truncated GEDO padding %d", i)
+			}
+			off += padding
+		}
+		if ret > 0 && ret != len(packet) {
+			return nil, 0, fmt.Errorf("GEDO record %d ret=%d packet length=%d", i, ret, len(packet))
+		}
+		records[i] = libopustest.EncodeDiffRecord{Ret: ret, FinalRange: finalRange, Packet: packet}
+	}
+	if off+4 > len(data) || string(data[off:off+4]) != "GCET" {
+		return nil, 0, fmt.Errorf("missing GCET stage trace at offset %d", off)
+	}
+	return records, off, nil
+}
+
+func sameEncodeDiffRecords(a, b []libopustest.EncodeDiffRecord) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Ret != b[i].Ret || a[i].FinalRange != b[i].FinalRange || !bytes.Equal(a[i].Packet, b[i].Packet) {
+			return false
+		}
+	}
+	return true
+}
+
+func formatEncodeDiffRecords(records []libopustest.EncodeDiffRecord) string {
+	var result string
+	for i, record := range records {
+		if i != 0 {
+			result += "; "
+		}
+		result += fmt.Sprintf("f%d(len=%d range=%08x)", i, len(record.Packet), record.FinalRange)
+	}
+	return result
+}
+
+func scanCELTVBRStageTrace(data []byte) (int, error) {
+	if len(data) < 16 || string(data[:4]) != "GCET" || binary.LittleEndian.Uint32(data[4:8]) != 4 {
+		return 0, fmt.Errorf("invalid GCET v4 header")
+	}
+	off := 8
+	read := func() (uint32, error) {
+		if off+4 > len(data) {
+			return 0, fmt.Errorf("truncated GCET u32 at %d", off)
+		}
+		value := binary.LittleEndian.Uint32(data[off:])
+		off += 4
+		return value, nil
+	}
+	skipFloats := func(count uint64) error {
+		if count > 4096 || count*4 > uint64(len(data)-off) {
+			return fmt.Errorf("invalid GCET float count %d at %d", count, off)
+		}
+		off += int(count * 4)
+		return nil
+	}
+	if _, err := read(); err != nil { // trace frame
+		return 0, err
+	}
+	if _, err := read(); err != nil { // overflow
+		return 0, err
+	}
+	readCount := func(max uint32) (uint32, error) {
+		total, err := read()
+		if err != nil {
+			return 0, err
+		}
+		stored, err := read()
+		if err != nil {
+			return 0, err
+		}
+		if total > max || stored != total {
+			return 0, fmt.Errorf("invalid GCET count total=%d stored=%d", total, stored)
+		}
+		return total, nil
+	}
+	bandCalls, err := readCount(celtVBRTraceMaxCalls)
+	if err != nil {
+		return 0, err
+	}
+	for range bandCalls {
+		coeffs, err := read()
+		if err != nil {
+			return 0, err
+		}
+		bands, err := read()
+		if err != nil {
+			return 0, err
+		}
+		channels, err := read()
+		if err != nil {
+			return 0, err
+		}
+		if _, err = read(); err != nil {
+			return 0, err
+		} // LM
+		if err = skipFloats((uint64(coeffs) + uint64(bands)) * uint64(channels)); err != nil {
+			return 0, err
+		}
+	}
+	logCalls, err := readCount(celtVBRTraceMaxCalls)
+	if err != nil {
+		return 0, err
+	}
+	for range logCalls {
+		bands, err := read()
+		if err != nil {
+			return 0, err
+		}
+		channels, err := read()
+		if err = skipFloats(2 * uint64(bands) * uint64(channels)); err != nil {
+			return 0, err
+		}
+	}
+	normCalls, err := readCount(celtVBRTraceMaxCalls)
+	if err != nil {
+		return 0, err
+	}
+	for range normCalls {
+		active, err := read()
+		if err != nil {
+			return 0, err
+		}
+		bands, err := read()
+		if err != nil {
+			return 0, err
+		}
+		channels, err := read()
+		if err = skipFloats(uint64(active+bands) * uint64(channels)); err != nil {
+			return 0, err
+		}
+	}
+	coarseCalls, err := readCount(celtVBRTraceMaxCalls)
+	if err != nil {
+		return 0, err
+	}
+	for range coarseCalls {
+		bands, err := read()
+		if err != nil {
+			return 0, err
+		}
+		channels, err := read()
+		if err != nil {
+			return 0, err
+		}
+		if _, err = read(); err != nil {
+			return 0, err
+		} // byte budget
+		if err = skipFloats(3 * uint64(bands) * uint64(channels)); err != nil {
+			return 0, err
+		}
+	}
+	quantCalls, err := readCount(celtVBRTraceMaxCalls)
+	if err != nil {
+		return 0, err
+	}
+	for range quantCalls {
+		active, err := read()
+		if err != nil {
+			return 0, err
+		}
+		bands, err := read()
+		if err != nil {
+			return 0, err
+		}
+		channels, err := read()
+		if err = skipFloats((uint64(bands) + 2*uint64(active)) * uint64(channels)); err != nil {
+			return 0, err
+		}
+	}
+	mdctCalls, err := readCount(celtVBRTraceMaxMDCTCalls)
+	if err != nil {
+		return 0, err
+	}
+	for range mdctCalls {
+		var counts [12]uint32
+		for i := range counts {
+			if counts[i], err = read(); err != nil {
+				return 0, err
+			}
+		}
+		if err = skipFloats(uint64(counts[9])); err != nil {
+			return 0, err
+		}
+		if err = skipFloats(uint64(counts[10])); err != nil {
+			return 0, err
+		}
+		if err = skipFloats(uint64(counts[11])); err != nil {
+			return 0, err
+		}
+	}
+	preemphasisCalls, err := readCount(celtVBRTraceMaxCalls)
+	if err != nil {
+		return 0, err
+	}
+	for range preemphasisCalls {
+		var values [7]uint32
+		for i := range values {
+			if values[i], err = read(); err != nil {
+				return 0, err
+			}
+		}
+		if values[6]&^uint32(1) != 0 || values[1] == 0 || values[0] >= values[1] || values[2] != values[5] ||
+			values[3] == 0 || values[2]%values[3] != 0 || values[4] != values[2]/values[3] {
+			return 0, fmt.Errorf("invalid GCET preemphasis record")
+		}
+		if err = skipFloats(6 + uint64(values[4]) + uint64(values[5])); err != nil {
+			return 0, err
+		}
+	}
+	prefilterCalls, err := readCount(celtVBRTraceMaxCalls)
+	if err != nil {
+		return 0, err
+	}
+	for range prefilterCalls {
+		var values [14]uint32
+		for i := range values {
+			if values[i], err = read(); err != nil {
+				return 0, err
+			}
+		}
+		if values[7] > 1 || values[8] != 1024 || values[2] != values[9] || values[2] != values[11] ||
+			(values[7] == 0 && values[10] != values[5]) || (values[7] == 1 && values[10] != 0) {
+			return 0, fmt.Errorf("invalid GCET prefilter record")
+		}
+		if err = skipFloats(uint64(values[8]) + uint64(values[9]) + uint64(values[10]) + uint64(values[11])); err != nil {
+			return 0, err
+		}
+	}
+	return off, nil
+}
+
+func scanCELTVBREntropyTrace(data []byte) (int, error) {
+	if len(data) < 32 || string(data[:4]) != "GENT" || binary.LittleEndian.Uint32(data[4:8]) != 1 {
+		return 0, fmt.Errorf("invalid GENT v1 header")
+	}
+	rawCalls := binary.LittleEndian.Uint32(data[16:20])
+	storedRaw := binary.LittleEndian.Uint32(data[20:24])
+	doneCalls := binary.LittleEndian.Uint32(data[24:28])
+	storedDone := binary.LittleEndian.Uint32(data[28:32])
+	if rawCalls > 4096 || storedRaw != rawCalls || doneCalls > 4 || storedDone != doneCalls {
+		return 0, fmt.Errorf("invalid GENT call counts raw=%d/%d done=%d/%d", rawCalls, storedRaw, doneCalls, storedDone)
+	}
+	// A raw record contains value/bits and two 11-word coder snapshots; a
+	// done record contains its before/after snapshots. The full parser validates
+	// every field after this exact section boundary is established.
+	length := uint64(32) + uint64(storedRaw)*96 + uint64(storedDone)*88
+	if length > uint64(len(data)) {
+		return 0, fmt.Errorf("truncated GENT section: have %d bytes, need %d", len(data), length)
+	}
+	return int(length), nil
+}
+
+const celtVBRTraceMaxCalls = 8
+
+const celtVBRTraceMaxMDCTCalls = 18
+
+type celtVBREntropySnapshot struct {
+	Storage, Offs, EndOffs, EndWindow uint32
+	NEndBits, NBitsTotal              int32
+	Range, Value, Ext                 uint32
+	Rem, Error                        int32
+}
+
+type celtVBREntropyRawCall struct {
+	Value, Bits uint32
+	Before      celtVBREntropySnapshot
+	After       celtVBREntropySnapshot
+}
+
+type celtVBREntropyTrace struct {
+	Frame, Overflow       uint32
+	RawCalls, DoneCalls   uint32
+	Raw                   []celtVBREntropyRawCall
+	DoneBefore, DoneAfter []celtVBREntropySnapshot
+}
+
+func parseCELTVBREntropyTrace(data []byte) (celtVBREntropyTrace, error) {
+	var result celtVBREntropyTrace
+	if len(data) < 32 || string(data[:4]) != "GENT" || binary.LittleEndian.Uint32(data[4:8]) != 1 {
+		return result, fmt.Errorf("invalid GENT v1 header")
+	}
+	off := 8
+	read := func() (uint32, error) {
+		if off+4 > len(data) {
+			return 0, fmt.Errorf("truncated GENT u32 at %d", off)
+		}
+		value := binary.LittleEndian.Uint32(data[off:])
+		off += 4
+		return value, nil
+	}
+	readSnapshot := func() (celtVBREntropySnapshot, error) {
+		var values [11]uint32
+		for i := range values {
+			value, err := read()
+			if err != nil {
+				return celtVBREntropySnapshot{}, err
+			}
+			values[i] = value
+		}
+		return celtVBREntropySnapshot{
+			Storage: values[0], Offs: values[1], EndOffs: values[2], EndWindow: values[3],
+			NEndBits: int32(values[4]), NBitsTotal: int32(values[5]), Range: values[6], Value: values[7],
+			Ext: values[8], Rem: int32(values[9]), Error: int32(values[10]),
+		}, nil
+	}
+	var err error
+	if result.Frame, err = read(); err != nil {
+		return result, err
+	}
+	if result.Overflow, err = read(); err != nil {
+		return result, err
+	}
+	rawCalls, err := read()
+	if err != nil {
+		return result, err
+	}
+	storedRaw, err := read()
+	if err != nil {
+		return result, err
+	}
+	doneCalls, err := read()
+	if err != nil {
+		return result, err
+	}
+	storedDone, err := read()
+	if err != nil {
+		return result, err
+	}
+	if rawCalls > 4096 || storedRaw != rawCalls || doneCalls > 4 || storedDone != doneCalls {
+		return result, fmt.Errorf("invalid GENT call counts raw=%d/%d done=%d/%d", rawCalls, storedRaw, doneCalls, storedDone)
+	}
+	result.RawCalls, result.DoneCalls = rawCalls, doneCalls
+	result.Raw = make([]celtVBREntropyRawCall, storedRaw)
+	for i := range result.Raw {
+		if result.Raw[i].Value, err = read(); err != nil {
+			return result, err
+		}
+		if result.Raw[i].Bits, err = read(); err != nil {
+			return result, err
+		}
+		if result.Raw[i].Before, err = readSnapshot(); err != nil {
+			return result, err
+		}
+		if result.Raw[i].After, err = readSnapshot(); err != nil {
+			return result, err
+		}
+	}
+	result.DoneBefore = make([]celtVBREntropySnapshot, storedDone)
+	result.DoneAfter = make([]celtVBREntropySnapshot, storedDone)
+	for i := range result.DoneBefore {
+		if result.DoneBefore[i], err = readSnapshot(); err != nil {
+			return result, err
+		}
+		if result.DoneAfter[i], err = readSnapshot(); err != nil {
+			return result, err
+		}
+	}
+	if off != len(data) {
+		return result, fmt.Errorf("GENT trailer has %d trailing bytes", len(data)-off)
+	}
+	return result, nil
+}
+
+func (trace celtVBREntropyTrace) summary() string {
+	if len(trace.DoneAfter) == 0 {
+		return fmt.Sprintf("frame=%d raw-calls=%d done-calls=%d overflow=%d", trace.Frame, trace.RawCalls, trace.DoneCalls, trace.Overflow)
+	}
+	done := trace.DoneAfter[len(trace.DoneAfter)-1]
+	return fmt.Sprintf("frame=%d raw-calls=%d done-calls=%d storage=%d range-bytes=%d raw-bytes=%d nend-bits=%d end-window=%08x coder-rng=%08x",
+		trace.Frame, trace.RawCalls, trace.DoneCalls, done.Storage, done.Offs, done.EndOffs, done.NEndBits, done.EndWindow, done.Range)
+}
+
+func logCELTVBREntropyByteClass(t *testing.T, diff int, packet []byte, trace celtVBREntropyTrace) {
+	t.Helper()
+	if len(trace.DoneAfter) == 0 {
+		t.Logf("packet byte %d cannot be placed in C entropy segments: no ec_enc_done snapshot", diff)
+		return
+	}
+	state := trace.DoneAfter[len(trace.DoneAfter)-1]
+	if uint64(state.Storage) > uint64(len(packet)) || state.Offs > state.Storage || state.EndOffs > state.Storage || state.Offs+state.EndOffs > state.Storage {
+		t.Logf("packet byte %d cannot be classified by C entropy extents: packet=%d snapshot=%+v", diff, len(packet), state)
+		return
+	}
+	packetPrefix := len(packet) - int(state.Storage)
+	rangeStart, rangeEnd := packetPrefix, packetPrefix+int(state.Offs)
+	rawStart, rawEnd := len(packet)-int(state.EndOffs), len(packet)
+	switch {
+	case diff >= rangeStart && diff < rangeEnd:
+		t.Logf("packet byte %d falls in libopus C range-coded bytes [%d,%d)", diff, rangeStart, rangeEnd)
+	case diff >= rawStart && diff < rawEnd:
+		t.Logf("packet byte %d falls in libopus C raw-bit tail [%d,%d)", diff, rawStart, rawEnd)
+	default:
+		t.Logf("packet byte %d falls between/outside captured C entropy extents: range=[%d,%d) raw=[%d,%d)", diff, rangeStart, rangeEnd, rawStart, rawEnd)
+	}
+}

@@ -10,6 +10,7 @@
 
 #include "config.h"
 #include "opus_custom.h"
+#include "celt/cpu_support.h"
 
 #define INPUT_MAGIC "GVPI"
 #define OUTPUT_MAGIC "GVPO"
@@ -66,6 +67,10 @@ static int eval_zero_pulse(void) {
   celt_norm *lowband = NULL;
   struct band_ctx ctx;
   ec_ctx ec;
+#ifdef ENABLE_QEXT
+  ec_ctx ext_ec;
+  unsigned char ext_packet[1] = {0};
+#endif
   unsigned cm;
   uint32_t i;
 
@@ -107,10 +112,16 @@ static int eval_zero_pulse(void) {
   ctx.ec = &ec;
   ctx.remaining_bits = 0;
   ctx.seed = seed_u;
-  ctx.arch = 0;
+  ctx.arch = opus_select_arch();
+#ifdef ENABLE_QEXT
+  /* quant_partition checks the side coder even with zero extension bits. */
+  ec_dec_init(&ext_ec, ext_packet, sizeof(ext_packet));
+  ctx.ext_ec = &ext_ec;
+  ctx.ext_total_bits = 0;
+#endif
 
   cm = quant_partition(&ctx, x, (int)n_u, 0, (int)b_u, lowband,
-      (int)(int32_t)lm_u, (opus_val32)gain_f, (int)fill_u);
+      (int)(int32_t)lm_u, (opus_val32)gain_f, (int)fill_u ARG_QEXT(0));
 
   if (!write_u32(cm) || !write_u32(ctx.seed) || !write_u32(n_u)) {
     free(lowband);

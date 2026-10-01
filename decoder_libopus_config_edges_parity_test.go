@@ -3,9 +3,11 @@ package gopus
 import (
 	"fmt"
 	"math"
+	"strings"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
+	"github.com/thesyncim/gopus/internal/libopustooling"
 )
 
 // This file broadens decode-side libopus-oracle parity coverage across
@@ -13,11 +15,9 @@ import (
 // select: CBR streams, restricted-SILK/CELT applications, the full
 // bandwidth/frame-size grid, and the boundary bitrates (6 kbps min, 510 kbps
 // max). libopus encodes each stream (libopus_cbr_encode_packets.c), then the
-// SAME packets are decoded both by libopus (opus_decode_float via
-// libopus_refdecode_single.c) and by gopus. The two PCM streams are
-// sample-aligned, so we gate on the trusted near-exact comparator
-// (assertAPIRateQualityFloat32) which is byte-exact on amd64/CI and absorbs the
-// documented darwin/arm64 1-ULP CELT/Hybrid float drift.
+// SAME packets are decoded both by the selected libopus build (opus_decode_float
+// via libopus_refdecode_single.c) and by gopus. The sample-aligned outputs
+// carry quality diagnostics and an exact selected-C comparison.
 //
 // These gates exercise the gopus decoder on the libopus output space, not just
 // the subset gopus would itself produce, hardening decode-side production
@@ -43,12 +43,13 @@ const (
 var libopusCBREncodeHelper libopustest.HelperCache
 
 func getLibopusCBREncodeHelperPath() (string, error) {
-	return libopusCBREncodeHelper.CHelperPath(libopustest.CHelperConfig{
-		Label:      "cbr encode packets",
-		OutputBase: "gopus_libopus_cbr_encode_packets",
-		SourceFile: "libopus_cbr_encode_packets.c",
-		CFlags:     []string{"-O3", "-DNDEBUG"},
-		Libs:       []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
+	return libopusCBREncodeHelper.Path(func() (string, error) {
+		return libopustest.BuildPublicAPIHelper(libopustest.CHelperConfig{
+			Label:      "cbr encode packets",
+			OutputBase: "gopus_libopus_cbr_encode_packets",
+			SourceFile: "libopus_cbr_encode_packets.c",
+			CFlags:     []string{"-O3", "-DNDEBUG"},
+		})
 	})
 }
 
@@ -84,19 +85,73 @@ func encodeLibopusCBRPackets(cfg cbrEncodeConfig, pcm []float32) ([][]byte, erro
 	if err != nil {
 		return nil, err
 	}
-	if version != 1 {
-		return nil, fmt.Errorf("cbr encode helper version=%d want 1", version)
+	if version != 2 {
+		return nil, fmt.Errorf("cbr encode helper version=%d want 2", version)
 	}
-	count := reader.Count(-1)
+	versionLen := int(reader.U32())
+	if versionLen <= 0 || versionLen > 128 {
+		return nil, fmt.Errorf("invalid cbr encode libopus version length %d", versionLen)
+	}
+	if got := string(reader.Bytes(versionLen)); !strings.Contains(got, libopustooling.DefaultVersion) {
+		return nil, fmt.Errorf("cbr encode helper reports libopus version %q, want %s", got, libopustooling.DefaultVersion)
+	}
+	archMask, buildFeatures, selectedArch := reader.U32(), reader.U32(), reader.U32()
+	if selectedArch > archMask {
+		return nil, fmt.Errorf("cbr encode helper selected architecture %d above OPUS_ARCHMASK %d", selectedArch, archMask)
+	}
+	identity, err := libopustest.ResolvePublicAPIReferenceIdentity()
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case strings.HasSuffix(string(identity.Variant), "scalar"):
+		if archMask != 0 || buildFeatures != 0 || selectedArch != 0 {
+			return nil, fmt.Errorf("scalar CBR reference emitted SIMD metadata: arch_mask=%d features=0x%x selected_arch=%d", archMask, buildFeatures, selectedArch)
+		}
+	case strings.HasSuffix(string(identity.Variant), "simd"):
+		if buildFeatures == 0 {
+			return nil, fmt.Errorf("SIMD CBR reference emitted no generated SIMD build features")
+		}
+	default:
+		return nil, fmt.Errorf("unsupported paired CBR reference variant %q", identity.Variant)
+	}
+	count := reader.Count(cfg.numFrames)
 	packets := make([][]byte, 0, count)
 	for range count {
 		n := int(reader.U32())
+		_ = reader.U32() // OPUS_GET_FINAL_RANGE
 		packets = append(packets, append([]byte(nil), reader.Bytes(n)...))
 	}
 	if err := reader.ExpectConsumed(); err != nil {
 		return nil, err
 	}
 	return packets, nil
+}
+
+func TestDecodeLibopusCBROracleOutputV2(t *testing.T) {
+	libopustest.RequireOracle(t)
+	cfg := cbrEncodeConfig{
+		app:        cbrAppAudio,
+		bandwidth:  cbrBWWideband,
+		channels:   1,
+		bitrate:    32000,
+		frameSize:  480,
+		complexity: 1,
+		numFrames:  2,
+	}
+	packets, err := encodeLibopusCBRPackets(cfg, configEdgesPCM(cfg.frameSize, cfg.channels, cfg.numFrames))
+	if err != nil {
+		libopustest.HelperUnavailable(t, "cbr encode", err)
+		return
+	}
+	if len(packets) != cfg.numFrames {
+		t.Fatalf("CBR oracle returned %d packets, want %d", len(packets), cfg.numFrames)
+	}
+	for frame, packet := range packets {
+		if len(packet) == 0 {
+			t.Fatalf("CBR oracle returned empty packet at frame %d", frame)
+		}
+	}
 }
 
 func mustRunHelper(binPath string, input []byte) []byte {
@@ -213,7 +268,7 @@ func TestDecodeLibopusCBRConfigEdgesMatchesLibopus(t *testing.T) {
 						libopustest.HelperUnavailable(t, "cbr reference decode", err)
 					}
 					got := decodeGopusFloat32Sequence(t, sampleRate, channels, frameSize, packets)
-					assertAPIRateQualityFloat32(t, got, want, sampleRate, channels, name)
+					assertSelectedPublicAPIRateFloat32(t, got, want, sampleRate, channels, name)
 				})
 			}
 		}
@@ -276,7 +331,7 @@ func TestDecodeLibopusBoundaryBitratesMatchesLibopus(t *testing.T) {
 				libopustest.HelperUnavailable(t, "cbr reference decode", err)
 			}
 			got := decodeGopusFloat32Sequence(t, sampleRate, e.channels, e.frameSize, packets)
-			assertAPIRateQualityFloat32(t, got, want, sampleRate, e.channels, e.name)
+			assertSelectedPublicAPIRateFloat32(t, got, want, sampleRate, e.channels, e.name)
 		})
 	}
 }
@@ -452,6 +507,7 @@ func TestDecodeLibopusModeTransitionsMatchesLibopus(t *testing.T) {
 				gotI16 = append(gotI16, buf[:n*tc.channels]...)
 			}
 			assertAPIRateQualityInt16(t, gotI16, wantI16, sampleRate, tc.channels, tc.name)
+			assertAPIRateInt16Exact(t, gotI16, wantI16, tc.name)
 		})
 	}
 }
@@ -504,7 +560,7 @@ func TestDecodeLibopusRestrictedAppEdgesMatchesLibopus(t *testing.T) {
 				libopustest.HelperUnavailable(t, "cbr reference decode", err)
 			}
 			got := decodeGopusFloat32Sequence(t, sampleRate, c.channels, c.frameSize, packets)
-			assertAPIRateQualityFloat32(t, got, want, sampleRate, c.channels, c.name)
+			assertSelectedPublicAPIRateFloat32(t, got, want, sampleRate, c.channels, c.name)
 		})
 	}
 }

@@ -16,9 +16,11 @@ const (
 	defaultMaxPacketBytes   = 1500
 )
 
-// DecoderConfig configures a Decoder instance.
+// DecoderConfig sets the sample rate, channel count, and packet limits for a
+// Decoder.
 type DecoderConfig struct {
-	// SampleRate must be one of: 8000, 12000, 16000, 24000, 48000.
+	// SampleRate must be 8000, 12000, 16000, 24000, or 48000 Hz.
+	// Builds with gopus_qext also accept 96000 Hz.
 	SampleRate int
 	// Channels must be 1 (mono) or 2 (stereo).
 	Channels int
@@ -30,7 +32,10 @@ type DecoderConfig struct {
 	MaxPacketBytes int
 }
 
-// DefaultDecoderConfig returns a config with default caps for the given stream format.
+// DefaultDecoderConfig returns a DecoderConfig with default packet limits for
+// the given stream format. It allows up to 5,760 decoded samples per channel
+// and 1,500 packet bytes; set MaxPacketSamples or MaxPacketBytes to raise a
+// limit.
 func DefaultDecoderConfig(sampleRate, channels int) DecoderConfig {
 	return DecoderConfig{
 		SampleRate:       sampleRate,
@@ -40,13 +45,8 @@ func DefaultDecoderConfig(sampleRate, channels int) DecoderConfig {
 	}
 }
 
-// Decoder decodes Opus packets into PCM audio samples.
-//
-// A Decoder instance maintains internal state and is NOT safe for concurrent use.
-// Each goroutine should create its own Decoder instance.
-//
-// The decoder supports all Opus modes (SILK, Hybrid, CELT) and automatically
-// detects the mode from the TOC byte in each packet.
+// Decoder decodes Opus packets into PCM samples. It retains stream state and is
+// not safe for concurrent use; use one Decoder per stream.
 type Decoder struct {
 	silkDecoder      *silk.Decoder   // SILK-only mode decoder
 	celtDecoder      *celt.Decoder   // CELT-only mode decoder
@@ -55,11 +55,10 @@ type Decoder struct {
 	channels         int32
 	maxPacketSamples int
 	maxPacketBytes   int
-	// scratchF32 backs the six fixed float32 decode work buffers below with one
+	// scratchF32 backs the five fixed float32 decode work buffers below with one
 	// contiguous allocation; see NewDecoder.
 	scratchF32         arena.Bump[float32]
 	scratchPCM         []float32
-	scratchFrame48     []float32
 	scratchTransition  []float32
 	scratchRedundant   []float32
 	scratchSilkPLC     []float32 // SILK PLC concealment output (one chunk at API rate)
@@ -100,6 +99,7 @@ type Decoder struct {
 	decoderOSCEFields
 	decoderHD96kFields
 	decoderFixedFields
+	fixedQEXT decoderFixedQEXTFields
 
 	// Decoder-side DNN readiness mirrors the validated model families retained
 	// by OPUS_SET_DNN_BLOB so optional paths can stay dormant until they are real.
@@ -108,7 +108,8 @@ type Decoder struct {
 	farganModelLoaded bool
 }
 
-// NewDecoder creates a new Opus decoder.
+// NewDecoder returns a Decoder configured by cfg. It returns an error if the
+// sample rate, channel count, or packet limits are invalid.
 func NewDecoder(cfg DecoderConfig) (*Decoder, error) {
 	if !validSampleRate(cfg.SampleRate) {
 		return nil, ErrInvalidSampleRate
@@ -150,8 +151,7 @@ func NewDecoder(cfg DecoderConfig) (*Decoder, error) {
 	hybridDec := hybrid.NewDecoderWithSharedDecoders(cfg.Channels, silkDec, celtDec)
 	hybridDec.SetAPISampleRate(internalRate)
 
-	transitionSamples := 48000 / 200 // 5ms at 48kHz
-	scratchFrame48Samples := max(min(maxPacketSamples*48000/cfg.SampleRate, defaultMaxPacketSamples), maxPacketSamples)
+	transitionSamples := max(48000, cfg.SampleRate) / 200 // 5 ms in the largest configured CELT geometry.
 
 	d := &Decoder{
 		silkDecoder:      silkDec,
@@ -167,12 +167,11 @@ func NewDecoder(cfg DecoderConfig) (*Decoder, error) {
 		lastBandwidth:    BandwidthFullband,
 		fecData:          make([]byte, maxPacketBytes),
 	}
-	// Back the six fixed float32 decode work buffers with one contiguous arena.
+	// Back the five fixed float32 decode work buffers with one contiguous arena.
 	pcmLen := maxPacketSamples * cfg.Channels
 	transLen := transitionSamples * cfg.Channels
-	d.scratchF32.Ensure(3*pcmLen + scratchFrame48Samples*cfg.Channels + 2*transLen)
+	d.scratchF32.Ensure(3*pcmLen + 2*transLen)
 	d.scratchPCM = d.scratchF32.AllocN(pcmLen)
-	d.scratchFrame48 = d.scratchF32.AllocN(scratchFrame48Samples * cfg.Channels)
 	d.scratchTransition = d.scratchF32.AllocN(transLen)
 	d.scratchRedundant = d.scratchF32.AllocN(transLen)
 	d.scratchSilkPLC = d.scratchF32.AllocN(pcmLen)
@@ -180,5 +179,6 @@ func NewDecoder(cfg DecoderConfig) (*Decoder, error) {
 	if cfg.SampleRate == 96000 {
 		init96kDecoder(d)
 	}
+	d.initOSCELossHook()
 	return d, nil
 }

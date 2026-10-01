@@ -217,9 +217,8 @@ func TestEncoderMatchesDecoder(t *testing.T) {
 	}
 
 	// Compare overlap buffer size
-	if len(enc.OverlapBuffer()) != len(dec.OverlapBuffer()) {
-		t.Errorf("OverlapBuffer length: enc=%d, dec=%d",
-			len(enc.OverlapBuffer()), len(dec.OverlapBuffer()))
+	if got, want := len(enc.OverlapBuffer()), dec.decodeMemOverlapLen()*dec.Channels(); got != want {
+		t.Errorf("OverlapBuffer length: enc=%d, dec=%d", got, want)
 	}
 }
 
@@ -337,32 +336,6 @@ func TestEncoderResetPreservesPredictionControl(t *testing.T) {
 	enc.Reset()
 	if got := enc.Prediction(); got != 0 {
 		t.Fatalf("Prediction() after Reset() = %d, want 0", got)
-	}
-}
-
-func TestEncoderSetSurroundTrim(t *testing.T) {
-	enc := NewEncoder(2)
-	if got := enc.SurroundTrim(); got != 0 {
-		t.Fatalf("initial SurroundTrim() = %v, want 0", got)
-	}
-
-	enc.SetSurroundTrim(0.75)
-	if got := enc.SurroundTrim(); got != 0.75 {
-		t.Fatalf("SurroundTrim() after set = %v, want 0.75", got)
-	}
-
-	enc.SetSurroundTrim(-0.5)
-	if got := enc.SurroundTrim(); got != -0.5 {
-		t.Fatalf("SurroundTrim() after update = %v, want -0.5", got)
-	}
-}
-
-func TestEncoderResetClearsSurroundTrim(t *testing.T) {
-	enc := NewEncoder(2)
-	enc.SetSurroundTrim(1.25)
-	enc.Reset()
-	if got := enc.SurroundTrim(); got != 0 {
-		t.Fatalf("SurroundTrim() after reset = %v, want 0", got)
 	}
 }
 

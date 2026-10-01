@@ -1,12 +1,14 @@
 // Multistream encoder/decoder CTL surface parity.
 //
-// Asserts that the gopus multistream Encoder and Decoder CTL surface matches
-// the libopus opus_multistream_encoder_ctl / opus_multistream_decoder_ctl
-// broadcast semantics documented in opus_multistream.h (libopus 1.6.1).
+// Compares the gopus multistream Encoder and Decoder CTL surface with the
+// libopus opus_multistream_encoder_ctl / opus_multistream_decoder_ctl behavior
+// documented in opus_multistream.h (libopus 1.6.1). Most stream-local SET
+// controls broadcast to each child; aggregate controls such as bitrate have
+// control-specific storage and getter semantics.
 //
 // Key CTL broadcast rules (from opus_multistream.c libopus 1.6.1):
-//   - SET CTLs are applied to every per-stream encoder/decoder.
-//   - GET CTLs read back from the first stream (stream 0).
+//   - Stream-local SET CTLs are applied to every per-stream encoder/decoder.
+//   - GET behavior is control-specific; many stream-local GET CTLs read stream 0.
 //   - OPUS_GET_FINAL_RANGE XORs all per-stream final range values.
 //   - Per-stream state access via OPUS_MULTISTREAM_GET_ENCODER_STATE /
 //     OPUS_MULTISTREAM_GET_DECODER_STATE allows stream-individual CTLs.
@@ -19,6 +21,7 @@ package multistream
 
 import (
 	"errors"
+	"math"
 	"testing"
 
 	internalenc "github.com/thesyncim/gopus/internal/encoder"
@@ -30,6 +33,19 @@ import (
 // ---------------------------------------------------------------------------
 // Decoder CTL broadcast parity
 // ---------------------------------------------------------------------------
+
+func assertMSControlPCMExact(t *testing.T, got, want []float32, label string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("%s PCM samples Go=%d C=%d", label, len(got), len(want))
+	}
+	for i, sample := range got {
+		if math.Float32bits(sample) != math.Float32bits(want[i]) {
+			t.Fatalf("%s PCM sample %d Go=%08x C=%08x", label, i,
+				math.Float32bits(sample), math.Float32bits(want[i]))
+		}
+	}
+}
 
 // TestMSDecoderCTL_GainBroadcast asserts that SetGain broadcasts to all per-
 // stream decoders and that the decoded audio matches the libopus oracle with
@@ -58,7 +74,7 @@ func TestMSDecoderCTL_GainBroadcast(t *testing.T) {
 	enc.SetBandwidth(types.BandwidthFullband)
 	enc.SetBitrate(bitrate)
 
-	packet, err := enc.Encode(generateTestSignal(channels, frameSize, sampleRate, 997), frameSize)
+	packet, err := encodePacket(enc, generateTestSignal(channels, frameSize, sampleRate, 997), frameSize)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
@@ -98,6 +114,7 @@ func TestMSDecoderCTL_GainBroadcast(t *testing.T) {
 	}
 	cmp := compareWaveformF32(got, want)
 	qualitycompare.AssertQuality(t, cmp, qualityBarWaveformNearExact, "MS decoder gain broadcast vs libopus oracle")
+	assertMSControlPCMExact(t, got, want, "MS decoder gain broadcast")
 }
 
 // TestMSDecoderCTL_GainZeroRoundtrip asserts that SetGain(0) restores the
@@ -235,7 +252,7 @@ func TestMSDecoderCTL_FinalRangeXOR(t *testing.T) {
 	enc.SetBandwidth(types.BandwidthFullband)
 	enc.SetBitrate(192000)
 
-	packet, err := enc.Encode(generateTestSignal(channels, sampleRate/50, sampleRate, 440), sampleRate/50)
+	packet, err := encodePacket(enc, generateTestSignal(channels, sampleRate/50, sampleRate, 440), sampleRate/50)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
@@ -296,7 +313,7 @@ func TestMSDecoderCTL_LastPacketDurationReflectsFirstStream(t *testing.T) {
 	enc.SetBandwidth(types.BandwidthFullband)
 	enc.SetBitrate(256000)
 
-	packet, err := enc.Encode(generateTestSignal(channels, frameSize, sampleRate, 220), frameSize)
+	packet, err := encodePacket(enc, generateTestSignal(channels, frameSize, sampleRate, 220), frameSize)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
@@ -336,7 +353,7 @@ func TestMSDecoderCTL_BandwidthReflectsFirstStream(t *testing.T) {
 	enc.SetBandwidth(types.BandwidthFullband)
 	enc.SetBitrate(256000)
 
-	packet, err := enc.Encode(generateTestSignal(channels, frameSize, sampleRate, 220), frameSize)
+	packet, err := encodePacket(enc, generateTestSignal(channels, frameSize, sampleRate, 220), frameSize)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
@@ -413,9 +430,12 @@ func TestMSDecoderCTL_IgnoreExtensionsBroadcast(t *testing.T) {
 // Encoder CTL broadcast parity
 // ---------------------------------------------------------------------------
 
-// TestMSEncoderCTL_BitrateBroadcast asserts that SetBitrate distributes
-// rate to all stream encoders and that the per-stream rates are positive.
-// C ref: opus_multistream_encoder_ctl OPUS_SET_BITRATE, opus_multistream.c libopus 1.6.1
+// TestMSEncoderCTL_BitrateBroadcast checks that SetBitrate retains the
+// configured aggregate bitrate and that Go's per-stream allocator produces
+// positive child targets. The Go facade stores the configured total and
+// assigns initial child rates and recalculates them for each encode.
+// In libopus 1.6.1, SET_BITRATE
+// stores an aggregate target; its getter sums the current child targets.
 func TestMSEncoderCTL_BitrateBroadcast(t *testing.T) {
 	const (
 		channels = 6
@@ -629,7 +649,7 @@ func TestMSEncoderCTL_FinalRangeXOR(t *testing.T) {
 	enc.SetBitrate(256000)
 
 	pcm := generateTestSignal(channels, frameSize, sampleRate, 330)
-	if _, err := enc.Encode(pcm, frameSize); err != nil {
+	if _, err := encodePacket(enc, pcm, frameSize); err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
 
@@ -716,7 +736,7 @@ func TestMSDecoderCTL_GainAudioMatchesLibopus(t *testing.T) {
 	enc.SetBitrate(bitrate)
 
 	pcm := generateMultichannelSine(channels, frameSize)
-	packet, err := enc.Encode(pcm, frameSize)
+	packet, err := encodePacket(enc, pcm, frameSize)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
@@ -745,6 +765,7 @@ func TestMSDecoderCTL_GainAudioMatchesLibopus(t *testing.T) {
 	}
 	cmp := compareWaveformF32(got, want)
 	qualitycompare.AssertQuality(t, cmp, qualityBarWaveformNearExact, "6ch gain CTL audio vs libopus oracle")
+	assertMSControlPCMExact(t, got, want, "6ch gain CTL audio")
 }
 
 // TestMSDecoderCTL_GainAudioMatchesLibopusSILK validates gain CTL on a SILK
@@ -773,7 +794,7 @@ func TestMSDecoderCTL_GainAudioMatchesLibopusSILK(t *testing.T) {
 	enc.SetBitrate(bitrate)
 
 	pcm := generateMultichannelSine(channels, frameSize)
-	packet, err := enc.Encode(pcm, frameSize)
+	packet, err := encodePacket(enc, pcm, frameSize)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
@@ -802,4 +823,5 @@ func TestMSDecoderCTL_GainAudioMatchesLibopusSILK(t *testing.T) {
 	}
 	cmp := compareWaveformF32(got, want)
 	qualitycompare.AssertQuality(t, cmp, qualityBarWaveformNearExact, "3ch SILK gain CTL audio vs libopus oracle")
+	assertMSControlPCMExact(t, got, want, "3ch SILK gain CTL audio")
 }

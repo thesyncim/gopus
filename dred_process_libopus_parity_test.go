@@ -242,16 +242,3 @@ func libopusDREDFloat32Hash(data []float32) uint32 {
 	}
 	return h
 }
-
-func assertFloat32ApproxEqual(t *testing.T, got, want []float32, label string, tol float64) {
-	t.Helper()
-	if len(got) != len(want) {
-		t.Fatalf("%s len=%d want %d", label, len(got), len(want))
-	}
-	for i := range got {
-		diff := math.Abs(float64(got[i] - want[i]))
-		if diff > tol {
-			t.Fatalf("%s[%d]=%g want %g (|diff|=%g > %g)", label, i, got[i], want[i], diff, tol)
-		}
-	}
-}

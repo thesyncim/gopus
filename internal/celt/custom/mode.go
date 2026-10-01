@@ -130,12 +130,13 @@ type CustomMode struct {
 	// modes (48 kHz, 120/240/480/960 samples). Standard modes can be encoded
 	// and decoded with byte-exact libopus parity using the existing celt package.
 	isStandard bool
+	transforms *celt.CustomMDCTTables
 }
 
 // NewMode creates a CustomMode for the given sample rate and frame size.
 // It validates the arguments exactly as libopus opus_custom_mode_create() does
-// (Fs in 8000–96000, frame_size in 40–1024, even, frame_size*1000 >= Fs, short
-// block ≤ 3.3ms).  For standard Opus frame sizes at 48 kHz the returned mode
+// (Fs in 8000–96000, even frame_size in 40–1024 or 40–2048 with gopus_qext,
+// frame_size*1000 >= Fs, short block ≤ 3.3ms). For standard Opus frame sizes at 48 kHz the returned mode
 // maps to the existing static mode so encode/decode will be byte-identical to
 // libopus.
 //
@@ -145,7 +146,7 @@ func NewMode(fs, frameSize int) (*CustomMode, error) {
 	if fs < 8000 || fs > 96000 {
 		return nil, ErrBadArg
 	}
-	if frameSize < 40 || frameSize > 1024 || frameSize%2 != 0 {
+	if frameSize < 40 || frameSize > maxCustomFrameSize || frameSize%2 != 0 {
 		return nil, ErrBadArg
 	}
 	// Frames shorter than 1 ms are not supported.
@@ -243,6 +244,17 @@ func NewMode(fs, frameSize int) (*CustomMode, error) {
 	// Compute the pulse cache (index/bits/caps).
 	// Reference: libopus celt/rate.c compute_pulse_cache(mode, maxLM).
 	computePulseCache(mode)
+	// modes.c selects the pinned 96 kHz static transform for this QEXT
+	// family. A nil transform override selects those same tables in CELT.
+	staticQEXT := customQEXT && fs == 96000 && shortMdctSize == 240
+	if !mode.isStandard && !staticQEXT {
+		mode.transforms = celt.NewCustomMDCTTables(frameSize, maxLM, mode.Window)
+		if mode.transforms == nil {
+			// modes.c reports OPUS_ALLOC_FAIL when clt_mdct_init rejects
+			// a transform factorization.
+			return nil, ErrAllocFail
+		}
+	}
 
 	return mode, nil
 }
@@ -253,13 +265,15 @@ func NewMode(fs, frameSize int) (*CustomMode, error) {
 // Reference: libopus celt/modes.c lines 322-356 (FIXED_POINT=0 branch).
 func preemphForFs(fs int) [4]float32 {
 	switch {
+	case customQEXT && fs == 96000:
+		return [4]float32{0.9230041504, 0.2200012207, 1.5128347184, 0.6610107422}
 	case fs < 12000: // 8 kHz
 		return [4]float32{0.3500061035, -0.1799926758, 0.2719968125, 3.6765136719}
 	case fs < 24000: // 16 kHz
 		return [4]float32{0.6000061035, -0.1799926758, 0.4424998650, 2.2598876953}
 	case fs < 40000: // 32 kHz
 		return [4]float32{0.7799987793, -0.1000061035, 0.7499771125, 1.3333740234}
-	default: // 48 kHz (and 96 kHz treated same in non-QEXT builds)
+	default: // 48 kHz, and 96 kHz without QEXT.
 		return [4]float32{0.8500061035, 0.0, 1.0, 1.0}
 	}
 }
@@ -643,25 +657,11 @@ func ecILOG(v uint32) int {
 	return l
 }
 
-// maxNativeBands is the largest per-mode band count the native gopus CELT data
-// plane currently supports. The static codec history and energy-prediction
-// buffers (oldBandE/oldLogE/energyError and their encoder twins) are sized by
-// the static MaxBands (21). A non-standard custom mode whose band layout exceeds
-// that count (compute_ebands can yield up to ~24 bands at high Fs with a small
-// short-MDCT, e.g. 32000/100 -> 22 bands) would index those buffers out of
-// range, so such modes are declined with ErrNonStandard rather than crashing or
-// emitting a non-conformant bitstream. libopus sizes every CELTMode buffer by
-// the mode's own nbEBands, so this is a gopus-side capacity limit, not a libopus
-// constraint.
-//
-// Reference: libopus celt/modes.c compute_ebands(), celt/celt_encoder.c /
-// celt/celt_decoder.c oldBandE[i+c*m->nbEBands] indexing.
-const maxNativeBands = 21
+// maxNativeBands matches BARK_BANDS in libopus celt/modes.c. Mode-owned
+// history and scratch buffers use NbEBands, including layouts above MaxBands.
+const maxNativeBands = 25
 
-// nativeSupported reports whether gopus can drive this mode through the native
-// CELT data plane. Standard modes and any non-standard mode whose band count is
-// within maxNativeBands are supported; wider band layouts are declined with
-// ErrNonStandard.
+// nativeSupported checks the band-count bound of libopus compute_ebands().
 func (m *CustomMode) nativeSupported() bool {
 	if m == nil {
 		return false
@@ -669,7 +669,7 @@ func (m *CustomMode) nativeSupported() bool {
 	if m.isStandard {
 		return true
 	}
-	return m.NbEBands <= maxNativeBands
+	return m.NbEBands > 0 && m.NbEBands <= maxNativeBands
 }
 
 // IsStandard reports whether the mode corresponds to a standard Opus 48 kHz

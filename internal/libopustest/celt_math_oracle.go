@@ -1,5 +1,7 @@
 package libopustest
 
+import "github.com/thesyncim/gopus/internal/extsupport"
+
 const (
 	celtMathInputMagic  = "GCMI"
 	celtMathOutputMagic = "GCMO"
@@ -35,10 +37,17 @@ type CELTStereoIthetaCase struct {
 	Y      []float32
 }
 
+type CELTStereoIthetaOracle struct {
+	Values       []uint32
+	SelectedArch uint32
+	RTCDEnabled  bool
+	PresumeNEON  bool
+}
+
 var celtMathHelper HelperCache
 
 func buildCELTMathHelper() (string, error) {
-	return BuildCHelper(CHelperConfig{
+	cfg := CHelperConfig{
 		Label:       "celt math",
 		OutputBase:  "gopus_libopus_celt_math",
 		SourceFile:  "libopus_celt_math_info.c",
@@ -46,7 +55,25 @@ func buildCELTMathHelper() (string, error) {
 		RefIncludes: []string{"celt", "silk"},
 		Libs:        []string{RefPath(".libs", "libopus.a"), "-lm"},
 		DeadStrip:   true,
-	})
+	}
+	// These probes exercise CELT's floating-point math primitives, including
+	// in fixed-point public builds. Select the matching float QEXT archive when
+	// the helper's code is compiled with ENABLE_QEXT; fixed-point archives use
+	// a different celt_norm domain and do not match this helper's float inputs.
+	if extsupport.QEXT {
+		if dredQEXTReferenceEnabled && !customModesReferenceEnabled {
+			cfg.DREDQEXTRef = true
+			cfg.RefIncludes = append(cfg.RefIncludes, "dnn")
+			cfg.Libs = []string{DREDQEXTRefPath(".libs", "libopus.a"), "-lm"}
+		} else if customModesReferenceEnabled {
+			cfg.CustomQEXTRef = true
+			cfg.Libs = []string{CustomQEXTRefPath(".libs", "libopus.a"), "-lm"}
+		} else {
+			cfg.QEXTRef = true
+			cfg.Libs = []string{QEXTRefPath(".libs", "libopus.a"), "-lm"}
+		}
+	}
+	return BuildCHelper(cfg)
 }
 
 func getCELTMathHelperPath() (string, error) {
@@ -135,10 +162,10 @@ func ProbeCELTBitexactThetaPairs(inputs []uint32) ([]CELTBitexactThetaPair, erro
 	return out, nil
 }
 
-func ProbeCELTStereoIthetaQ30(cases []CELTStereoIthetaCase) ([]uint32, error) {
+func ProbeCELTStereoIthetaQ30(cases []CELTStereoIthetaCase) (CELTStereoIthetaOracle, error) {
 	binPath, err := getCELTMathHelperPath()
 	if err != nil {
-		return nil, err
+		return CELTStereoIthetaOracle{}, err
 	}
 	payload := NewOraclePayload(celtMathInputMagic, CELTMathModeStereoIthetaQ30, uint32(len(cases)))
 	for _, tc := range cases {
@@ -156,18 +183,23 @@ func ProbeCELTStereoIthetaQ30(cases []CELTStereoIthetaCase) ([]uint32, error) {
 		}
 	}
 
-	reader, err := RunOracle(binPath, payload.Bytes(), "celt math", celtMathOutputMagic)
+	reader, err := RunOracleVersion(binPath, payload.Bytes(), "celt math stereo itheta", celtMathOutputMagic, 2)
 	if err != nil {
-		return nil, err
+		return CELTStereoIthetaOracle{}, err
 	}
 	count := reader.Count(len(cases))
-	reader.ExpectRemaining(4 * count)
-	out := make([]uint32, count)
-	for i := range out {
-		out[i] = reader.U32()
+	reader.ExpectRemaining(12 + 4*count)
+	out := CELTStereoIthetaOracle{
+		SelectedArch: reader.U32(),
+		RTCDEnabled:  reader.U32() != 0,
+		PresumeNEON:  reader.U32() != 0,
+		Values:       make([]uint32, count),
+	}
+	for i := range out.Values {
+		out.Values[i] = reader.U32()
 	}
 	if err := reader.ExpectConsumed(); err != nil {
-		return nil, err
+		return CELTStereoIthetaOracle{}, err
 	}
 	return out, nil
 }

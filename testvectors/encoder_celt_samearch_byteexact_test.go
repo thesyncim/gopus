@@ -9,20 +9,18 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/thesyncim/gopus/internal/encoder"
+	"github.com/thesyncim/gopus"
+	"github.com/thesyncim/gopus/internal/libopustest"
 	"github.com/thesyncim/gopus/internal/testsignal"
 	"github.com/thesyncim/gopus/types"
 )
 
 // celtSameArchByteExactCase enumerates CELT-mode encode cases that gopus
-// reproduces byte-for-byte against the SAME-ARCH float libopus encoder
-// (opus_demo, native build on this host). The comparison is live: opus_demo is
-// driven on this machine, so it is gopus-arm64 vs libopus-arm64 (or amd64 vs
-// amd64), not a cross-arch fixture.
+// reproduces byte-for-byte against the feature- and ISA-matched opus_demo
+// encoder on this host. Both encoders receive the same int24 input samples.
 type celtSameArchByteExactCase struct {
 	name      string
 	mode      string
-	modeE     encoder.Mode
 	bw        string
 	bwE       types.Bandwidth
 	frameSize int
@@ -32,13 +30,12 @@ type celtSameArchByteExactCase struct {
 }
 
 // celtSameArchByteExactCases are (case, signal-variant) pairs that are byte-exact
-// vs same-arch libopus on arm64. They lock in the established CELT-encode byte
-// parity so a regression in the forward float path (MDCT, band energy, PVQ
-// pre-search rcp/FMA order, allocation) is caught immediately.
+// against the selected same-architecture libopus build. They lock in CELT
+// forward-encode parity across signals, durations, channel counts, and rates.
 func celtSameArchByteExactCases() []celtSameArchByteExactCase {
 	mk := func(name string, fs, ch, br int, variant string) celtSameArchByteExactCase {
 		return celtSameArchByteExactCase{
-			name: name, mode: "celt", modeE: encoder.ModeCELT,
+			name: name, mode: "celt",
 			bw: "fb", bwE: types.BandwidthFullband,
 			frameSize: fs, channels: ch, bitrate: br, variant: variant,
 		}
@@ -66,27 +63,39 @@ func celtSameArchByteExactCases() []celtSameArchByteExactCase {
 	}
 }
 
-// TestEncoderCELTSameArchByteExact drives the native libopus encoder on this
-// host and asserts gopus produces byte-identical CELT packets for the cases in
-// celtSameArchByteExactCases. It demonstrates (not masks) genuine same-arch
-// byte parity for the CELT forward float path.
+// TestEncoderCELTSameArchByteExact compares every CELT packet and final range
+// with the selected libopus opus_demo build, including its zero-padded EOF frame.
 func TestEncoderCELTSameArchByteExact(t *testing.T) {
 	t.Parallel()
 	requireTestTier(t, testTierParity)
 
-	opusDemo, ok := getFixtureOpusDemoPathForEncoder()
-	if !ok {
-		t.Skip("opus_demo not found; same-arch byte-exact comparison unavailable")
+	opusDemo, err := libopustest.PublicAPIOpusDemoPath()
+	if err != nil {
+		libopustest.HelperUnavailable(t, "public API opus_demo", err)
+		return
 	}
 
+	cases := celtSameArchByteExactCases()
+	if len(cases) == 0 {
+		t.Fatal("empty CELT same-architecture parity corpus")
+	}
 	tmpDir := t.TempDir()
-	for _, c := range celtSameArchByteExactCases() {
+	for _, c := range cases {
 		t.Run(c.name+"/"+c.variant, func(t *testing.T) {
+			if c.frameSize <= 0 || c.channels <= 0 {
+				t.Fatalf("invalid CELT case geometry frame=%d channels=%d", c.frameSize, c.channels)
+			}
 			signalFrames := 48000 / c.frameSize
+			if signalFrames == 0 {
+				t.Fatalf("invalid frame size %d", c.frameSize)
+			}
 			totalSamples := signalFrames * c.frameSize * c.channels
 			signal, err := testsignal.GenerateEncoderSignalVariant(c.variant, 48000, totalSamples, c.channels)
 			if err != nil {
 				t.Fatalf("generate signal: %v", err)
+			}
+			if len(signal) != totalSamples {
+				t.Fatalf("signal samples=%d want %d", len(signal), totalSamples)
 			}
 
 			rawPath := filepath.Join(tmpDir, c.name+"_"+c.variant+".f32")
@@ -106,34 +115,52 @@ func TestEncoderCELTSameArchByteExact(t *testing.T) {
 			if err != nil {
 				t.Fatalf("map frame size: %v", err)
 			}
-			libPackets, _, err := runOpusDemoCELTEncode(opusDemo, app, bwArg, frameArg, c.bitrate, c.channels, rawPath, bitPath)
+			libPackets, libRanges, err := runOpusDemoCELTEncode(opusDemo, app, bwArg, frameArg, c.bitrate, c.channels, rawPath, bitPath)
 			if err != nil {
 				t.Fatalf("opus_demo encode: %v", err)
 			}
 
-			enc := encoder.NewEncoder(48000, c.channels)
-			enc.SetLowDelay(true)
-			enc.SetMode(c.modeE)
-			enc.SetBandwidth(c.bwE)
-			enc.SetBitrate(c.bitrate)
-			enc.SetBitrateMode(encoder.ModeCBR)
-			enc.SetComplexity(10)
+			enc, err := newVBRCVBREncoder(gopus.ApplicationLowDelay, 48000,
+				c.channels, c.frameSize, c.bitrate, c.bwE, true,
+				types.SignalAuto, false, true)
+			if err != nil {
+				t.Fatalf("gopus encoder setup: %v", err)
+			}
+			enc.SetVBR(false)
 
 			samplesPerFrame := c.frameSize * c.channels
-			goPackets := make([][]byte, 0, signalFrames)
-			for i := range signalFrames {
-				frame := float32ToFloat64OpusDemoF32(signal[i*samplesPerFrame : (i+1)*samplesPerFrame])
-				pkt, err := encodeTest(enc, frame, c.frameSize)
+			// opus_demo -f32 quantizes to int24, calls opus_encode24, then
+			// encodes one zero-padded frame after reading the exact-frame EOF.
+			goPackets := make([][]byte, 0, signalFrames+1)
+			goRanges := make([]uint32, 0, signalFrames+1)
+			buf := make([]byte, 4000)
+			for i := range signalFrames + 1 {
+				frame := make([]int32, samplesPerFrame)
+				if i < signalFrames {
+					frame = quantizeOpusDemoFloatInputToInt24(signal[i*samplesPerFrame : (i+1)*samplesPerFrame])
+				}
+				n, err := enc.EncodeInt24(frame, buf)
 				if err != nil {
 					t.Fatalf("gopus encode frame %d: %v", i, err)
 				}
-				goPackets = append(goPackets, append([]byte(nil), pkt...))
+				if n == 0 {
+					t.Fatalf("gopus encode frame %d: empty packet", i)
+				}
+				goPackets = append(goPackets, append([]byte(nil), buf[:n]...))
+				goRanges = append(goRanges, enc.FinalRange())
 			}
 
-			n := min(len(goPackets), len(libPackets))
+			if len(libPackets) != signalFrames+1 || len(libRanges) != signalFrames+1 ||
+				len(goPackets) != signalFrames+1 || len(goRanges) != signalFrames+1 {
+				t.Fatalf("frame records: gopus packets/ranges=%d/%d libopus packets/ranges=%d/%d, want %d each",
+					len(goPackets), len(goRanges), len(libPackets), len(libRanges), signalFrames+1)
+			}
 			var diffFrames []int
-			for i := 0; i < n; i++ {
-				if !bytes.Equal(goPackets[i], libPackets[i]) {
+			for i := range libPackets {
+				if len(libPackets[i]) == 0 {
+					t.Fatalf("libopus encode frame %d: empty packet", i)
+				}
+				if !bytes.Equal(goPackets[i], libPackets[i]) || goRanges[i] != libRanges[i] {
 					diffFrames = append(diffFrames, i)
 				}
 			}
@@ -148,43 +175,13 @@ func TestEncoderCELTSameArchByteExact(t *testing.T) {
 					break
 				}
 				byteDiff := firstByteDiff(goPackets[fi], libPackets[fi])
-				t.Logf("frame %d diverges (arch=%s): goLen=%d libLen=%d firstByteDiff=%d\n  go =%x\n  lib=%x",
-					fi, runtime.GOARCH, len(goPackets[fi]), len(libPackets[fi]), byteDiff, goPackets[fi], libPackets[fi])
+				t.Logf("frame %d diverges (arch=%s): goLen=%d libLen=%d firstByteDiff=%d goRange=%08x libRange=%08x\n  go =%x\n  lib=%x",
+					fi, runtime.GOARCH, len(goPackets[fi]), len(libPackets[fi]), byteDiff,
+					goRanges[fi], libRanges[fi], goPackets[fi], libPackets[fi])
 			}
 
-			if fusedFloat {
-				// MODEL A: the default arm64 build fuses a*b+c into FMADD in the
-				// CELT forward float path, so it is quality-gated (opus_compare),
-				// not byte-identical to scalar libopus — the same posture
-				// libopus's own NEON kernels take. See project_arm64_celt_1ulp_drift.md.
-				t.Logf("RESIDUAL (fused CELT FMA): %d/%d packets differ — root cause: "+
-					"CELT float FMA contraction vs scalar libopus (project_arm64_celt_1ulp_drift.md)", len(diffFrames), n)
-				return
-			}
-			if runtime.GOARCH == "amd64" && !gopusBuildIsAsm {
-				// The pure-Go amd64 build is byte-exact vs scalar libopus for almost
-				// every packet, but the Go amd64 float backend does not reproduce
-				// gcc's scalar CELT forward float path (MDCT/band-energy/pitch
-				// analysis) bit-for-bit, so a handful of packets land one ULP apart in
-				// a raw-coded value and differ in their late raw bits. The pure-Go
-				// arm64 build IS byte-exact here (its float path matches scalar
-				// libopus), so this is the documented per-arch float-composition
-				// boundary on amd64-purego, not a logic bug. Hold the bulk byte-exact
-				// (a hard regression flips many packets / changes lengths) and log the
-				// residual. See project_arm64_celt_1ulp_drift.md.
-				for _, fi := range diffFrames {
-					if len(goPackets[fi]) != len(libPackets[fi]) {
-						t.Fatalf("CELT same-arch packet LENGTH mismatch frame %d: gopus=%d libopus=%d (arch=amd64 purego)",
-							fi, len(goPackets[fi]), len(libPackets[fi]))
-					}
-				}
-				t.Logf("RESIDUAL (amd64-purego CELT float codegen): %d/%d packets differ in late raw bits "+
-					"(equal length) — Go amd64 float vs gcc scalar libopus (project_arm64_celt_1ulp_drift.md)",
-					len(diffFrames), n)
-				return
-			}
-			t.Fatalf("CELT same-arch byte parity FAIL: %d/%d packets differ (arch=%s)",
-				len(diffFrames), n, runtime.GOARCH)
+			t.Fatalf("CELT same-arch packet/range parity FAIL: %d/%d frames differ (arch=%s)",
+				len(diffFrames), signalFrames+1, runtime.GOARCH)
 		})
 	}
 }

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"math"
 	"testing"
-	"unsafe"
 
 	encpkg "github.com/thesyncim/gopus/internal/encoder"
 	"github.com/thesyncim/gopus/types"
@@ -545,13 +544,29 @@ func TestWriteSelfDelimitedLength(t *testing.T) {
 	}
 }
 
+// assembleStreamPackets frames per-stream packets into one multistream packet
+// with writeStreamPacket, as the encoder does.
+func assembleStreamPackets(packets [][]byte) ([]byte, error) {
+	out := make([]byte, 4000*len(packets))
+	var scratch packetScratch
+	tot := 0
+	for i, packet := range packets {
+		n, err := writeStreamPacket(&scratch, out[tot:], packet, i == len(packets)-1)
+		if err != nil {
+			return nil, err
+		}
+		tot += n
+	}
+	return out[:tot], nil
+}
+
 // TestAssembleMultistreamPacket tests packet assembly.
 func TestAssembleMultistreamPacket(t *testing.T) {
 	t.Run("single stream", func(t *testing.T) {
 		packets := [][]byte{{0xF8, 1, 2, 3}}
-		result, err := (&Encoder{}).assembleMultistreamPacket(packets)
+		result, err := assembleStreamPackets(packets)
 		if err != nil {
-			t.Fatalf("assembleMultistreamPacket error: %v", err)
+			t.Fatalf("assembleStreamPackets error: %v", err)
 		}
 
 		if len(result) != 4 {
@@ -569,9 +584,9 @@ func TestAssembleMultistreamPacket(t *testing.T) {
 			{0xF8, 1, 2, 3},
 			{0xF8, 4, 5, 6},
 		}
-		result, err := (&Encoder{}).assembleMultistreamPacket(packets)
+		result, err := assembleStreamPackets(packets)
 		if err != nil {
-			t.Fatalf("assembleMultistreamPacket error: %v", err)
+			t.Fatalf("assembleStreamPackets error: %v", err)
 		}
 
 		parsedPackets, err := parseMultistreamPacket(result, 2)
@@ -595,9 +610,9 @@ func TestAssembleMultistreamPacket(t *testing.T) {
 			{0xF8, 6, 7},
 			{0xF8, 8, 9, 10},
 		}
-		result, err := (&Encoder{}).assembleMultistreamPacket(packets)
+		result, err := assembleStreamPackets(packets)
 		if err != nil {
-			t.Fatalf("assembleMultistreamPacket error: %v", err)
+			t.Fatalf("assembleStreamPackets error: %v", err)
 		}
 
 		parsedPackets, err := parseMultistreamPacket(result, 4)
@@ -622,9 +637,9 @@ func TestAssembleMultistreamPacket(t *testing.T) {
 		largePacket := append([]byte{0xF8}, largeFrame...)
 		packets := [][]byte{largePacket, {0xF8, 1, 2, 3}}
 
-		result, err := (&Encoder{}).assembleMultistreamPacket(packets)
+		result, err := assembleStreamPackets(packets)
 		if err != nil {
-			t.Fatalf("assembleMultistreamPacket error: %v", err)
+			t.Fatalf("assembleStreamPackets error: %v", err)
 		}
 
 		if len(result) < 3 {
@@ -649,7 +664,7 @@ func TestAssembleMultistreamPacket(t *testing.T) {
 	})
 
 	t.Run("invalid packet returns error", func(t *testing.T) {
-		_, err := (&Encoder{}).assembleMultistreamPacket([][]byte{
+		_, err := assembleStreamPackets([][]byte{
 			{0x01, 0x02},
 			{0xF8, 4, 5, 6},
 		})
@@ -799,7 +814,7 @@ func TestEncode_Basic(t *testing.T) {
 	}
 
 	// Encode
-	packet, err := enc.Encode(pcm, frameSize)
+	packet, err := encodePacket(enc, pcm, frameSize)
 	if err != nil {
 		t.Fatalf("Encode error: %v", err)
 	}
@@ -852,7 +867,7 @@ func TestEncode_51Surround(t *testing.T) {
 	}
 
 	// Encode
-	packet, err := enc.Encode(pcm, frameSize)
+	packet, err := encodePacket(enc, pcm, frameSize)
 	if err != nil {
 		t.Fatalf("Encode error: %v", err)
 	}
@@ -919,7 +934,7 @@ func TestEncode_71Surround(t *testing.T) {
 	}
 
 	// Encode
-	packet, err := enc.Encode(pcm, frameSize)
+	packet, err := encodePacket(enc, pcm, frameSize)
 	if err != nil {
 		t.Fatalf("Encode error: %v", err)
 	}
@@ -978,7 +993,7 @@ func TestEncode_InputValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			pcm := make([]float32, tt.pcmLen)
-			_, err := enc.Encode(pcm, frameSize)
+			_, err := encodePacket(enc, pcm, frameSize)
 
 			if tt.wantError {
 				if err == nil {
@@ -1091,7 +1106,7 @@ func TestEncode_SurroundPerStreamPolicy(t *testing.T) {
 		pcm[i*6+5] = float32(0.9 * math.Sin(2*math.Pi*50*tm))   // LFE
 	}
 
-	if _, err := enc.Encode(pcm, frameSize); err != nil {
+	if _, err := encodePacket(enc, pcm, frameSize); err != nil {
 		t.Fatalf("Encode failed: %v", err)
 	}
 
@@ -1122,8 +1137,8 @@ func TestEncode_SurroundPerStreamPolicy(t *testing.T) {
 	if got := enc.encoders[enc.lfeStream].ForceChannels(); got != -1 {
 		t.Fatalf("LFE force channels = %d, want -1", got)
 	}
-	if got := enc.encoders[enc.lfeStream].CELTSurroundTrim(); got != 0 {
-		t.Fatalf("LFE surround trim = %f, want 0", got)
+	if got := enc.encoders[enc.lfeStream].CELTEnergyMask(); len(got) != 0 {
+		t.Fatalf("LFE energy mask = %v, want none", got)
 	}
 	for s := 0; s < enc.streams; s++ {
 		if s == enc.lfeStream {
@@ -1161,7 +1176,7 @@ func TestEncode_SurroundPolicyPreservesMonoForceChannels(t *testing.T) {
 		pcm[i*6+5] = float32(0.6 * math.Sin(2*math.Pi*60*tm))
 	}
 
-	if _, err := enc.Encode(pcm, frameSize); err != nil {
+	if _, err := encodePacket(enc, pcm, frameSize); err != nil {
 		t.Fatalf("Encode failed: %v", err)
 	}
 
@@ -1178,7 +1193,7 @@ func TestEncode_SurroundPolicyPreservesMonoForceChannels(t *testing.T) {
 	}
 }
 
-func TestEncode_SurroundTrimProduced(t *testing.T) {
+func TestEncode_SurroundEnergyMaskProduced(t *testing.T) {
 	enc, err := NewEncoderDefault(48000, 6)
 	if err != nil {
 		t.Fatalf("NewEncoderDefault error: %v", err)
@@ -1201,168 +1216,35 @@ func TestEncode_SurroundTrimProduced(t *testing.T) {
 		pcm[i*6+5] = float32(0.9 * math.Sin(2*math.Pi*45*tm))
 	}
 
-	if _, err := enc.Encode(pcm, frameSize); err != nil {
+	if _, err := encodePacket(enc, pcm, frameSize); err != nil {
 		t.Fatalf("Encode failed: %v", err)
 	}
 
 	nonZero := false
 	for s := 0; s < enc.streams; s++ {
-		got := enc.encoders[s].CELTSurroundTrim()
+		got := enc.encoders[s].CELTEnergyMask()
 		if s == enc.lfeStream {
-			if got != 0 {
-				t.Fatalf("LFE stream trim = %f, want 0", got)
+			if len(got) != 0 {
+				t.Fatalf("LFE stream energy mask = %v, want none", got)
 			}
 			continue
 		}
-		if got < -1e-6 || got > 1e-6 {
-			nonZero = true
+		want := surroundBands * streamChannels(s, enc.coupledStreams)
+		if len(got) != want {
+			t.Fatalf("stream %d energy mask len = %d, want %d", s, len(got), want)
+		}
+		for _, v := range got {
+			if v < -1e-6 || v > 1e-6 {
+				nonZero = true
+			}
 		}
 	}
 	if !nonZero {
-		t.Fatalf("expected at least one non-LFE stream to receive non-zero surround trim")
+		t.Fatalf("expected at least one non-LFE stream to receive a non-zero surround energy mask")
 	}
 }
 
-func TestEncode_SurroundBandSMRProduced(t *testing.T) {
-	enc, err := NewEncoderDefault(48000, 6)
-	if err != nil {
-		t.Fatalf("NewEncoderDefault error: %v", err)
-	}
-	enc.SetBitrate(192000)
-
-	frameSize := 960
-	pcm := make([]float32, frameSize*6)
-	for i := range frameSize {
-		tm := float64(i) / 48000.0
-		pcm[i*6+0] = float32(0.8 * math.Sin(2*math.Pi*2100*tm)) // FL
-		pcm[i*6+1] = float32(0.5 * math.Sin(2*math.Pi*260*tm))  // C
-		pcm[i*6+2] = float32(0.7 * math.Sin(2*math.Pi*460*tm))  // FR
-		pcm[i*6+3] = float32(0.9 * math.Sin(2*math.Pi*1800*tm)) // RL
-		pcm[i*6+4] = float32(0.6 * math.Sin(2*math.Pi*320*tm))  // RR
-		pcm[i*6+5] = float32(0.9 * math.Sin(2*math.Pi*50*tm))   // LFE
-	}
-
-	if _, err := enc.Encode(pcm, frameSize); err != nil {
-		t.Fatalf("Encode failed: %v", err)
-	}
-
-	if got, want := len(enc.surroundBandSMR), 6*surroundBands; got < want {
-		t.Fatalf("surroundBandSMR len=%d want>=%d", got, want)
-	}
-
-	nonZeroChannels := 0
-	for ch := range 5 { // Exclude LFE channel (index 5)
-		row := enc.surroundBandSMR[ch*surroundBands : (ch+1)*surroundBands]
-		rowNonZero := false
-		for _, v := range row {
-			if v < -1e-6 || v > 1e-6 {
-				rowNonZero = true
-				break
-			}
-		}
-		if rowNonZero {
-			nonZeroChannels++
-		}
-	}
-	if nonZeroChannels < 3 {
-		t.Fatalf("expected surround analysis to produce non-zero masks on multiple channels, got %d", nonZeroChannels)
-	}
-
-	lfeRow := enc.surroundBandSMR[5*surroundBands : 6*surroundBands]
-	for i, v := range lfeRow {
-		if v < -1e-9 || v > 1e-9 {
-			t.Fatalf("LFE surroundBandSMR[%d]=%f want=0", i, v)
-		}
-	}
-}
-
-func TestEncode_SurroundEnergyMaskPerStream(t *testing.T) {
-	enc, err := NewEncoderDefault(48000, 6)
-	if err != nil {
-		t.Fatalf("NewEncoderDefault error: %v", err)
-	}
-	enc.SetBitrate(192000)
-
-	frameSize := 960
-	pcm := make([]float32, frameSize*6)
-	for i := range frameSize {
-		tm := float64(i) / 48000.0
-		pcm[i*6+0] = float32(0.8 * math.Sin(2*math.Pi*2100*tm)) // FL
-		pcm[i*6+1] = float32(0.5 * math.Sin(2*math.Pi*260*tm))  // C
-		pcm[i*6+2] = float32(0.7 * math.Sin(2*math.Pi*460*tm))  // FR
-		pcm[i*6+3] = float32(0.9 * math.Sin(2*math.Pi*1800*tm)) // RL
-		pcm[i*6+4] = float32(0.6 * math.Sin(2*math.Pi*320*tm))  // RR
-		pcm[i*6+5] = float32(0.9 * math.Sin(2*math.Pi*50*tm))   // LFE
-	}
-
-	if _, err := enc.Encode(pcm, frameSize); err != nil {
-		t.Fatalf("Encode failed: %v", err)
-	}
-
-	for s := 0; s < enc.streams; s++ {
-		gotMask := enc.encoders[s].CELTEnergyMask()
-		if s == enc.lfeStream {
-			if len(gotMask) != 0 {
-				t.Fatalf("LFE stream energy mask len=%d, want 0", len(gotMask))
-			}
-			continue
-		}
-
-		if s < enc.coupledStreams {
-			if len(gotMask) != 2*surroundBands {
-				t.Fatalf("stream %d coupled mask len=%d want=%d", s, len(gotMask), 2*surroundBands)
-			}
-			left := enc.inputChannelForMapping(byte(2 * s))
-			right := enc.inputChannelForMapping(byte(2*s + 1))
-			if left < 0 || right < 0 {
-				t.Fatalf("stream %d missing coupled channels left=%d right=%d", s, left, right)
-			}
-			wantLeft := enc.surroundBandSMR[left*surroundBands : (left+1)*surroundBands]
-			wantRight := enc.surroundBandSMR[right*surroundBands : (right+1)*surroundBands]
-			for i := range surroundBands {
-				wantL := float32(wantLeft[i])
-				wantR := float32(wantRight[i])
-				if gotMask[i] != wantL {
-					t.Fatalf("stream %d left mask[%d]=%f want=%f", s, i, gotMask[i], wantL)
-				}
-				if gotMask[surroundBands+i] != wantR {
-					t.Fatalf("stream %d right mask[%d]=%f want=%f", s, i, gotMask[surroundBands+i], wantR)
-				}
-			}
-		} else {
-			if len(gotMask) != surroundBands {
-				t.Fatalf("stream %d mono mask len=%d want=%d", s, len(gotMask), surroundBands)
-			}
-			mappingIdx := byte(2*enc.coupledStreams + (s - enc.coupledStreams))
-			mono := enc.inputChannelForMapping(mappingIdx)
-			if mono < 0 {
-				t.Fatalf("stream %d missing mono channel mapping", s)
-			}
-			wantMono := enc.surroundBandSMR[mono*surroundBands : (mono+1)*surroundBands]
-			for i := range surroundBands {
-				want := float32(wantMono[i])
-				if gotMask[i] != want {
-					t.Fatalf("stream %d mono mask[%d]=%f want=%f", s, i, gotMask[i], want)
-				}
-			}
-		}
-	}
-}
-
-func TestStreamEnergyMaskUsesFloat32Storage(t *testing.T) {
-	enc, err := NewEncoderDefault(48000, 6)
-	if err != nil {
-		t.Fatalf("NewEncoderDefault error: %v", err)
-	}
-	if len(enc.streamEnergyMask) == 0 {
-		t.Fatal("streamEnergyMask is empty")
-	}
-	if got := unsafe.Sizeof(enc.streamEnergyMask[0]); got != 4 {
-		t.Fatalf("streamEnergyMask element size=%d want celt_glog-sized 4", got)
-	}
-}
-
-func TestEncode_SurroundTrimProducedAt24k(t *testing.T) {
+func TestEncode_SurroundEnergyMaskProducedAt24k(t *testing.T) {
 	enc, err := NewEncoderDefault(24000, 6)
 	if err != nil {
 		t.Fatalf("NewEncoderDefault error: %v", err)
@@ -1381,25 +1263,31 @@ func TestEncode_SurroundTrimProducedAt24k(t *testing.T) {
 		pcm[i*6+5] = float32(0.9 * math.Sin(2*math.Pi*45*tm))
 	}
 
-	if _, err := enc.Encode(pcm, frameSize); err != nil {
+	if _, err := encodePacket(enc, pcm, frameSize); err != nil {
 		t.Fatalf("Encode failed: %v", err)
 	}
 
 	nonZero := false
 	for s := 0; s < enc.streams; s++ {
-		got := enc.encoders[s].CELTSurroundTrim()
+		got := enc.encoders[s].CELTEnergyMask()
 		if s == enc.lfeStream {
-			if got != 0 {
-				t.Fatalf("LFE stream trim = %f, want 0", got)
+			if len(got) != 0 {
+				t.Fatalf("LFE stream energy mask = %v, want none", got)
 			}
 			continue
 		}
-		if got < -1e-6 || got > 1e-6 {
-			nonZero = true
+		want := surroundBands * streamChannels(s, enc.coupledStreams)
+		if len(got) != want {
+			t.Fatalf("stream %d energy mask len = %d, want %d", s, len(got), want)
+		}
+		for _, v := range got {
+			if v < -1e-6 || v > 1e-6 {
+				nonZero = true
+			}
 		}
 	}
 	if !nonZero {
-		t.Fatalf("expected non-LFE streams to receive non-zero surround trim at 24k")
+		t.Fatalf("expected non-LFE streams to receive a non-zero surround energy mask at 24k")
 	}
 }
 
@@ -1419,7 +1307,7 @@ func TestEncode_AmbisonicsForcesCELTMode(t *testing.T) {
 		}
 	}
 
-	if _, err := enc.Encode(pcm, frameSize); err != nil {
+	if _, err := encodePacket(enc, pcm, frameSize); err != nil {
 		t.Fatalf("Encode failed: %v", err)
 	}
 
@@ -1496,7 +1384,7 @@ func TestEncode_Mono(t *testing.T) {
 	}
 
 	// Encode
-	packet, err := enc.Encode(pcm, frameSize)
+	packet, err := encodePacket(enc, pcm, frameSize)
 	if err != nil {
 		t.Fatalf("Encode error: %v", err)
 	}
@@ -1528,7 +1416,7 @@ func TestGetFinalRange(t *testing.T) {
 	}
 
 	// Encode
-	_, err = enc.Encode(pcm, frameSize)
+	_, err = encodePacket(enc, pcm, frameSize)
 	if err != nil {
 		t.Fatalf("Encode error: %v", err)
 	}
@@ -1541,7 +1429,7 @@ func TestGetFinalRange(t *testing.T) {
 	t.Logf("FinalRange after encode: %d", finalRange)
 
 	// Encode again, should get different final range
-	_, err = enc.Encode(pcm, frameSize)
+	_, err = encodePacket(enc, pcm, frameSize)
 	if err != nil {
 		t.Fatalf("Encode error: %v", err)
 	}
@@ -1811,7 +1699,7 @@ func TestGetFinalRange_XORCombination(t *testing.T) {
 
 	// Encode multiple frames to ensure we get different FinalRange values
 	for i := range 3 {
-		_, err = enc.Encode(pcm, frameSize)
+		_, err = encodePacket(enc, pcm, frameSize)
 		if err != nil {
 			t.Fatalf("Encode error on frame %d: %v", i, err)
 		}

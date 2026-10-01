@@ -1,11 +1,9 @@
-//go:build gopus_osce
+//go:build gopus_dred || gopus_osce
 
 package lpcnetplc
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
@@ -40,12 +38,11 @@ var (
 )
 
 func buildLibopusPLCHelper(sourceFile, outputBase string) (string, error) {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("getwd: %w", err)
-	}
-	repoRoot := filepath.Clean(filepath.Join(cwd, "..", ".."))
-	return libopustest.BuildDREDHelper(repoRoot, sourceFile, outputBase, true)
+	return libopustest.BuildPublicAPIHelper(libopustest.CHelperConfig{
+		OutputBase:  outputBase,
+		SourceFile:  sourceFile,
+		RefIncludes: []string{".", "celt", "silk", "src"},
+	})
 }
 
 func cachedLibopusPLCHelperPath(cache *libopustest.HelperCache, sourceFile, outputBase string) (string, error) {
@@ -292,6 +289,9 @@ func probeLibopusPLCPrefill(features, cont, fec0, fec1 []float32, plcNet predict
 	if err != nil {
 		return libopusPLCPrefillResult{}, err
 	}
+	if err := libopustest.ValidateDNNDispatchArch(reader.U32()); err != nil {
+		return libopusPLCPrefillResult{}, fmt.Errorf("plc prefill DNN dispatch: %w", err)
+	}
 	result := libopusPLCPrefillResult{
 		LossCount: int(reader.I32()),
 		FECRead:   int(reader.I32()),
@@ -477,6 +477,9 @@ func probeLibopusFARGANCond(features []float32, period int, condConv1State []flo
 	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "fargan cond", libopusFARGANCondOutputMagic)
 	if err != nil {
 		return nil, nil, err
+	}
+	if err := libopustest.ValidateDNNDispatchArch(reader.U32()); err != nil {
+		return nil, nil, fmt.Errorf("fargan conditioner DNN dispatch: %w", err)
 	}
 	cond, err = readLibopusFloat32s(reader, FARGANCondDense2Size)
 	if err != nil {

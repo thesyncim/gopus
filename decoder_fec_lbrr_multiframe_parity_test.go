@@ -20,21 +20,11 @@ package gopus
 
 import (
 	"math"
-	"runtime"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
 	"github.com/thesyncim/gopus/internal/rangecoding"
 )
-
-// fecMultiframeStereoPuregoTol bounds the amd64 pure-Go float-output drift of a
-// 40/60 ms stereo SILK LBRR recovery vs the scalar libopus reference. The decode
-// coding-state is bit-exact (final-range matches); only the SILK stereo MS->LR
-// unmix + synthesis float ops round a few LSB differently from gcc's scalar C on
-// the Go amd64 backend, accumulating to ~0.001 (~33/32768). The arm64 pure-Go
-// build is bit-exact, so this budget applies only to amd64 pure-Go. It is three
-// orders of magnitude below a real LBRR desync (~1.0-2.0).
-const fecMultiframeStereoPuregoTol = 2.0 / 1000.0
 
 // TestDecodeWithFECMultiFrameSILKMatchesLibopus encodes 40 ms and 60 ms SILK
 // streams (NB/MB/WB) with FEC and a bursty (variable speech-activity) signal so
@@ -81,6 +71,20 @@ func TestDecodeWithFECMultiFrameSILKMatchesLibopus(t *testing.T) {
 			// decoder is warmed up) and verify each as an FEC recovery step.
 			recovered := 0
 			partial := 0
+			missingPrefix := 0
+			replayLogged := false
+			logReplay := func(recovery int) {
+				if replayLogged {
+					return
+				}
+				replayLogged = true
+				// The encoder's native arithmetic can change the input packets.
+				// Preserve the first failing history for cross-host decoder replay.
+				t.Logf("FEC replay: rate=%d channels=%d frame_size=%d recovery=%d", tc.decRate, channels, fs, recovery)
+				for i, packet := range packets[:recovery+1] {
+					t.Logf("FEC replay packet %d: %x", i, packet)
+				}
+			}
 			for r := 2; r < len(packets); r++ {
 				if !packetHasInBandFEC(t, packets[r]) {
 					continue
@@ -97,6 +101,10 @@ func TestDecodeWithFECMultiFrameSILKMatchesLibopus(t *testing.T) {
 				want, wantRanges, err := decodeWithLibopusReferenceAPIRateFloat32StepsRanges(tc.decRate, channels, fs, steps)
 				if err != nil {
 					libopustest.HelperUnavailable(t, "multi-frame FEC reference", err)
+				}
+				if len(want) != len(steps)*fs*channels || len(wantRanges) != len(steps) {
+					t.Fatalf("reference geometry: samples=%d ranges=%d, want samples=%d ranges=%d",
+						len(want), len(wantRanges), len(steps)*fs*channels, len(steps))
 				}
 
 				dec, err := NewDecoder(DefaultDecoderConfig(tc.decRate, channels))
@@ -121,6 +129,23 @@ func TestDecodeWithFECMultiFrameSILKMatchesLibopus(t *testing.T) {
 					if de != nil {
 						t.Fatalf("recovery packet %d step %d: %v", r, i, de)
 					}
+					if n != fs {
+						logReplay(r)
+						t.Fatalf("recovery packet %d step %d: samples=%d want=%d", r, i, n, fs)
+					}
+					if i < fecIdx {
+						if dec.FinalRange() != wantRanges[i] {
+							logReplay(r)
+							t.Fatalf("recovery packet %d prefix step %d: range=%08x want=%08x", r, i, dec.FinalRange(), wantRanges[i])
+						}
+						for j, sample := range buf[:n*channels] {
+							expected := want[i*fs*channels+j]
+							if math.Float32bits(sample) != math.Float32bits(expected) {
+								logReplay(r)
+								t.Fatalf("recovery packet %d prefix step %d sample %d: bits=%08x want=%08x", r, i, j, math.Float32bits(sample), math.Float32bits(expected))
+							}
+						}
+					}
 					got = append(got, buf[:n*channels]...)
 					if i == fecIdx {
 						gotRange = dec.FinalRange()
@@ -129,44 +154,41 @@ func TestDecodeWithFECMultiFrameSILKMatchesLibopus(t *testing.T) {
 
 				// Final-range must be bit-exact on the FEC step.
 				if gotRange != wantRanges[fecIdx] {
+					logReplay(r)
 					t.Errorf("recovery packet %d: FEC final-range mismatch gopus=0x%08x libopus=0x%08x",
 						r, gotRange, wantRanges[fecIdx])
 				}
 
 				// FEC-recovered frame must be sample-exact.
-				fecEnd := min(min(fecStart+fs*channels, len(got)), len(want))
+				fecEnd := fecStart + fs*channels
 				maxDiff := 0.0
 				worst := -1
+				firstMismatch := -1
 				for j := fecStart; j < fecEnd; j++ {
+					if firstMismatch < 0 && math.Float32bits(got[j]) != math.Float32bits(want[j]) {
+						firstMismatch = j - fecStart
+					}
 					d := math.Abs(float64(got[j] - want[j]))
 					if d > maxDiff {
 						maxDiff = d
 						worst = j - fecStart
 					}
 				}
-				// The FEC LBRR decode coding-state is bit-exact (the final-range
-				// matches above), so gopus and libopus make identical entropy-decode
-				// decisions. The recovered float PCM, however, runs through the SILK
-				// stereo MS->LR unmix and synthesis float ops, which the amd64 pure-Go
-				// build rounds a few LSB differently from gcc's scalar C (the lane
-				// links the scalar libopus); over a 40/60 ms stereo LBRR recovery that
-				// accumulates to ~0.001. The arm64 pure-Go build is bit-exact here, and
-				// the amd64 asm build matches the SIMD libopus, so require bit-exact on
-				// those and hold the amd64 pure-Go build to a per-arch float-output
-				// budget that is three orders of magnitude below any real desync (the
-				// fixed SILK LBRR concealment bug produced ~1.0-2.0).
-				tol := 0.0
-				if runtime.GOARCH == "amd64" && testPuregoBuild {
-					tol = fecMultiframeStereoPuregoTol
-				}
-				if maxDiff > tol {
-					t.Errorf("recovery packet %d: FEC frame exceeds tol %.6f: worst per-sample diff=%.6f at sample %d (fs=%d)",
-						r, tol, maxDiff, worst, fs)
+				// SILK synthesis and MS-to-LR operate on integers. At the native
+				// API rate, converting int16 PCM to float32 / 32768 is exact.
+				// Matching entropy ranges alone does not prove matching PLC state.
+				if firstMismatch >= 0 {
+					logReplay(r)
+					t.Errorf("recovery packet %d: FEC PCM bits differ at sample %d: got=%08x want=%08x; worst per-sample diff=%.6f at sample %d (fs=%d)",
+						r, firstMismatch, math.Float32bits(got[fecStart+firstMismatch]), math.Float32bits(want[fecStart+firstMismatch]), maxDiff, worst, fs)
 				}
 
 				recovered++
 				if channels == 1 && isPartialMultiFrameLBRR(t, packets[r]) {
 					partial++
+				}
+				if channels == 1 && hasMissingLBRRPrefixBeforePresentFrame(t, packets[r]) {
+					missingPrefix++
 				}
 			}
 
@@ -180,7 +202,10 @@ func TestDecodeWithFECMultiFrameSILKMatchesLibopus(t *testing.T) {
 				t.Fatalf("no PARTIAL multi-frame LBRR packets emitted for %s; "+
 					"test does not exercise the multi-LBRR-frame mix it targets", tc.name)
 			}
-			t.Logf("%s: verified %d FEC recoveries (%d partial multi-frame LBRR)", tc.name, recovered, partial)
+			if channels == 1 && missingPrefix == 0 {
+				t.Fatalf("no multi-frame LBRR packet begins with a missing frame followed by present LBRR for %s", tc.name)
+			}
+			t.Logf("%s: verified %d FEC recoveries (%d partial, %d missing-prefix multi-frame LBRR)", tc.name, recovered, partial, missingPrefix)
 		})
 	}
 }
@@ -209,12 +234,12 @@ func encodeFECBurstyStreamForTest(t *testing.T, bandwidth Bandwidth, bitrate, ch
 		{"SetPacketLoss", func() error { return enc.SetPacketLoss(25) }},
 	} {
 		if err := set.fn(); err != nil {
-			t.Skipf("%s: %v", set.name, err)
+			t.Fatalf("%s: %v", set.name, err)
 		}
 	}
 	if channels == 2 {
 		if err := enc.SetForceChannels(2); err != nil {
-			t.Skipf("SetForceChannels: %v", err)
+			t.Fatalf("SetForceChannels: %v", err)
 		}
 	}
 	enc.SetFEC(true)
@@ -238,7 +263,7 @@ func encodeFECBurstyStreamForTest(t *testing.T, bandwidth Bandwidth, bitrate, ch
 			t.Fatalf("Encode frame %d: %v len=%d", frameIndex, err, len(packet))
 		}
 		if toc := ParseTOC(packet[0]); toc.Mode != ModeSILK {
-			t.Skipf("Encode frame %d mode=%v want SILK", frameIndex, toc.Mode)
+			t.Fatalf("Encode frame %d mode=%v want SILK", frameIndex, toc.Mode)
 		}
 		packets = append(packets, append([]byte(nil), packet...))
 	}
@@ -272,6 +297,36 @@ func isPartialMultiFrameLBRR(t *testing.T, packet []byte) bool {
 		set += flags[i]
 	}
 	return set > 0 && set < nFrames
+}
+
+// hasMissingLBRRPrefixBeforePresentFrame reports a FEC packet whose first
+// internal 20 ms frame has no LBRR while a later frame does. The PLC prefix
+// resets that channel's OSCE state before the later LBRR frame runs its
+// postfilter within the same DecodeWithFEC call.
+func hasMissingLBRRPrefixBeforePresentFrame(t *testing.T, packet []byte) bool {
+	t.Helper()
+	toc := ParseTOC(packet[0])
+	if toc.Mode == ModeCELT || toc.FrameSize <= 960 {
+		return false
+	}
+	first, err := extractFirstFramePayload(packet, toc)
+	if err != nil || len(first) == 0 {
+		return false
+	}
+	nFrames := toc.FrameSize / 960
+	if nFrames < 2 || nFrames > 3 {
+		return false
+	}
+	flags, ok := decodeMonoLBRRFlagsForTest(first, nFrames)
+	if !ok || flags[0] != 0 {
+		return false
+	}
+	for i := 1; i < nFrames; i++ {
+		if flags[i] != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // silk_LBRR_flags_iCDF for 2- and 3-frame packets (silk/tables_other.c). Used

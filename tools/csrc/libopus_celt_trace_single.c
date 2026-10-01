@@ -16,6 +16,11 @@
 #include "arch.h"
 #include "celt.h"
 #include "modes.h"
+#ifdef ENABLE_DEEP_PLC
+#include "lpcnet_private.h"
+#define CELT_TRACE_PLC_UPDATE_FRAMES 4
+#define CELT_TRACE_PLC_UPDATE_SAMPLES (CELT_TRACE_PLC_UPDATE_FRAMES * FRAME_SIZE)
+#endif
 
 #define GCTI_MAGIC "GCTI"
 #define GCTO_MAGIC "GCTO"
@@ -54,6 +59,14 @@ typedef struct {
   int postfilter_tapset_old;
   int prefilter_and_fold;
   celt_sig preemph_memD[2];
+#ifdef ENABLE_DEEP_PLC
+  opus_int16 plc_pcm[CELT_TRACE_PLC_UPDATE_SAMPLES];
+  int plc_fill;
+  float plc_preemphasis_mem;
+#endif
+#ifdef ENABLE_QEXT
+  celt_glog qext_oldBandE[2 * NB_QEXT_BANDS];
+#endif
   celt_sig _decode_mem[1];
 } CELTDecoderTraceView;
 
@@ -284,7 +297,12 @@ int main(void) {
       for (j = 0; j < sample_count; j++) {
         uint32_t sample = start_sample + j;
         final_window[j] = frame[(size_t)sample * (size_t)channels + (size_t)target_channel];
+#ifdef FIXED_POINT
+        /* celt_sig carries SIG_SHIFT fractional bits in addition to PCM16. */
+        pre_window[j] = pre[sample] * (1.f / (CELT_SIG_SCALE * (1 << SIG_SHIFT)));
+#else
         pre_window[j] = pre[sample] * (1.f / CELT_SIG_SCALE);
+#endif
       }
       found = 1;
       trace_decoded_samples = (uint32_t)decoded_samples;
@@ -300,8 +318,13 @@ int main(void) {
       trace_plc_duration = (uint32_t)celt->plc_duration;
       trace_postfilter_period = (uint32_t)celt->postfilter_period;
       trace_postfilter_period_old = (uint32_t)celt->postfilter_period_old;
+#ifdef FIXED_POINT
+      trace_postfilter_gain = celt->postfilter_gain * (1.f / 32768);
+      trace_postfilter_gain_old = celt->postfilter_gain_old * (1.f / 32768);
+#else
       trace_postfilter_gain = celt->postfilter_gain;
       trace_postfilter_gain_old = celt->postfilter_gain_old;
+#endif
       trace_postfilter_tapset = (uint32_t)celt->postfilter_tapset;
       trace_postfilter_tapset_old = (uint32_t)celt->postfilter_tapset_old;
       trace_last_pitch_index = (uint32_t)celt->last_pitch_index;
@@ -311,7 +334,11 @@ int main(void) {
       trace_old_band_e_count = (uint32_t)(2 * celt->mode->nbEBands);
       if (trace_old_band_e_count > 42) trace_old_band_e_count = 42;
       for (j = 0; j < trace_old_band_e_count; j++) {
+#ifdef FIXED_POINT
+        old_band_e[j] = bands[j] * (1.f / (1 << DB_SHIFT));
+#else
         old_band_e[j] = bands[j];
+#endif
       }
     }
   }

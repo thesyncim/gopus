@@ -46,7 +46,7 @@ func TestCELTTFAnalysisParity(t *testing.T) {
 					lambda := rng.Intn(40)
 					tfEstimate := int16(rng.Intn(1 << 14))
 
-					tfResGo := make([]int, length)
+					tfResGo := make([]int32, length)
 					selGo := TFAnalysis(eBands, length, isTransient, tfResGo, lambda, x, n0, lm, tfEstimate, tfChan, importance, nil)
 
 					selC, tfResC, err := libopustest.ProbeCELTTFAnalysis(eBands, length, isTransient, lambda, x, n0, lm, tfEstimate, tfChan, importance)
@@ -58,7 +58,7 @@ func TestCELTTFAnalysisParity(t *testing.T) {
 						t.Fatalf("%s: tf_select Go=%d C=%d", name, selGo, selC)
 					}
 					for i := range tfResGo {
-						if tfResGo[i] != tfResC[i] {
+						if int(tfResGo[i]) != tfResC[i] {
 							t.Fatalf("%s: tf_res[%d] Go=%d C=%d (full Go=%v C=%v)", name, i, tfResGo[i], tfResC[i], tfResGo, tfResC)
 						}
 					}
@@ -76,13 +76,13 @@ func TestCELTTFEncodeParity(t *testing.T) {
 				for _, bufSize := range []int{2, 8, 64} {
 					for trial := 0; trial < 6; trial++ {
 						end := 21
-						tfRes := make([]int, end)
+						tfRes := make([]int32, end)
 						for i := range tfRes {
-							tfRes[i] = rng.Intn(2)
+							tfRes[i] = int32(rng.Intn(2))
 						}
 						preBits := rng.Intn(bufSize * 6)
 
-						goTFRes := append([]int(nil), tfRes...)
+						goTFRes := append([]int32(nil), tfRes...)
 						buf := make([]byte, bufSize)
 						var enc rangecoding.Encoder
 						enc.Init(buf)
@@ -95,7 +95,7 @@ func TestCELTTFEncodeParity(t *testing.T) {
 						// zero-padded buffer that ec_enc_done() finalised into).
 						goBuf := buf
 
-						cBuf, cTFRes, err := libopustest.ProbeCELTTFEncode(0, end, isTransient, tfRes, lm, tfSelect, bufSize, preBits)
+						cBuf, cTFRes, err := libopustest.ProbeCELTTFEncode(0, end, isTransient, toIntSlice(tfRes), lm, tfSelect, bufSize, preBits)
 						if err != nil {
 							t.Fatalf("oracle: %v", err)
 						}
@@ -104,7 +104,7 @@ func TestCELTTFEncodeParity(t *testing.T) {
 							t.Fatalf("%s: coded bytes differ Go=%x C=%x", name, goBuf, cBuf)
 						}
 						for i := range goTFRes {
-							if goTFRes[i] != cTFRes[i] {
+							if int(goTFRes[i]) != cTFRes[i] {
 								t.Fatalf("%s: tf_res[%d] Go=%d C=%d", name, i, goTFRes[i], cTFRes[i])
 							}
 						}
@@ -158,5 +158,30 @@ func TestCELTAllocTrimAnalysisParity(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestCELTAllocTrimAnalysisQCONST32RoundingBoundary(t *testing.T) {
+	libopustest.RequireOracle(t)
+
+	const nbEBands = 21
+	n0 := int(eband5ms[nbEBands]) + 16
+	x := make([]int32, 2*n0)
+	for i := 0; i < 8; i++ {
+		x[i] = 1 << 24
+		x[n0+i] = 651 << 14
+	}
+	bandLogE := make([]int32, 2*nbEBands)
+
+	got := AllocTrimAnalysis(eband5ms, x, bandLogE, nbEBands, 0, 2, n0, nbEBands, 100, 0, 8, 0, 64000, false, 0)
+	want, err := libopustest.ProbeCELTAllocTrimAnalysis(eband5ms, x, bandLogE, nbEBands, 0, 2, n0, 100, 0, 8, 0, 64000, false, 0)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "CELT fixed allocation trim", err)
+	}
+	if want.StereoSaving != 95 {
+		t.Fatalf("boundary fixture no longer reaches the selected-C QCONST32 result: stereo_saving=%d want 95", want.StereoSaving)
+	}
+	if got.TrimIndex != want.TrimIndex || got.StereoSaving != want.StereoSaving {
+		t.Fatalf("alloc trim Go=%+v want selected libopus C=%+v", got, want)
 	}
 }

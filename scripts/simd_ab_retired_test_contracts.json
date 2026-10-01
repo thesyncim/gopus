@@ -1,0 +1,80 @@
+[
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/silk",
+    "baseline_tests": [
+      "TestClassifyFrame",
+      "TestClassifyFrameEmptyInput",
+      "TestClassifyFrameQuantOffset"
+    ],
+    "retired_contract": "classifyFrame",
+    "source_review": "fc81fb76: The internal heuristic and its empty-input API have no runtime caller. Actual SILK frame classification belongs to VAD, pitch and noise shaping; these deleted heuristic expectations are not C parity checks."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/silk",
+    "baseline_tests": [
+      "TestComputePeriodicity",
+      "TestComputePeriodicityEdgeCases"
+    ],
+    "retired_contract": "computePeriodicity",
+    "source_review": "fc81fb76: The arbitrary lag-range and nil-input helper API has no runtime caller. Actual pitch analysis has independent selected-C lag, contour and LTPCorr gates; those gates do not execute this deleted interface."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/silk",
+    "baseline_tests": [
+      "TestEncoderStateAccessors"
+    ],
+    "retired_contract": "channel-level encoder state accessors",
+    "source_review": "fc81fb76: The gain/voicing/LSF/stereo mutation getter/setter interface is absent. No current API exposes the round-trip contract tested by these accessors."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/silk",
+    "baseline_tests": [
+      "TestEncodePacketWithFECWithVADStatesUsesPerFrameState"
+    ],
+    "retired_contract": "EncodePacketWithFECWithVADStates",
+    "source_review": "fc81fb76: The external VADFrameState injection API is absent. silk_Encode computes VAD internally; injection equality is not a current callable contract or an exact replacement for a live-C FEC test."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/celt",
+    "baseline_tests": [
+      "TestDeEmphasis"
+    ],
+    "retired_contract": "unscaled applyDeemphasis impulse helper",
+    "source_review": "3f846cc4 removes this unscaled internal entry. Decoder.deemphasis implements the scaled libopus output contract, with independent C output and memory tests. Do not relabel a scaled output check as this obsolete unscaled API."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/celt",
+    "baseline_tests": [
+      "TestDecodeSilenceFrameFastPathParityMono",
+      "TestDecodeSilenceFrameFastPathParityStereo"
+    ],
+    "retired_contract": "decodeSilenceFrame fast path versus duplicated zero-spectrum Go reference",
+    "source_review": "3f846cc4 deletes the shortcut; received silence runs the full synthesis/postfilter/deemphasis path. Current TestCELTReceivedSilenceHistoryMatchesLibopus rate48000/ch1 and ch2 prove packet/PCM/range plus subsequent recovery, but do not re-execute the deleted shortcut contract."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/celt",
+    "baseline_tests": [
+      "TestIMDCTPreRotateFMA32KissMatchesScalar"
+    ],
+    "retired_contract": "AMD64 fused KISS pre-rotation fallback",
+    "source_review": "3f846cc4 scopes this unchanged test to arm64 and removes the AMD64 fused fallback because C AMD64 pre-rotation is unfused. TestIMDCTRotateAMD64MatchesScalar covers the live SIMD pre/post path, odd quarter lengths and zeroalloc; the old all-arch forced-FMA contract must not be imposed on AMD64."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/internal/celt",
+    "baseline_tests": [
+      "TestEncoderSetSurroundTrim",
+      "TestEncoderResetClearsSurroundTrim"
+    ],
+    "retired_contract": "external CELT surround-trim setter and reset state",
+    "source_review": "0e520c21: CELT has no external surround-trim control in libopus 1.6.1. celt/celt_encoder.c computes a local surround_trim from the energy mask for each encode. The setter/getter state API is absent; selected-C multistream mask/packet gates remain strict and do not claim to execute this retired mutation contract."
+  },
+  {
+    "baseline_package": "github.com/thesyncim/gopus/multistream",
+    "baseline_tests": [
+      "TestEncode_SurroundTrimProduced",
+      "TestEncode_SurroundTrimProducedAt24k"
+    ],
+    "retired_contract": "external per-stream CELT surround-trim state",
+    "source_review": "0e520c21: libopus 1.6.1 celt/celt_encoder.c computes surround_trim locally from each energy mask. The multistream encoder has no external per-stream CELTSurroundTrim getter or state. TestEncode_SurroundEnergyMaskProduced and TestEncode_SurroundEnergyMaskProducedAt24k cover mask contents, a different contract; strict selected-C multistream mask and packet gates remain mandatory."
+  }
+]

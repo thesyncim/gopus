@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math"
 	"testing"
+
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 // TestTransientInterleaveDeinterleave validates the interleave/deinterleave operations
@@ -205,7 +207,7 @@ func TestTransientCoefficientsInterleaving(t *testing.T) {
 //	      }
 //	}
 func TestHaar1Transform(t *testing.T) {
-	invSqrt2 := 0.7071067811865476
+	libopustest.RequireOracle(t)
 
 	testCases := []struct {
 		n0     int
@@ -221,42 +223,36 @@ func TestHaar1Transform(t *testing.T) {
 		{120, 8}, // 8 short blocks
 	}
 
-	for _, tc := range testCases {
+	cases := make([]haar1OracleCase, len(testCases))
+	for i, tc := range testCases {
+		x := make([]float32, tc.n0*tc.stride)
+		for j := range x {
+			x[j] = float32(j + 1)
+		}
+		cases[i] = haar1OracleCase{
+			name:   fmt.Sprintf("n0_%d_stride_%d", tc.n0, tc.stride),
+			x:      x,
+			n0:     tc.n0,
+			stride: tc.stride,
+		}
+	}
+	want, err := probeLibopusHaar1(cases)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "celt vq", err)
+	}
+	for ci, tc := range cases {
 		t.Run(fmt.Sprintf("n0=%d_stride=%d", tc.n0, tc.stride), func(t *testing.T) {
-			n := tc.n0 * tc.stride
-
-			// Create test data
-			original := make([]float64, n)
-			for i := range original {
-				original[i] = float64(i + 1)
+			got := make([]celtNorm, len(tc.x))
+			for i, sample := range tc.x {
+				got[i] = celtNorm(sample)
 			}
-
-			// Compute expected result using libopus formula
-			expected := make([]float64, n)
-			copy(expected, original)
-			n0Half := tc.n0 >> 1
-			for i := 0; i < tc.stride; i++ {
-				for j := range n0Half {
-					idx0 := tc.stride*2*j + i
-					idx1 := tc.stride*(2*j+1) + i
-					tmp1 := invSqrt2 * expected[idx0]
-					tmp2 := invSqrt2 * expected[idx1]
-					expected[idx0] = tmp1 + tmp2
-					expected[idx1] = tmp1 - tmp2
-				}
-			}
-
-			// Apply our haar1 function
-			x := make([]celtNorm, n)
-			for i, v := range original {
-				x[i] = celtNorm(v)
-			}
-			haar1(x, tc.n0, tc.stride)
-
-			// Compare (tolerance 1e-4 for float32-level precision)
-			for i := range x {
-				if math.Abs(float64(x[i])-expected[i]) > 1e-4 {
-					t.Errorf("haar1 mismatch at %d: got %f, want %f", i, x[i], expected[i])
+			haar1(got, tc.n0, tc.stride)
+			for i := range got {
+				got32 := float32(got[i])
+				if math.Float32bits(got32) != math.Float32bits(want[ci][i]) {
+					t.Fatalf("x[%d]=%08x %.10g want %08x %.10g",
+						i, math.Float32bits(got32), got32,
+						math.Float32bits(want[ci][i]), want[ci][i])
 				}
 			}
 		})
@@ -328,7 +324,7 @@ func TestTransientSynthesisShortBlocks(t *testing.T) {
 
 	// Test synthesis
 	dec := NewDecoder(1)
-	output := dec.Synthesize(coeffs, true, shortBlocks)
+	output := dec.synthesizeTest(coeffs, true, shortBlocks)
 
 	if len(output) != frameSize {
 		t.Errorf("output length mismatch: got %d, want %d", len(output), frameSize)

@@ -16,13 +16,12 @@ import (
 //   - opus_compare Q (0..100, higher == closer) is the primary, trusted metric,
 //     delay-searched against the reference (libopus-decoded PCM or packets).
 //   - Waveform correlation and RMS ratio are reported as secondary diagnostics.
-//   - Bit-exact numeric oracles for isolated kernels are NOT replaced by this —
-//     they remain hard gates. This comparator governs end-to-end audio quality,
-//     where bit-exactness is bounded by transcendental/libm/platform rounding.
-//   - Trusted bars (QualityBar) are anchored to RFC 8251 conformance and to
-//     libopus's own cross-build self-variation: gopus must track the libopus
-//     reference at least as closely as libopus tracks itself across builds, never
-//     to a higher bar than libopus holds itself.
+//   - Exact packet, range, and sample checks remain separate gates wherever the
+//     paired reference supports them. This comparator measures waveform quality
+//     and cannot establish exact equality.
+//   - QualityBar thresholds are calibrated against RFC 8251 criteria and
+//     recorded libopus comparisons. See the parity reports for their tested
+//     scope; a threshold does not permit mismatch against a matching C build.
 
 // QualityComparison is the result of a trusted opus_compare-based comparison.
 type QualityComparison struct {
@@ -36,6 +35,9 @@ type QualityComparison struct {
 // PCM against a reference (typically libopus-decoded) using delay-searched
 // opus_compare, plus correlation/RMS diagnostics. 48 kHz interleaved PCM.
 func CompareDecodedFloat32(candidate, reference []float32, sampleRate, channels, maxDelay int) (QualityComparison, error) {
+	if err := validateComparablePCM(candidate, reference, sampleRate, channels, maxDelay); err != nil {
+		return QualityComparison{}, err
+	}
 	q, delay, err := ComputeOpusCompareQualityFloat32WithDelay(candidate, reference, sampleRate, channels, maxDelay)
 	if err != nil {
 		return QualityComparison{}, err
@@ -44,9 +46,38 @@ func CompareDecodedFloat32(candidate, reference []float32, sampleRate, channels,
 	return QualityComparison{Q: q, BestDelay: delay, Corr: corr, RMSRatio: rms}, nil
 }
 
+func validateComparablePCM(candidate, reference []float32, sampleRate, channels, maxDelay int) error {
+	if len(candidate) == 0 || len(reference) == 0 {
+		return fmt.Errorf("PCM comparison requires nonempty candidate and reference")
+	}
+	if len(candidate) != len(reference) {
+		return fmt.Errorf("PCM sample count mismatch: candidate=%d reference=%d", len(candidate), len(reference))
+	}
+	if sampleRate != 48000 {
+		return fmt.Errorf("opus_compare requires 48 kHz PCM (got %d Hz)", sampleRate)
+	}
+	if channels != 1 && channels != 2 {
+		return fmt.Errorf("opus_compare supports mono or stereo PCM (got %d channels)", channels)
+	}
+	if len(candidate)%channels != 0 {
+		return fmt.Errorf("PCM sample count %d is not aligned to %d channels", len(candidate), channels)
+	}
+	if maxDelay < 0 {
+		return fmt.Errorf("maximum delay must be nonnegative (got %d)", maxDelay)
+	}
+	for i := range candidate {
+		if math.IsNaN(float64(candidate[i])) || math.IsInf(float64(candidate[i]), 0) {
+			return fmt.Errorf("candidate PCM[%d] is non-finite: %v", i, candidate[i])
+		}
+		if math.IsNaN(float64(reference[i])) || math.IsInf(float64(reference[i]), 0) {
+			return fmt.Errorf("reference PCM[%d] is non-finite: %v", i, reference[i])
+		}
+	}
+	return nil
+}
+
 // waveformCorrelationRMS computes Pearson correlation and RMS ratio over the
-// common prefix (canonical secondary diagnostics; previously duplicated as
-// decoderParityStats).
+// common prefix. These are secondary quality diagnostics, not exactness checks.
 func waveformCorrelationRMS(a, b []float32) (corr, rmsRatio float64) {
 	n := min(len(b), len(a))
 	if n == 0 {
@@ -83,8 +114,8 @@ func waveformCorrelationRMS(a, b []float32) (corr, rmsRatio float64) {
 	return corr, rmsRatio
 }
 
-// QualityBar is a trusted parity threshold, anchored to RFC 8251 conformance and
-// libopus's own cross-build self-variation. A zero value means "unchecked".
+// QualityBar holds waveform-quality thresholds for comparisons with libopus.
+// A zero value means "unchecked".
 type QualityBar struct {
 	MinQ    float64 // absolute opus_compare floor vs the libopus reference.
 	MinCorr float64 // waveform correlation floor.
@@ -93,17 +124,17 @@ type QualityBar struct {
 	Desc    string  // human-readable basis, e.g. "near-exact (matches SILK/CELT)".
 }
 
-// Trusted quality bars. "near-exact" is the bar SILK/CELT (and now Hybrid) decode
-// already meet vs libopus (measured Q>=99.7); it is far above the RFC-8251
-// conformance floor (Q>=0) yet still strictly below bit-exactness, leaving room
-// only for the transcendental/platform rounding tail that is not a gopus defect.
+// Quality bars measure decoded-waveform agreement with libopus. They complement
+// exact packet and sample comparisons; a quality pass does not establish bit
+// equality or classify an unexplained difference as acceptable. A validated
+// rounding allowance also requires the evidence in reports/validation.md#parity-contract.
 var (
 	QualityBarNearExact = QualityBar{MinQ: 20.0, MinCorr: 0.997, RMSLo: 0.98, RMSHi: 1.02, Desc: "near-exact vs libopus (SILK/CELT/Hybrid bar)"}
 	QualityBarRFC       = QualityBar{MinQ: 0.0, MinCorr: 0.985, RMSLo: 0.97, RMSHi: 1.03, Desc: "RFC 8251 conformance floor"}
 )
 
 // QualityBarForMode returns the trusted bar for a decode-parity case by dominant
-// mode. All three modes now meet the near-exact bar vs libopus.
+// mode. SILK, CELT and Hybrid use the same decoded-waveform quality bar.
 func QualityBarForMode(mode string, channels int) QualityBar {
 	switch mode {
 	case "silk", "celt", "hybrid":
@@ -116,6 +147,30 @@ func QualityBarForMode(mode string, channels int) QualityBar {
 // Check reports the ways cmp fails bar (empty slice == pass).
 func (bar QualityBar) Check(cmp QualityComparison) []string {
 	var fails []string
+	if math.IsNaN(bar.MinQ) || (math.IsInf(bar.MinQ, 0) && !math.IsInf(bar.MinQ, -1)) {
+		fails = append(fails, fmt.Sprintf("invalid minimum Q threshold: %v", bar.MinQ))
+	}
+	if math.IsNaN(bar.MinCorr) || math.IsInf(bar.MinCorr, 0) || bar.MinCorr < 0 || bar.MinCorr > 1 {
+		fails = append(fails, fmt.Sprintf("invalid minimum correlation threshold: %v", bar.MinCorr))
+	}
+	if math.IsNaN(bar.RMSLo) || math.IsInf(bar.RMSLo, 0) || bar.RMSLo < 0 {
+		fails = append(fails, fmt.Sprintf("invalid RMS lower threshold: %v", bar.RMSLo))
+	}
+	if math.IsNaN(bar.RMSHi) || math.IsInf(bar.RMSHi, 0) || bar.RMSHi < 0 {
+		fails = append(fails, fmt.Sprintf("invalid RMS upper threshold: %v", bar.RMSHi))
+	}
+	if bar.RMSLo > 0 && bar.RMSHi > 0 && bar.RMSLo > bar.RMSHi {
+		fails = append(fails, fmt.Sprintf("invalid RMS bounds: %.4f > %.4f", bar.RMSLo, bar.RMSHi))
+	}
+	if math.IsNaN(cmp.Q) || (math.IsInf(cmp.Q, 0) && !(math.IsInf(cmp.Q, -1) && math.IsInf(bar.MinQ, -1))) {
+		fails = append(fails, fmt.Sprintf("Q is non-finite: %v", cmp.Q))
+	}
+	if math.IsNaN(cmp.Corr) || math.IsInf(cmp.Corr, 0) {
+		fails = append(fails, fmt.Sprintf("correlation is non-finite: %v", cmp.Corr))
+	}
+	if math.IsNaN(cmp.RMSRatio) || math.IsInf(cmp.RMSRatio, 0) {
+		fails = append(fails, fmt.Sprintf("RMS ratio is non-finite: %v", cmp.RMSRatio))
+	}
 	if cmp.Q < bar.MinQ {
 		fails = append(fails, fmt.Sprintf("Q=%.2f < %.2f", cmp.Q, bar.MinQ))
 	}

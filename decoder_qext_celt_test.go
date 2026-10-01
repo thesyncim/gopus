@@ -99,8 +99,8 @@ func TestDecodeLibopusQEXTPacketIgnoreExtensionsMatchesInactiveCELT(t *testing.T
 			if err != nil {
 				t.Fatalf("parsePacketFramesAndPadding: %v", err)
 			}
-			if len(frames) != 1 {
-				t.Fatalf("frame count=%d want 1", len(frames))
+			if info.TOC.Mode != ModeCELT || len(frames) != 1 {
+				t.Fatalf("packet mode=%v frames=%d want CELT single frame", info.TOC.Mode, len(frames))
 			}
 			ext, ok, err := findPacketExtension(padding, nbFrames, qextPacketExtensionID)
 			if err != nil {
@@ -115,9 +115,10 @@ func TestDecodeLibopusQEXTPacketIgnoreExtensionsMatchesInactiveCELT(t *testing.T
 				t.Fatalf("NewDecoder(want): %v", err)
 			}
 			want := make([]float32, 960*channels)
-			wantN, err := wantDec.decodeOpusFrameIntoWithQEXT(want, frames[0], info.TOC.FrameSize, info.TOC.FrameSize, info.TOC.Mode, info.TOC.Bandwidth, info.TOC.Stereo, nil)
+			wantPacket := qextSingleFramePacketForTest(t, packet[0]&0xfc, frames[0], nil)
+			wantN, err := wantDec.Decode(wantPacket, want)
 			if err != nil {
-				t.Fatalf("decodeOpusFrameIntoWithQEXT(nil): %v", err)
+				t.Fatalf("Decode(inactive QEXT packet): %v", err)
 			}
 
 			gotDec, err := NewDecoder(DefaultDecoderConfig(48000, channels))
@@ -133,7 +134,7 @@ func TestDecodeLibopusQEXTPacketIgnoreExtensionsMatchesInactiveCELT(t *testing.T
 			if gotN != wantN {
 				t.Fatalf("Decode samples=%d want %d", gotN, wantN)
 			}
-			if gotRange, wantRange := gotDec.FinalRange(), wantDec.mainDecodeRng; gotRange != wantRange {
+			if gotRange, wantRange := gotDec.FinalRange(), wantDec.FinalRange(); gotRange != wantRange {
 				t.Fatalf("FinalRange()=0x%08x want inactive CELT range 0x%08x", gotRange, wantRange)
 			}
 			for i := 0; i < gotN*channels; i++ {
@@ -185,9 +186,10 @@ func TestDecodeLibopusQEXTOpaquePaddingMatchesInactiveCELT(t *testing.T) {
 				t.Fatalf("NewDecoder(want): %v", err)
 			}
 			want := make([]float32, 960*channels)
-			wantN, err := wantDec.decodeOpusFrameIntoWithQEXT(want, frames[0], info.TOC.FrameSize, info.TOC.FrameSize, info.TOC.Mode, info.TOC.Bandwidth, info.TOC.Stereo, nil)
+			wantPacket := qextSingleFramePacketForTest(t, packet[0]&0xfc, frames[0], nil)
+			wantN, err := wantDec.Decode(wantPacket, want)
 			if err != nil {
-				t.Fatalf("decodeOpusFrameIntoWithQEXT(nil): %v", err)
+				t.Fatalf("Decode(inactive QEXT packet): %v", err)
 			}
 
 			for _, ignore := range []bool{false, true} {
@@ -204,7 +206,7 @@ func TestDecodeLibopusQEXTOpaquePaddingMatchesInactiveCELT(t *testing.T) {
 				if gotN != wantN {
 					t.Fatalf("Decode samples=%d want %d (ignore=%v)", gotN, wantN, ignore)
 				}
-				if gotRange, wantRange := gotDec.FinalRange(), wantDec.mainDecodeRng; gotRange != wantRange {
+				if gotRange, wantRange := gotDec.FinalRange(), wantDec.FinalRange(); gotRange != wantRange {
 					t.Fatalf("FinalRange()=0x%08x want inactive CELT range 0x%08x (ignore=%v)", gotRange, wantRange, ignore)
 				}
 				for i := 0; i < gotN*channels; i++ {
@@ -227,10 +229,8 @@ func TestDecodeLibopusQEXTIgnoreExtensionsToggleSequenceMatchesExplicitPayloads(
 		packet      []byte
 		rawFrame    []byte
 		qextPayload []byte
+		tocBase     byte
 		frameSize   int
-		mode        Mode
-		bandwidth   Bandwidth
-		stereo      bool
 		ignore      bool
 	}
 
@@ -280,10 +280,8 @@ func TestDecodeLibopusQEXTIgnoreExtensionsToggleSequenceMatchesExplicitPayloads(
 			packet:      packet,
 			rawFrame:    frames[0],
 			qextPayload: ext.Data,
+			tocBase:     packet[0] & 0xfc,
 			frameSize:   info.TOC.FrameSize,
-			mode:        info.TOC.Mode,
-			bandwidth:   info.TOC.Bandwidth,
-			stereo:      info.TOC.Stereo,
 			ignore:      tc.ignore,
 		})
 	}
@@ -303,9 +301,10 @@ func TestDecodeLibopusQEXTIgnoreExtensionsToggleSequenceMatchesExplicitPayloads(
 			payload = nil
 		}
 		want := make([]float32, 960*2)
-		wantN, err := wantDec.decodeOpusFrameIntoWithQEXT(want, tc.rawFrame, tc.frameSize, tc.frameSize, tc.mode, tc.bandwidth, tc.stereo, payload)
+		wantPacket := qextSingleFramePacketForTest(t, tc.tocBase, tc.rawFrame, payload)
+		wantN, err := wantDec.Decode(wantPacket, want)
 		if err != nil {
-			t.Fatalf("decodeOpusFrameIntoWithQEXT[%d]: %v", i, err)
+			t.Fatalf("Decode(explicit payload)[%d]: %v", i, err)
 		}
 
 		gotDec.SetIgnoreExtensions(tc.ignore)
@@ -317,7 +316,7 @@ func TestDecodeLibopusQEXTIgnoreExtensionsToggleSequenceMatchesExplicitPayloads(
 		if gotN != wantN {
 			t.Fatalf("Decode[%d] samples=%d want %d", i, gotN, wantN)
 		}
-		if gotRange, wantRange := gotDec.FinalRange(), wantDec.mainDecodeRng; gotRange != wantRange {
+		if gotRange, wantRange := gotDec.FinalRange(), wantDec.FinalRange(); gotRange != wantRange {
 			t.Fatalf("Decode[%d] FinalRange()=0x%08x want explicit payload range 0x%08x", i, gotRange, wantRange)
 		}
 		for j := 0; j < gotN*2; j++ {
@@ -346,12 +345,12 @@ func TestDecodeLibopusQEXTMultiFramePacketMatchesExplicitPayloads(t *testing.T) 
 			want := make([]float32, frames[0].frameSize*channels*len(frames))
 			wantOffset := 0
 			for i, frame := range frames {
-				n, err := wantDec.decodeOpusFrameIntoWithQEXT(want[wantOffset*channels:], frame.rawFrame, frame.frameSize, frame.frameSize, frame.mode, frame.bandwidth, frame.stereo, frame.qextPayload)
+				wantPacket := qextSingleFramePacketForTest(t, packet[0]&0xfc, frame.rawFrame, frame.qextPayload)
+				n, err := wantDec.Decode(wantPacket, want[wantOffset*channels:])
 				if err != nil {
-					t.Fatalf("decodeOpusFrameIntoWithQEXT[%d]: %v", i, err)
+					t.Fatalf("Decode(explicit payload)[%d]: %v", i, err)
 				}
 				wantOffset += n
-				wantDec.prevPacketStereo = frame.stereo
 			}
 
 			gotCfg := DefaultDecoderConfig(48000, channels)
@@ -368,7 +367,7 @@ func TestDecodeLibopusQEXTMultiFramePacketMatchesExplicitPayloads(t *testing.T) 
 			if gotN != wantOffset {
 				t.Fatalf("Decode samples=%d want %d", gotN, wantOffset)
 			}
-			if gotRange, wantRange := gotDec.FinalRange(), wantDec.mainDecodeRng; gotRange != wantRange {
+			if gotRange, wantRange := gotDec.FinalRange(), wantDec.FinalRange(); gotRange != wantRange {
 				t.Fatalf("FinalRange()=0x%08x want 0x%08x", gotRange, wantRange)
 			}
 			for i := 0; i < gotN*channels; i++ {
@@ -398,12 +397,12 @@ func TestDecodeLibopusQEXTMultiFrameIgnoreExtensionsMatchesInactivePayloads(t *t
 			want := make([]float32, frames[0].frameSize*channels*len(frames))
 			wantOffset := 0
 			for i, frame := range frames {
-				n, err := wantDec.decodeOpusFrameIntoWithQEXT(want[wantOffset*channels:], frame.rawFrame, frame.frameSize, frame.frameSize, frame.mode, frame.bandwidth, frame.stereo, nil)
+				wantPacket := qextSingleFramePacketForTest(t, packet[0]&0xfc, frame.rawFrame, nil)
+				n, err := wantDec.Decode(wantPacket, want[wantOffset*channels:])
 				if err != nil {
-					t.Fatalf("decodeOpusFrameIntoWithQEXT[%d]: %v", i, err)
+					t.Fatalf("Decode(inactive QEXT packet)[%d]: %v", i, err)
 				}
 				wantOffset += n
-				wantDec.prevPacketStereo = frame.stereo
 			}
 
 			gotCfg := DefaultDecoderConfig(48000, channels)
@@ -421,7 +420,7 @@ func TestDecodeLibopusQEXTMultiFrameIgnoreExtensionsMatchesInactivePayloads(t *t
 			if gotN != wantOffset {
 				t.Fatalf("Decode samples=%d want %d", gotN, wantOffset)
 			}
-			if gotRange, wantRange := gotDec.FinalRange(), wantDec.mainDecodeRng; gotRange != wantRange {
+			if gotRange, wantRange := gotDec.FinalRange(), wantDec.FinalRange(); gotRange != wantRange {
 				t.Fatalf("FinalRange()=0x%08x want inactive payload range 0x%08x", gotRange, wantRange)
 			}
 			for i := 0; i < gotN*channels; i++ {

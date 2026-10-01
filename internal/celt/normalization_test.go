@@ -478,8 +478,8 @@ func TestComputeLinearBandAmplitudes(t *testing.T) {
 	}
 }
 
-// TestNormalizationUsesLinearAmplitudes verifies that normalization now uses
-// direct linear amplitudes instead of log-domain roundtrip.
+// TestNormalizationUsesLinearAmplitudes checks that each coefficient
+// is divided by its band's linear amplitude.
 func TestNormalizationUsesLinearAmplitudes(t *testing.T) {
 	enc := NewEncoder(1)
 	frameSize := 480
@@ -499,7 +499,7 @@ func TestNormalizationUsesLinearAmplitudes(t *testing.T) {
 	// Compute linear band amplitudes directly
 	bandE := ComputeLinearBandAmplitudes(mdctCoeffs, nbBands, frameSize)
 
-	// Get normalized coefficients (the energies parameter is now ignored)
+	// Compute normalized coefficients without supplied band energies.
 	normalized := enc.NormalizeBandsToArray(mdctCoeffs, nil, nbBands, frameSize)
 	if normalized == nil {
 		t.Fatal("NormalizeBandsToArray returned nil")

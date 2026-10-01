@@ -15,9 +15,12 @@ func ExampleNewEncoder() {
 		log.Fatal(err)
 	}
 
-	// Configure encoder settings
-	enc.SetBitrate(64000) // 64 kbps
-	enc.SetComplexity(10) // Maximum quality
+	if err := enc.SetBitrate(64000); err != nil { // bits per second
+		log.Fatal(err)
+	}
+	if err := enc.SetComplexity(10); err != nil {
+		log.Fatal(err)
+	}
 
 	fmt.Printf("Encoder: %dHz, %d channels\n", enc.SampleRate(), enc.Channels())
 	// Output: Encoder: 48000Hz, 2 channels
@@ -42,7 +45,7 @@ func ExampleEncoder_Encode() {
 
 	// Generate 20ms of stereo silence (960 samples per channel)
 	pcm := make([]float32, 960*2)
-	packetBuf := make([]byte, 4000)
+	packetBuf := make([]byte, 1500)
 
 	// Encode the frame
 	n, err := enc.Encode(pcm, packetBuf)
@@ -69,7 +72,7 @@ func ExampleDecoder_Decode() {
 
 	// Encode one 20ms stereo frame.
 	pcm := make([]float32, 960*2)
-	packetBuf := make([]byte, 4000)
+	packetBuf := make([]byte, 1500)
 	nPacket, err := enc.Encode(pcm, packetBuf)
 	if err != nil {
 		log.Fatal(err)
@@ -99,7 +102,7 @@ func ExampleDecoder_Decode_packetLoss() {
 		log.Fatal(err)
 	}
 	pcm := make([]float32, 960*2)
-	packetBuf := make([]byte, 4000)
+	packetBuf := make([]byte, 1500)
 	nPacket, err := enc.Encode(pcm, packetBuf)
 	if err != nil {
 		log.Fatal(err)
@@ -140,7 +143,7 @@ func Example_roundTrip() {
 	}
 
 	// Encode
-	packetBuf := make([]byte, 4000)
+	packetBuf := make([]byte, 1500)
 	nPacket, err := enc.Encode(input, packetBuf)
 	if err != nil {
 		log.Fatal(err)
@@ -212,4 +215,64 @@ func ExampleEncoder_SetFEC() {
 
 	fmt.Printf("FEC enabled: %v\n", enc.FECEnabled())
 	// Output: FEC enabled: true
+}
+
+func ExampleDecoder_DecodeWithFEC() {
+	const frameSize = 960 // 20 ms at 48 kHz, per channel
+	enc, err := gopus.NewEncoder(gopus.EncoderConfig{
+		SampleRate:  48000,
+		Channels:    1,
+		Application: gopus.ApplicationVoIP,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	enc.SetFEC(true)
+	if err := enc.SetPacketLoss(20); err != nil {
+		log.Fatal(err)
+	}
+	cfg := gopus.DefaultDecoderConfig(48000, 1)
+	dec, err := gopus.NewDecoder(cfg)
+	if err != nil {
+		log.Fatal(err)
+	}
+	input := make([]float32, frameSize)
+	packet := make([]byte, cfg.MaxPacketBytes)
+	output := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
+
+	// Deliver the first packet, lose the second, and receive the third.
+	for frame := range 3 {
+		for i := range input {
+			input[i] = float32(0.5 * math.Sin(2*math.Pi*440*float64(frame*frameSize+i)/48000))
+		}
+		n, err := enc.Encode(input, packet)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if frame == 0 {
+			if _, err := dec.Decode(packet[:n], output); err != nil {
+				log.Fatal(err)
+			}
+		}
+		if frame != 2 {
+			continue
+		}
+
+		// Request the missing duration first. The decoder uses PLC if the
+		// following packet does not carry FEC for this loss.
+		recovered, err := dec.DecodeWithFEC(packet[:n], output[:frameSize], true)
+		if err != nil {
+			log.Fatal(err)
+		}
+		// Consume the recovered output before reusing its storage below.
+		fmt.Printf("recovered %d samples\n", recovered)
+		decoded, err := dec.Decode(packet[:n], output)
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("decoded %d samples\n", decoded)
+	}
+	// Output:
+	// recovered 960 samples
+	// decoded 960 samples
 }

@@ -77,9 +77,14 @@ func Deemphasis(in [][]int32, pcm []int32, coef0 int16, mem []int32, N, downsamp
 	}
 
 	Nd := N / downsample
+	var local [celtMaxFrameSize]int32
 	var scratch []int32
 	if downsample > 1 {
-		scratch = make([]int32, N)
+		if N <= len(local) {
+			scratch = local[:N]
+		} else {
+			scratch = make([]int32, N)
+		}
 	}
 
 	for c := 0; c < C; c++ {
@@ -119,6 +124,37 @@ func Deemphasis(in [][]int32, pcm []int32, coef0 int16, mem []int32, N, downsamp
 				for j := 0; j < Nd; j++ {
 					pcm[j*C+c] = sig2res(scratch[j*downsample])
 				}
+			}
+		}
+	}
+}
+
+// deemphasisMode applies the custom two-tap inverse when mode->preemph[1] is
+// nonzero. celt/celt_decoder.c deemphasis() scales each reconstructed sample
+// by mode->preemph[3] before SIG2RES, including at downsample=1.
+func (d *CELTDecoder) deemphasisMode(in [][]int32, pcm []int32, N int, accum bool) {
+	if d.preemph1 == 0 {
+		Deemphasis(in, pcm, d.preemph0, d.preemphMemD, N, d.downsample, accum)
+		return
+	}
+	C := len(in)
+	Nd := N / d.downsample
+	scratch := d.deemphasisScratch[:N]
+	for c := 0; c < C; c++ {
+		m := d.preemphMemD[c]
+		for j := 0; j < N; j++ {
+			x := in[c][j]
+			tmp := saturateSig(x + m)
+			m = mult16x32q15(d.preemph0, tmp) - mult16x32q15(d.preemph1, x)
+			scratch[j] = shl32(mult16x32q15(d.preemph3, tmp), 2)
+		}
+		d.preemphMemD[c] = m
+		for j := 0; j < Nd; j++ {
+			v := sig2res(scratch[j*d.downsample])
+			if accum {
+				pcm[j*C+c] = add32(pcm[j*C+c], v)
+			} else {
+				pcm[j*C+c] = v
 			}
 		}
 	}

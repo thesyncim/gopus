@@ -14,24 +14,26 @@ const (
 
 var projectionMatrixHelper libopustest.HelperCache
 
-func probeLibopusProjectionMatrix(t *testing.T, mode uint32, rows, cols, frameSize int, matrix []int16, input []float32) *libopustest.OracleReader {
+func probeLibopusProjectionMatrix(t *testing.T, mode uint32, rows, cols, frameSize int, matrix []int16, input []float32) (*libopustest.OracleReader, []float32) {
 	t.Helper()
-	binPath, err := projectionMatrixHelper.CHelperPath(libopustest.CHelperConfig{
-		Label:        "projection matrix",
-		OutputBase:   "gopus_libopus_projection_matrix",
-		SourceFile:   "libopus_projection_matrix_info.c",
-		ProbeRelPath: "src/mapping_matrix.h",
-		CFlags:       []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"},
-		RefIncludes:  []string{"celt", "src"},
-		Libs:         []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
-		DeadStrip:    true,
+	binPath, err := projectionMatrixHelper.Path(func() (string, error) {
+		return buildMultistreamReferenceHelper(libopustest.CHelperConfig{
+			Label:        "projection matrix",
+			OutputBase:   "gopus_libopus_projection_matrix",
+			SourceFile:   "libopus_projection_matrix_info.c",
+			ProbeRelPath: "src/mapping_matrix.h",
+			CFlags:       []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"},
+			RefIncludes:  []string{"celt", "src"},
+			Libs:         []string{"-lm"},
+			DeadStrip:    true,
+		})
 	})
 	if err != nil {
 		libopustest.HelperUnavailable(t, "projection matrix", err)
 	}
 
-	payload := libopustest.NewOraclePayload(
-		"GPMI",
+	payload := libopustest.NewOraclePayloadVersion(
+		"GPMI", 2,
 		mode,
 		uint32(rows),
 		uint32(cols),
@@ -43,11 +45,21 @@ func probeLibopusProjectionMatrix(t *testing.T, mode uint32, rows, cols, frameSi
 	for _, v := range input {
 		payload.Float32(v)
 	}
-	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "projection matrix", "GPMO")
+	reader, err := libopustest.RunOracleVersion(binPath, payload.Bytes(), "projection matrix", "GPMO", 2)
 	if err != nil {
 		libopustest.HelperUnavailable(t, "projection matrix", err)
 	}
-	return reader
+	// Fixed C converts the protocol's float PCM to opus_res before matrix
+	// multiplication. Compare the matrix on those same normalized samples.
+	count := reader.Count(cols * frameSize)
+	if count != len(input) {
+		t.Fatalf("matrix input count=%d want %d", count, len(input))
+	}
+	matrixInput := make([]float32, count)
+	for i := range matrixInput {
+		matrixInput[i] = reader.Float32()
+	}
+	return reader, matrixInput
 }
 
 func TestProjectionDemixingFloatMatchesLibopusMatrixOracle(t *testing.T) {
@@ -68,7 +80,7 @@ func TestProjectionDemixingFloatMatchesLibopusMatrixOracle(t *testing.T) {
 		-1, 1.25, -1.75, 0.0625,
 		float32(math.Nextafter32(0.5, 1)), float32(math.Nextafter32(-0.5, -1)), 0.03125, -0.03125,
 	}
-	reader := probeLibopusProjectionMatrix(t, projectionMatrixModeOutFloat, rows, cols, frameSize, matrix, input)
+	reader, matrixInput := probeLibopusProjectionMatrix(t, projectionMatrixModeOutFloat, rows, cols, frameSize, matrix, input)
 	count := reader.Count(rows * frameSize)
 	reader.ExpectRemaining(count * 4)
 	want := make([]float32, count)
@@ -80,7 +92,7 @@ func TestProjectionDemixingFloatMatchesLibopusMatrixOracle(t *testing.T) {
 	}
 
 	got := make([]float32, len(input))
-	applyProjectionDemixingMatrix32(got, input, matrix, make([]float32, cols), frameSize, rows, cols)
+	applyProjectionDemixingMatrix32(got, matrixInput, matrix, make([]float32, cols), frameSize, rows, cols)
 	for i := range want {
 		if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
 			t.Fatalf("projection float[%d]=%08x want %08x (%0.10g vs %0.10g)",
@@ -107,7 +119,7 @@ func TestProjectionDemixingInt16MatchesLibopusMatrixOracle(t *testing.T) {
 		-1, 1.25, -1.75, 0.0625,
 		float32(math.Nextafter32(0.5, 1)), float32(math.Nextafter32(-0.5, -1)), 0.03125, -0.03125,
 	}
-	reader := probeLibopusProjectionMatrix(t, projectionMatrixModeOutShort, rows, cols, frameSize, matrix, input)
+	reader, matrixInput := probeLibopusProjectionMatrix(t, projectionMatrixModeOutShort, rows, cols, frameSize, matrix, input)
 	count := reader.Count(rows * frameSize)
 	reader.ExpectRemaining(count * 2)
 	want := make([]int16, count)
@@ -119,7 +131,7 @@ func TestProjectionDemixingInt16MatchesLibopusMatrixOracle(t *testing.T) {
 	}
 
 	got := make([]int16, len(input))
-	applyProjectionDemixingMatrixInt16(got, input, matrix, make([]float32, cols), frameSize, rows, cols)
+	applyProjectionDemixingMatrixInt16(got, matrixInput, matrix, make([]float32, cols), frameSize, rows, cols)
 	for i := range want {
 		if got[i] != want[i] {
 			t.Fatalf("projection int16[%d]=%d want %d", i, got[i], want[i])

@@ -1,9 +1,13 @@
 package libopustest
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/thesyncim/gopus/internal/libopustooling"
 )
 
 func TestOracleEnabledEnvironmentMatrix(t *testing.T) {
@@ -33,6 +37,20 @@ func TestOracleEnabledEnvironmentMatrix(t *testing.T) {
 				t.Fatalf("OracleEnabled()=%v want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestHelperCCompileFlagsUseCompilerDefaultDialectAndContraction(t *testing.T) {
+	for _, scalarRef := range []bool{false, true} {
+		flags := helperCCompileFlags(CHelperConfig{
+			CFlags:    []string{"-DHAVE_CONFIG_H"},
+			DeadStrip: true,
+		}, scalarRef)
+		for _, flag := range flags {
+			if strings.HasPrefix(flag, "-std=") || strings.HasPrefix(flag, "-ffp-contract=") {
+				t.Errorf("scalarRef=%t helper flag %q overrides the compiler's default reference policy; flags=%v", scalarRef, flag, flags)
+			}
+		}
 	}
 }
 
@@ -68,29 +86,78 @@ func TestHelperOutputPathPlacesDigestBeforeWindowsSuffix(t *testing.T) {
 }
 
 func TestHelperRefDirSelectsQEXTTree(t *testing.T) {
-	defaultDir := helperRefDir(CHelperConfig{})
-	qextDir := helperRefDir(CHelperConfig{QEXTRef: true})
-	if qextDir == defaultDir {
+	defaultDir := helperRefDir(CHelperConfig{}, libopustooling.LibopusReferenceScalar)
+	qextScalarDir := helperRefDir(CHelperConfig{QEXTRef: true}, libopustooling.LibopusReferenceScalar)
+	if qextScalarDir == defaultDir {
 		t.Fatal("QEXT helper ref dir did not switch trees")
 	}
-	if filepath.Base(qextDir) != "opus-1.6.1-qext" {
-		t.Fatalf("QEXT helper ref dir=%q", qextDir)
+	if filepath.Base(qextScalarDir) != "opus-1.6.1-qext-scalar" {
+		t.Fatalf("QEXT scalar helper ref dir=%q", qextScalarDir)
+	}
+	qextSIMDDir := helperRefDir(CHelperConfig{QEXTRef: true}, libopustooling.LibopusReferenceSIMD)
+	if filepath.Base(qextSIMDDir) != "opus-1.6.1-qext-simd" {
+		t.Fatalf("QEXT SIMD helper ref dir=%q", qextSIMDDir)
+	}
+}
+
+func TestHelperRefDirSelectsFixedQEXTTree(t *testing.T) {
+	defaultDir := helperRefDir(CHelperConfig{}, libopustooling.LibopusReferenceScalar)
+	combinedScalarDir := helperRefDir(CHelperConfig{FixedQEXTRef: true}, libopustooling.LibopusReferenceScalar)
+	if combinedScalarDir == defaultDir || filepath.Base(combinedScalarDir) != "opus-1.6.1-fixed-qext-scalar" {
+		t.Fatalf("fixed-QEXT scalar helper ref dir=%q", combinedScalarDir)
+	}
+	combinedSIMDDir := helperRefDir(CHelperConfig{FixedQEXTRef: true}, libopustooling.LibopusReferenceSIMD)
+	if filepath.Base(combinedSIMDDir) != "opus-1.6.1-fixed-qext-simd" {
+		t.Fatalf("fixed-QEXT SIMD helper ref dir=%q", combinedSIMDDir)
+	}
+}
+
+func TestHelperRefDirSelectsCustomCombinedTrees(t *testing.T) {
+	for _, tc := range []struct {
+		cfg                CHelperConfig
+		scalar, simd       libopustooling.LibopusReferenceVariant
+		scalarDir, simdDir string
+	}{
+		{CHelperConfig{CustomQEXTRef: true}, libopustooling.LibopusReferenceCustomQEXTScalar, libopustooling.LibopusReferenceCustomQEXTSIMD, "opus-1.6.1-custom-qext-scalar", "opus-1.6.1-custom-qext-simd"},
+		{CHelperConfig{CustomFixedRef: true}, libopustooling.LibopusReferenceCustomFixedScalar, libopustooling.LibopusReferenceCustomFixedSIMD, "opus-1.6.1-custom-fixed-scalar", "opus-1.6.1-custom-fixed-simd"},
+		{CHelperConfig{CustomFixedQEXTRef: true}, libopustooling.LibopusReferenceCustomFixedQEXTScalar, libopustooling.LibopusReferenceCustomFixedQEXTSIMD, "opus-1.6.1-custom-fixed-qext-scalar", "opus-1.6.1-custom-fixed-qext-simd"},
+	} {
+		if err := validateCHelperReferenceSelection(tc.cfg); err != nil {
+			t.Fatal(err)
+		}
+		if got := filepath.Base(helperRefDir(tc.cfg, tc.scalar)); got != tc.scalarDir {
+			t.Errorf("scalar reference directory=%q, want %q", got, tc.scalarDir)
+		}
+		if got := filepath.Base(helperRefDir(tc.cfg, tc.simd)); got != tc.simdDir {
+			t.Errorf("SIMD reference directory=%q, want %q", got, tc.simdDir)
+		}
+	}
+	for _, cfg := range []CHelperConfig{
+		{CustomQEXTRef: true, CustomRef: true},
+		{CustomFixedRef: true, FixedRef: true},
+		{CustomQEXTRef: true, CustomFixedRef: true},
+		{CustomFixedQEXTRef: true, CustomFixedRef: true},
+		{CustomQEXTRef: true, ForceScalarRef: true},
+	} {
+		if err := validateCHelperReferenceSelection(cfg); err == nil {
+			t.Fatalf("accepted conflicting reference selectors: %+v", cfg)
+		}
 	}
 }
 
 func TestHelperRefDirSelectsScalarTreeWhenRequested(t *testing.T) {
 	t.Setenv("GOPUS_LIBOPUS_REF_SCALAR", "1")
-	defaultDir := helperRefDir(CHelperConfig{})
+	defaultDir := helperRefDir(CHelperConfig{}, libopustooling.LibopusReferenceScalar)
 	if filepath.Base(defaultDir) != "opus-1.6.1-scalar" {
 		t.Fatalf("default helper ref dir under scalar mode=%q want opus-1.6.1-scalar", defaultDir)
 	}
-	customDir := helperRefDir(CHelperConfig{CustomRef: true})
+	customDir := helperRefDir(CHelperConfig{CustomRef: true}, libopustooling.LibopusReferenceScalar)
 	if filepath.Base(customDir) != "opus-1.6.1-custom-scalar" {
 		t.Fatalf("custom helper ref dir under scalar mode=%q want opus-1.6.1-custom-scalar", customDir)
 	}
-	// An explicit SIMD reference must NOT be redirected to the scalar tree even
-	// when scalar mode is requested: the perf/asm-tier oracles still need SIMD.
-	simdDir := helperRefDir(CHelperConfig{SIMDRef: true})
+	// A test that explicitly requests the matching SIMD kernel keeps its SIMD
+	// reference tree, independent of the helper's paired scalar default.
+	simdDir := helperRefDir(CHelperConfig{SIMDRef: true}, libopustooling.LibopusReferenceScalar)
 	if filepath.Base(simdDir) != "opus-1.6.1-simd" {
 		t.Fatalf("SIMD helper ref dir under scalar mode=%q want opus-1.6.1-simd", simdDir)
 	}
@@ -145,6 +212,10 @@ func TestHelperConfigDigestTracksBuildInputs(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(refDir, "silk", "ref.c"), []byte("int ref(void) { return 1; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	stampPath := filepath.Join(refDir, ".gopus-libopus-build")
+	if err := os.WriteFile(stampPath, []byte("CFLAGS=-O3 -DNDEBUG\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	cfg := CHelperConfig{
 		OutputBase: "gopus_helper",
@@ -152,22 +223,52 @@ func TestHelperConfigDigestTracksBuildInputs(t *testing.T) {
 		CFlags:     []string{"-DHAVE_CONFIG_H"},
 		RefSources: []string{"silk/ref.c"},
 	}
-	base := helperConfigDigest(cfg, refDir, srcPath)
+	base := helperConfigDigest(cfg, refDir, srcPath, false)
+	if got := helperConfigDigest(cfg, refDir, srcPath, true); got == base {
+		t.Fatal("digest did not change when base compile flags changed with the selected scalar reference")
+	}
+	if err := os.WriteFile(stampPath, []byte("CFLAGS=-O3 -DNDEBUG\ncc=clang\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := helperConfigDigest(cfg, refDir, srcPath, false); got == base {
+		t.Fatal("digest did not change when libopus build stamp changed")
+	}
+	base = helperConfigDigest(cfg, refDir, srcPath, false)
 	cfg.CFlags = append(cfg.CFlags, "-DNDEBUG")
-	if got := helperConfigDigest(cfg, refDir, srcPath); got == base {
+	if got := helperConfigDigest(cfg, refDir, srcPath, false); got == base {
 		t.Fatal("digest did not change when C flags changed")
 	}
 	cfg.CFlags = []string{"-DHAVE_CONFIG_H"}
-	base = helperConfigDigest(cfg, refDir, srcPath)
+	base = helperConfigDigest(cfg, refDir, srcPath, false)
 	if err := os.WriteFile(srcPath, []byte("int main(void) { return 2; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := helperConfigDigest(cfg, refDir, srcPath); got == base {
+	if got := helperConfigDigest(cfg, refDir, srcPath, false); got == base {
 		t.Fatal("digest did not change when helper source changed")
 	}
-	base = helperConfigDigest(cfg, refDir, srcPath)
+	base = helperConfigDigest(cfg, refDir, srcPath, false)
 	cfg.QEXTRef = true
-	if got := helperConfigDigest(cfg, refDir, srcPath); got == base {
+	if got := helperConfigDigest(cfg, refDir, srcPath, false); got == base {
 		t.Fatal("digest did not change when QEXT reference tree changed")
+	}
+	cfg.QEXTRef = false
+	base = helperConfigDigest(cfg, refDir, srcPath, false)
+	cfg.FixedQEXTRef = true
+	if got := helperConfigDigest(cfg, refDir, srcPath, false); got == base {
+		t.Fatal("digest did not change when fixed-QEXT reference tree changed")
+	}
+}
+
+func TestHelperRejectsArchiveFromDifferentHeaderTree(t *testing.T) {
+	refDir := filepath.Join(t.TempDir(), "opus-1.6.1-scalar")
+	otherDir := filepath.Join(t.TempDir(), "opus-1.6.1-simd")
+	err := validateHelperReferenceArchives(
+		[]string{filepath.Join(otherDir, ".libs", "libopus.a"), "-lm"},
+		refDir,
+		libopustooling.LibopusReferenceScalar,
+	)
+	var configErr *libopustooling.LibopusReferenceConfigError
+	if !errors.As(err, &configErr) {
+		t.Fatalf("error=%v, want LibopusReferenceConfigError", err)
 	}
 }

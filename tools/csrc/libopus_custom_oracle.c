@@ -56,6 +56,9 @@
  *       nCacheBits * int32  cacheBits[]
  *       int32  nCacheCaps (= (maxLM+1)*2*nbEBands)
  *       nCacheCaps * int32  cacheCaps[]
+ *       uint32 shortDecRange
+ *       uint32 nDecodedShort
+ *       nDecodedShort * int16 decodedShort[]
  *
  * Reference: libopus include/opus_custom.h, celt/celt_encoder.c, celt/celt_decoder.c.
  */
@@ -65,6 +68,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "config.h"
+
 #ifdef _WIN32
 #include <fcntl.h>
 #include <io.h>
@@ -72,10 +77,10 @@
 
 #include "opus_custom.h"
 #include "opus_defines.h"
-/* celt.h provides CELT_SET_SIGNALLING, which is an internal (non-public) CTL.
- * modes.h provides the full OpusCustomMode (CELTMode) struct so the oracle can
- * report the mode geometry opus_custom_mode_create() derives.
- * The helper build adds -I <ref>/celt via CHelperConfig.RefIncludes. */
+/* modes.h provides the full OpusCustomMode (CELTMode) struct so the oracle can
+ * report the mode geometry opus_custom_mode_create() derives. It includes
+ * celt.h for the internal mode definitions. The helper build adds -I
+ * <ref>/celt via CHelperConfig.RefIncludes. */
 #include "celt.h"
 #include "modes.h"
 
@@ -135,6 +140,8 @@ static void emit_failure(int32_t status) {
     write_i32(0); /* nCacheIndex */
     write_i32(0); /* nCacheBits */
     write_i32(0); /* nCacheCaps */
+    write_u32(0); /* shortDecRange */
+    write_u32(0); /* nDecodedShort */
 }
 
 int main(void) {
@@ -187,13 +194,12 @@ int main(void) {
             continue;
         }
 
-        /* Configure to match gopus celt/custom encoder defaults: CBR,
-         * complexity 9, LSB depth 16, no implicit signalling. */
+        /* Configure CBR, complexity, and LSB depth to the Go wrapper values;
+         * keep libopus's default custom signalling enabled. */
         opus_custom_encoder_ctl(enc, OPUS_SET_VBR(0));
         opus_custom_encoder_ctl(enc, OPUS_SET_VBR_CONSTRAINT(0));
         opus_custom_encoder_ctl(enc, OPUS_SET_COMPLEXITY(9));
         opus_custom_encoder_ctl(enc, OPUS_SET_LSB_DEPTH(16));
-        opus_custom_encoder_ctl(enc, CELT_SET_SIGNALLING(0));
 
         unsigned char packet[MAX_PACKET];
         int sz = opus_custom_encode_float(enc, pcm, (int)frame_size,
@@ -217,9 +223,6 @@ int main(void) {
         if (!dec || err != OPUS_OK) {
             fprintf(stderr, "case %u: decoder create error %d\n", c, err);
         } else {
-            /* The encoder disabled implicit frame-size signalling, so the
-             * decoder must too, otherwise it infers the wrong frame size. */
-            opus_custom_decoder_ctl(dec, CELT_SET_SIGNALLING(0));
             int dn = opus_custom_decode_float(dec, packet, sz, decoded, (int)frame_size);
             opus_custom_decoder_ctl(dec, OPUS_GET_FINAL_RANGE(&decRange));
             opus_custom_decoder_destroy(dec);
@@ -227,6 +230,22 @@ int main(void) {
                 nDecoded = (uint32_t)dn * channels;
             }
         }
+        /* A separate decoder exercises the public short API with identical
+         * initial state; its RES2INT16 conversion is part of the oracle. */
+        opus_int16 decodedShort[MAX_FRAME * 2];
+        opus_uint32 shortDecRange = 0;
+        dec = opus_custom_decoder_create(mode, (int)channels, &err);
+        if (!dec || err != OPUS_OK) {
+            fprintf(stderr, "case %u: short decoder create error %d\n", c, err);
+            return 1;
+        }
+        int shortSamples = opus_custom_decode(dec, packet, sz, decodedShort, (int)frame_size);
+        if (shortSamples <= 0 || opus_custom_decoder_ctl(dec, OPUS_GET_FINAL_RANGE(&shortDecRange)) != OPUS_OK) {
+            fprintf(stderr, "case %u: short decode failed %d\n", c, shortSamples);
+            return 1;
+        }
+        opus_custom_decoder_destroy(dec);
+        uint32_t nDecodedShort = (uint32_t)shortSamples * channels;
         /* Snapshot the mode geometry before destroying the mode. These are the
          * tables opus_custom_mode_create() derives for this (Fs, frame_size),
          * which the gopus celt/custom control plane must reproduce. */
@@ -237,7 +256,16 @@ int main(void) {
         int g_nbShortMdcts  = mode->nbShortMdcts;
         int g_shortMdctSize = mode->shortMdctSize;
         float g_preemph[4];
-        for (int i = 0; i < 4; i++) g_preemph[i] = (float)mode->preemph[i];
+        for (int i = 0; i < 4; i++) {
+#if defined(FIXED_POINT)
+            /* modes.c stores these four coefficients at their Q15, SIG_SHIFT,
+             * and Q13 scales; the Go custom-mode API exposes normalized floats. */
+            int shift = i == 2 ? SIG_SHIFT : (i == 3 ? 13 : 15);
+            g_preemph[i] = (float)mode->preemph[i] / (float)(1 << shift);
+#else
+            g_preemph[i] = (float)mode->preemph[i];
+#endif
+        }
         int g_nEdges = g_nbEBands + 1;
         opus_int16 g_eBands[64];
         opus_int16 g_logN[64];
@@ -300,6 +328,10 @@ int main(void) {
         for (int i = 0; i < g_nCacheBits; i++) write_i32(g_cbits[i]);
         write_i32(g_nCacheCaps);
         for (int i = 0; i < g_nCacheCaps; i++) write_i32(g_ccaps[i]);
+        if (!write_u32(shortDecRange) || !write_u32(nDecodedShort) ||
+            !write_exact(decodedShort, sizeof(*decodedShort) * nDecodedShort)) {
+            fprintf(stderr, "case %u: write short decode\n", c); return 1;
+        }
     }
 
     fflush(stdout);

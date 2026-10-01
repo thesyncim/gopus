@@ -1,6 +1,7 @@
 package celt
 
 import (
+	"fmt"
 	"math"
 	"testing"
 
@@ -50,7 +51,7 @@ func getLibopusCELTDynallocHelperPath() (string, error) {
 		OutputBase:   "gopus_libopus_celt_dynalloc",
 		SourceFile:   "libopus_celt_dynalloc_info.c",
 		ProbeRelPath: "celt/celt_encoder.c",
-		CFlags:       []string{"-DHAVE_CONFIG_H", "-O2", "-DNDEBUG"},
+		CFlags:       []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"},
 		RefIncludes:  []string{"celt", "silk"},
 		Libs:         []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
 		DeadStrip:    true,
@@ -92,6 +93,9 @@ func probeLibopusCELTDynalloc(cases []libopusCELTDynallocCase) ([]libopusCELTDyn
 		return nil, err
 	}
 	count := reader.Count(len(cases))
+	if count != len(cases) {
+		return nil, fmt.Errorf("CELT dynalloc oracle returned %d cases, want %d", count, len(cases))
+	}
 	reader.ExpectRemaining(count * (2 + 3*MaxBands) * 4)
 	out := make([]libopusCELTDynallocResult, count)
 	for i := range out {
@@ -170,6 +174,7 @@ func runGoDynallocCase(tc libopusCELTDynallocCase, scratch *DynallocScratch) Dyn
 			surround,
 			tc.analysisValid, leak,
 			scratch,
+			EBands[:],
 		)
 	}
 	return DynallocAnalysis(

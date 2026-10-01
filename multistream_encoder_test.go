@@ -319,11 +319,14 @@ func TestMultistreamEncoder_Controls(t *testing.T) {
 	if err := enc.SetForceChannels(2); err != ErrInvalidForceChannels {
 		t.Errorf("SetForceChannels(2) on layout with mono streams error = %v, want %v", err, ErrInvalidForceChannels)
 	}
-	if got := enc.ForceChannels(); got != -1 {
-		t.Errorf("ForceChannels() after rejected stereo force = %d, want -1", got)
+	if got := enc.ForceChannels(); got != 2 {
+		t.Errorf("ForceChannels() after rejected stereo force = %d, want 2 from the first coupled stream", got)
 	}
 	if err := enc.SetForceChannels(0); err != ErrInvalidForceChannels {
 		t.Errorf("SetForceChannels(0) error = %v, want %v", err, ErrInvalidForceChannels)
+	}
+	if got := enc.ForceChannels(); got != 2 {
+		t.Errorf("ForceChannels() after invalid value = %d, want 2", got)
 	}
 
 	// Test prediction and phase inversion controls
@@ -507,18 +510,28 @@ func TestMultistreamEncoder_CVBRPacketEnvelope(t *testing.T) {
 		}
 		enc.Reset()
 
-		maxPacket := 0
 		for i := range 10 {
 			n, err := enc.Encode(pcm, data)
 			if err != nil {
 				t.Fatalf("Encode bitrate=%d frame=%d error: %v", bitrate, i, err)
 			}
-			if n > maxPacket {
-				maxPacket = n
+			// opus_multistream_encode caps every elementary stream at 1275
+			// bytes; the multistream packet as a whole may exceed that.
+			rest := data[:n]
+			for s := range enc.Streams() {
+				streamLen := len(rest)
+				if s < enc.Streams()-1 {
+					packet, consumed, err := decodeSelfDelimitedPacket(rest)
+					if err != nil {
+						t.Fatalf("bitrate=%d frame=%d stream=%d: %v", bitrate, i, s, err)
+					}
+					streamLen = len(packet)
+					rest = rest[consumed:]
+				}
+				if streamLen > 1275 {
+					t.Fatalf("bitrate=%d frame=%d stream=%d packet=%d exceeds the 1275-byte stream limit", bitrate, i, s, streamLen)
+				}
 			}
-		}
-		if maxPacket > 1275 {
-			t.Fatalf("bitrate=%d max packet=%d exceeds 1275-byte envelope", bitrate, maxPacket)
 		}
 	}
 }

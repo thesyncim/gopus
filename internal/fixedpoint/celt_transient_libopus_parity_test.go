@@ -129,9 +129,11 @@ func TestTransientAnalysisMatchesLibopusFixed(t *testing.T) {
 		tone int32
 	}{
 		{0, 0},
-		{100, 600000000},  // high toneishness, low freq -> guard active
-		{500, 600000000},  // high toneishness, higher freq -> guard inactive
-		{4096, 100000000}, // mid freq, low toneishness
+		{100, 600000000},              // high toneishness, low freq -> guard active
+		{500, 600000000},              // high toneishness, higher freq -> guard inactive
+		{4096, 100000000},             // mid freq, low toneishness
+		{100, celtToneishnessQ29},     // QCONST32(.98f,29) boundary
+		{100, celtToneishnessQ29 + 1}, // first value above QCONST32(.98f,29)
 	}
 
 	for _, sig := range transientSignals() {

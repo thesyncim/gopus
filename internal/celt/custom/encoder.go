@@ -20,7 +20,8 @@ var (
 	ErrInvalidChannels  = errors.New("opus custom: invalid channel count (must be 1 or 2)")
 	ErrInputLength      = errors.New("opus custom: input PCM length does not match frameSize*channels")
 	ErrMaxBytes         = errors.New("opus custom: maxBytes must be positive")
-	ErrNonStandard      = errors.New("opus custom: mode band layout exceeds native data-plane capacity (NbEBands > 21); not yet driven byte-exact")
+	ErrInvalidBandCount = errors.New("opus custom: invalid mode band count")
+	ErrInvalidPacket    = errors.New("opus custom: invalid signalled packet")
 )
 
 // CustomEncoder holds per-stream encoding state for a CustomMode.
@@ -28,9 +29,13 @@ var (
 // Created via NewEncoder; must not be shared across concurrent goroutines.
 // Mirror of libopus OpusCustomEncoder.
 type CustomEncoder struct {
-	mode     *CustomMode
-	channels int
-	enc      *celt.Encoder
+	mode       *CustomMode
+	channels   int
+	enc        *celt.Encoder
+	fixed      fixedCustomEncoder
+	packet     []byte
+	int16PCM   []float32
+	signalling bool
 
 	// CTL state mirroring libopus encoder_ctl fields.
 	bitrate    int
@@ -40,6 +45,21 @@ type CustomEncoder struct {
 	cvbr       bool
 	prediction int
 	packetLoss int
+}
+
+type fixedCustomEncoder interface {
+	encodeFloat([]float32, int) ([]byte, error)
+	encodeShort([]int16, int) ([]byte, error)
+	reset()
+	finalRange() uint32
+	setComplexity(int)
+	setBitrate(int)
+	setVBR(bool)
+	setConstrainedVBR(bool)
+	setSignalling(bool)
+	setPrediction(int)
+	setLSBDepth(int)
+	setPacketLoss(int)
 }
 
 // NewEncoder creates a new CustomEncoder for the given mode and channel count.
@@ -54,13 +74,22 @@ func NewEncoder(mode *CustomMode, channels int) (*CustomEncoder, error) {
 	if channels < 1 || channels > 2 {
 		return nil, ErrInvalidChannels
 	}
-	// Decline modes whose band layout exceeds the native data-plane capacity
-	// (nbEBands > maxNativeBands). The static energy/history buffers are sized by
-	// MaxBands, so such modes cannot be driven byte-exact yet; returning
-	// ErrNonStandard keeps the boundary clean (no crash, no non-conformant
-	// bitstream).
 	if !mode.nativeSupported() {
-		return nil, ErrNonStandard
+		return nil, ErrInvalidBandCount
+	}
+	fixed, err := newFixedCustomEncoder(mode, channels)
+	if err != nil {
+		return nil, err
+	}
+	if fixed != nil {
+		fixed.setSignalling(true)
+		return &CustomEncoder{
+			mode: mode, channels: channels, fixed: fixed,
+			signalling: true,
+			bitrate:    bitrateMax, complexity: 5, lsbDepth: 24,
+			cvbr:       true,
+			prediction: 2,
+		}, nil
 	}
 
 	enc := celt.NewEncoder(channels)
@@ -71,8 +100,11 @@ func NewEncoder(mode *CustomMode, channels int) (*CustomEncoder, error) {
 	enc.SetDCRejectEnabled(false)
 	enc.SetLSBQuantizationEnabled(false)
 	enc.SetDelayCompensationEnabled(false)
-	// Disable VBR by default (opus_custom defaults to CBR).
+	enc.SetCustomSignalling(true)
+	// opus_custom_encoder_init_arch starts in CBR mode with constrained VBR
+	// enabled for when a caller turns VBR on.
 	enc.SetVBR(false)
+	enc.SetConstrainedVBR(true)
 
 	ce := &CustomEncoder{
 		mode:     mode,
@@ -83,14 +115,15 @@ func NewEncoder(mode *CustomMode, channels int) (*CustomEncoder, error) {
 		// opus_custom_encode then becomes the per-frame budget that the encoder
 		// fills, rather than a bitrate-derived size. Mirror that with -1.
 		bitrate:    bitrateMax,
-		complexity: 9,
-		lsbDepth:   16,
+		complexity: 5,
+		lsbDepth:   24,
 		vbr:        false,
-		cvbr:       false,
+		cvbr:       true,
 		prediction: 2,
 		packetLoss: 0,
+		signalling: true,
 	}
-	// Apply defaults to the inner encoder.
+	// Apply opus_custom_encoder_init_arch defaults to the inner encoder.
 	ce.enc.SetComplexity(ce.complexity)
 	ce.enc.SetBitrate(ce.bitrate)
 	ce.enc.SetLSBDepth(ce.lsbDepth)
@@ -106,9 +139,9 @@ func NewEncoder(mode *CustomMode, channels int) (*CustomEncoder, error) {
 	// pulse cache) installed via EnablePerModeTables. This mirrors the symmetric
 	// decode wiring in NewDecoder.
 	if mode.InScaledBandFamily() {
-		ce.enc.EnableScaledCustomMode(mode.Fs, mode.Overlap, mode.ShortMdctSize, mode.EffEBands, mode.Preemph)
+		ce.enc.EnableScaledCustomMode(mode.Fs, mode.Overlap, mode.ShortMdctSize, mode.EffEBands, mode.Preemph, mode.transforms)
 	} else if !mode.isStandard {
-		ce.enc.EnableScaledCustomMode(mode.Fs, mode.Overlap, mode.ShortMdctSize, mode.EffEBands, mode.Preemph)
+		ce.enc.EnableScaledCustomMode(mode.Fs, mode.Overlap, mode.ShortMdctSize, mode.EffEBands, mode.Preemph, mode.transforms)
 		ce.enc.EnablePerModeTables(mode.NbEBands, mode.ShortMdctSize, mode.EBands, mode.LogN, mode.AllocVectors, mode.CacheIndex, mode.CacheBits, mode.CacheCaps)
 	}
 	return ce, nil
@@ -117,6 +150,10 @@ func NewEncoder(mode *CustomMode, channels int) (*CustomEncoder, error) {
 // Reset resets the encoder state (equivalent to OPUS_RESET_STATE CTL).
 func (ce *CustomEncoder) Reset() {
 	if ce == nil {
+		return
+	}
+	if ce.fixed != nil {
+		ce.fixed.reset()
 		return
 	}
 	ce.enc.Reset()
@@ -128,26 +165,40 @@ func (ce *CustomEncoder) Mode() *CustomMode { return ce.mode }
 // Channels returns the channel count.
 func (ce *CustomEncoder) Channels() int { return ce.channels }
 
+// SetSignalling enables or disables the one-byte frame header. The header form
+// depends on the build and mode.
+// NewEncoder enables it by default, matching opus_custom_encoder_create().
+// Disable it only when encoding a raw CELT payload for a caller that supplies
+// frame size and channel count out of band.
+func (ce *CustomEncoder) SetSignalling(enabled bool) error {
+	if ce == nil {
+		return ErrEncoderNil
+	}
+	ce.signalling = enabled
+	if ce.fixed != nil {
+		ce.fixed.setSignalling(enabled)
+	} else {
+		ce.enc.SetCustomSignalling(enabled)
+	}
+	return nil
+}
+
+// Signalling reports whether EncodeFloat and Encode prepend the custom frame
+// header.
+func (ce *CustomEncoder) Signalling() bool {
+	return ce != nil && ce.signalling
+}
+
 // EncodeFloat encodes frameSize samples per channel from pcm (float32, range
 // −1.0…+1.0, interleaved for stereo) and writes at most maxBytes of compressed
-// data. Returns the number of bytes written.
+// data. Returns the encoded packet.
 //
 // The caller supplies pcm with exactly frameSize*channels samples.
-// maxBytes controls the maximum packet size (CBR budget for standard modes).
+// maxBytes controls the maximum packet size and the CBR budget.
 //
-// Standard modes (48 kHz, 120/240/480/960 samples), the Fs==400*shortMdctSize
-// family (e.g. 16000/320, 24000/480) and genuinely custom band layouts such as
-// 48000/640 (NbEBands=19) produce output byte-identical to libopus
-// --enable-custom-modes (gated by TestOracleParityScaledBandFamily,
-// TestOracleParityNonStandardModes and TestOracleParityNonStandardStereo). For
-// the custom layouts the per-mode band/allocation/cache tables computed by
-// NewMode (eBands, logN, allocVectors and the compute_pulse_cache
-// index/bits/caps) are threaded through the CELT encode data plane, mirroring the
-// symmetric decode path.
-//
-// Modes whose band layout exceeds the native data-plane capacity (NbEBands > 21)
-// are declined at NewEncoder time with ErrNonStandard, so EncodeFloat is only
-// reachable for within-cap modes.
+// Encoding uses the mode's band edges, allocation tables, pulse cache, window,
+// and history stride. The returned packet borrows encoder scratch and remains
+// valid until the next encode call.
 //
 // Reference: libopus include/opus_custom.h opus_custom_encode_float().
 func (ce *CustomEncoder) EncodeFloat(pcm []float32, maxBytes int) ([]byte, error) {
@@ -162,8 +213,48 @@ func (ce *CustomEncoder) EncodeFloat(pcm []float32, maxBytes int) ([]byte, error
 	if maxBytes <= 0 {
 		return nil, ErrMaxBytes
 	}
-	ce.enc.SetMaxPayloadBytes(maxBytes)
-	return ce.enc.EncodeFrame(pcm, frameSize)
+	payloadBytes := maxBytes
+	if ce.signalling {
+		payloadBytes--
+		if payloadBytes <= 0 {
+			return nil, ErrMaxBytes
+		}
+		ce.reserveSignallingPacket(maxBytes)
+	}
+	if ce.fixed != nil {
+		packet, err := ce.fixed.encodeFloat(pcm, payloadBytes)
+		if err != nil || !ce.signalling {
+			return packet, err
+		}
+		return ce.prependSignallingHeader(packet)
+	}
+	ce.enc.SetMaxPayloadBytes(payloadBytes)
+	packet, err := ce.enc.EncodeFrame(pcm, frameSize)
+	if err != nil || !ce.signalling {
+		return packet, err
+	}
+	return ce.prependSignallingHeader(packet)
+}
+
+func (ce *CustomEncoder) prependSignallingHeader(payload []byte) ([]byte, error) {
+	header, err := customSignallingHeader(ce.mode, ce.channels, ce.mode.FrameSize)
+	if err != nil {
+		return nil, err
+	}
+	if cap(ce.packet) < len(payload)+1 {
+		ce.packet = make([]byte, len(payload)+1)
+	}
+	ce.packet = ce.packet[:len(payload)+1]
+	ce.packet[0] = header
+	copy(ce.packet[1:], payload)
+	return ce.packet, nil
+}
+
+func (ce *CustomEncoder) reserveSignallingPacket(maxBytes int) {
+	capacity := min(maxBytes, customSignallingPacketLimit())
+	if cap(ce.packet) < capacity {
+		ce.packet = make([]byte, 0, capacity)
+	}
 }
 
 // Encode encodes frameSize samples per channel from pcm (int16, native-endian,
@@ -178,7 +269,28 @@ func (ce *CustomEncoder) Encode(pcm []int16, maxBytes int) ([]byte, error) {
 	if len(pcm) != wantLen {
 		return nil, ErrInputLength
 	}
-	f := make([]float32, len(pcm))
+	if maxBytes <= 0 {
+		return nil, ErrMaxBytes
+	}
+	if ce.fixed != nil {
+		payloadBytes := maxBytes
+		if ce.signalling {
+			payloadBytes--
+			if payloadBytes <= 0 {
+				return nil, ErrMaxBytes
+			}
+			ce.reserveSignallingPacket(maxBytes)
+		}
+		packet, err := ce.fixed.encodeShort(pcm, payloadBytes)
+		if err != nil || !ce.signalling {
+			return packet, err
+		}
+		return ce.prependSignallingHeader(packet)
+	}
+	if cap(ce.int16PCM) < len(pcm) {
+		ce.int16PCM = make([]float32, len(pcm))
+	}
+	f := ce.int16PCM[:len(pcm)]
 	for i, v := range pcm {
 		f[i] = float32(v) * (1.0 / 32768.0)
 	}
@@ -197,6 +309,10 @@ func (ce *CustomEncoder) SetComplexity(c int) error {
 		return ErrBadArg
 	}
 	ce.complexity = c
+	if ce.fixed != nil {
+		ce.fixed.setComplexity(c)
+		return nil
+	}
 	ce.enc.SetComplexity(c)
 	return nil
 }
@@ -210,13 +326,21 @@ func (ce *CustomEncoder) Complexity() int {
 }
 
 // SetBitrate sets the target bitrate in bits per second, or −1 for max.
-// Mirrors OPUS_SET_BITRATE via opus_custom_encoder_ctl().
+// Mirrors OPUS_SET_BITRATE via opus_custom_encoder_ctl(): rates of 500 b/s or
+// less are rejected and rates above 750 kb/s per channel are capped.
 func (ce *CustomEncoder) SetBitrate(bps int) error {
 	if ce == nil {
 		return ErrEncoderNil
 	}
-	ce.bitrate = bps
-	ce.enc.SetBitrate(bps)
+	if bps <= 500 && bps != bitrateMax {
+		return ErrBadArg
+	}
+	ce.bitrate = min(bps, 750000*ce.channels)
+	if ce.fixed != nil {
+		ce.fixed.setBitrate(ce.bitrate)
+		return nil
+	}
+	ce.enc.SetBitrate(ce.bitrate)
 	return nil
 }
 
@@ -235,6 +359,10 @@ func (ce *CustomEncoder) SetVBR(enabled bool) error {
 		return ErrEncoderNil
 	}
 	ce.vbr = enabled
+	if ce.fixed != nil {
+		ce.fixed.setVBR(enabled)
+		return nil
+	}
 	ce.enc.SetVBR(enabled)
 	return nil
 }
@@ -254,6 +382,10 @@ func (ce *CustomEncoder) SetConstrainedVBR(enabled bool) error {
 		return ErrEncoderNil
 	}
 	ce.cvbr = enabled
+	if ce.fixed != nil {
+		ce.fixed.setConstrainedVBR(enabled)
+		return nil
+	}
 	ce.enc.SetConstrainedVBR(enabled)
 	return nil
 }
@@ -276,6 +408,10 @@ func (ce *CustomEncoder) SetPrediction(mode int) error {
 		return ErrBadArg
 	}
 	ce.prediction = mode
+	if ce.fixed != nil {
+		ce.fixed.setPrediction(mode)
+		return nil
+	}
 	ce.enc.SetPrediction(mode)
 	return nil
 }
@@ -298,6 +434,10 @@ func (ce *CustomEncoder) SetLSBDepth(depth int) error {
 		return ErrBadArg
 	}
 	ce.lsbDepth = depth
+	if ce.fixed != nil {
+		ce.fixed.setLSBDepth(depth)
+		return nil
+	}
 	ce.enc.SetLSBDepth(depth)
 	return nil
 }
@@ -320,6 +460,10 @@ func (ce *CustomEncoder) SetPacketLoss(lossPercent int) error {
 		return ErrBadArg
 	}
 	ce.packetLoss = lossPercent
+	if ce.fixed != nil {
+		ce.fixed.setPacketLoss(lossPercent)
+		return nil
+	}
 	ce.enc.SetPacketLoss(lossPercent)
 	return nil
 }
@@ -337,6 +481,9 @@ func (ce *CustomEncoder) PacketLoss() int {
 func (ce *CustomEncoder) FinalRange() uint32 {
 	if ce == nil {
 		return 0
+	}
+	if ce.fixed != nil {
+		return ce.fixed.finalRange()
 	}
 	return ce.enc.FinalRange()
 }

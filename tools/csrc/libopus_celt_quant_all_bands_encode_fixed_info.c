@@ -16,7 +16,7 @@
 #include "opus_custom.h"
 
 /* Oracle helper for the libopus FIXED_POINT band-shape encode (quant_all_bands,
- * encode side, QEXT off). It runs the real quant_all_bands(1, ...) over a fresh
+ * encode side). It runs the real quant_all_bands(1, ...) over a fresh
  * range encoder, using the static 48000/960 CELTMode, on a caller-supplied
  * normalized celt_norm X[] (and stereo Y[]) plus band energies and allocation,
  * and dumps the coded bytes, the post-encode X[]/Y[], the collapse_masks[] and
@@ -77,6 +77,11 @@ int main(void) {
   unsigned char *collapse_masks = NULL;
   const CELTMode *mode = NULL;
   ec_enc enc;
+#ifdef ENABLE_QEXT
+  ec_enc ext_enc;
+  unsigned char ext_dummy = 0;
+  int *extra_pulses = NULL;
+#endif
   int ok = 0;
 
   if (!set_binary_stdio()) return 1;
@@ -122,6 +127,11 @@ int main(void) {
 
   mode = opus_custom_mode_create(48000, 960, NULL);
   if (!mode) goto done;
+#ifdef ENABLE_QEXT
+  extra_pulses = (int *)calloc((size_t)mode->nbEBands + NB_QEXT_BANDS,
+                               sizeof(*extra_pulses));
+  if (!extra_pulses) goto done;
+#endif
 
   N = (uint32_t)(mode->shortMdctSize << LM);
   total_x = channels * N;
@@ -138,11 +148,21 @@ int main(void) {
   if (!coded || !collapse_masks) goto done;
 
   ec_enc_init(&enc, coded, nbytes);
+#ifdef ENABLE_QEXT
+  /* This oracle measures the ordinary main pass with the QEXT build's exact
+   * function signature. A zero-capacity side coder and zero extra pulses keep
+   * runtime QEXT inactive while preserving the selected archive/build. */
+  ec_enc_init(&ext_enc, &ext_dummy, 0);
+#endif
   quant_all_bands(1, mode, (int)start, (int)end, X,
                   channels == 2 ? X + N : NULL, collapse_masks, bandE, pulses,
                   (int)shortBlocks, (int)spread, (int)dual_stereo, (int)intensity,
                   tf_res, total_bits, balance, &enc, (int)LM, (int)codedBands,
-                  &seed, (int)complexity, 0, (int)disable_inv);
+                  &seed, (int)complexity, 0, (int)disable_inv
+#ifdef ENABLE_QEXT
+                  , &ext_enc, extra_pulses, 0, NULL
+#endif
+                  );
   ec_enc_done(&enc);
 
   if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(1) || !write_u32(N) ||
@@ -174,6 +194,9 @@ int main(void) {
 done:
   free(pulses);
   free(tf_res);
+#ifdef ENABLE_QEXT
+  free(extra_pulses);
+#endif
   free(bandE);
   free(coded);
   free(X);

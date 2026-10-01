@@ -11,7 +11,7 @@ func TestTrustDocsContract(t *testing.T) {
 	readme := mustReadDocForTest(t, "README.md")
 	for _, needle := range []string{
 		"## Trust And Verification",
-		"Released version: `v0.1.1`.",
+		"Released version: `v0.1.2`.",
 		"`v0.1.0` was retracted",
 		"Latest release evidence:",
 		"Required branch checks:",
@@ -23,6 +23,7 @@ func TestTrustDocsContract(t *testing.T) {
 		}
 	}
 
+	checklist := mustReadDocForTest(t, "CONTRIBUTING.md")
 	for _, command := range []string{
 		"go test ./...",
 		"make test-doc-contract",
@@ -33,8 +34,8 @@ func TestTrustDocsContract(t *testing.T) {
 		"make verify-production-exhaustive",
 		"make release-evidence",
 	} {
-		if !strings.Contains(readme, command) {
-			t.Fatalf("README.md release checklist missing required command %s", command)
+		if !strings.Contains(checklist, command) {
+			t.Fatalf("CONTRIBUTING.md release checklist missing required command %s", command)
 		}
 	}
 
@@ -68,6 +69,7 @@ func TestTrustSensitiveFilesHaveCodeOwners(t *testing.T) {
 		".github/workflows/*",
 		"SECURITY.md",
 		"README.md",
+		"reports/validation.md",
 		"tools/ensure_libopus.sh",
 		"Makefile",
 	} {
@@ -80,7 +82,7 @@ func TestTrustSensitiveFilesHaveCodeOwners(t *testing.T) {
 func TestReleaseNotesSourceIsReadme(t *testing.T) {
 	readme := mustReadDocForTest(t, "README.md")
 	for _, needle := range []string{
-		"Released version: `v0.1.1`.",
+		"Released version: `v0.1.2`.",
 		"`v0.1.0` was retracted",
 		"make release-evidence",
 	} {

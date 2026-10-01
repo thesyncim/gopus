@@ -32,6 +32,8 @@
  *   GOPUS_DTX_CBR          1 = constant bitrate (OPUS_SET_VBR(0)); default 0 (VBR)
  */
 
+#include "config.h"
+
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>

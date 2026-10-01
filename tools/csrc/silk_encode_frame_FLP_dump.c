@@ -36,12 +36,12 @@ POSSIBILITY OF SUCH DAMAGE.
 
 /* gopus frame-level SILK control oracle hook.
  *
- * Verbatim copy of silk/float/encode_frame_FLP.c with two added callbacks so the
- * host oracle can observe the per-frame silk_encoder_control_FLP state that
- * drives NSQ + rate-control, plus the final payload nBytes. The hooks are
- * defined in the oracle binary. Linking this object BEFORE libopus.a makes the
- * linker resolve silk_encode_frame_FLP to this definition and skip the archived
- * one, so all other libopus code is reused unchanged. */
+ * Verbatim copy of silk/float/encode_frame_FLP.c with oracle callbacks so the
+ * host oracle can observe per-frame SILK controls, payload size, and the
+ * context around the LTP-filter capture. The hooks are defined in the oracle
+ * binary. Linking this object BEFORE libopus.a makes the linker resolve
+ * silk_encode_frame_FLP to this definition and skip the archived one, so all
+ * other libopus code is reused unchanged. */
 extern void gopus_silk_ctrl_dump(
     const silk_encoder_state_FLP   *psEnc,
     const silk_encoder_control_FLP *psEncCtrl,
@@ -50,6 +50,20 @@ extern void gopus_silk_ctrl_dump(
 extern void gopus_silk_nbytes_dump(
     const silk_encoder_state_FLP   *psEnc,
     opus_int32                      nBytesOut );
+extern void gopus_silk_encode_stage_dump(
+    const silk_encoder_state_FLP   *psEnc,
+    const ec_enc                   *psRangeEnc,
+    opus_int                        iter,
+    opus_int                        stage );
+extern void gopus_silk_ltp_set_context(
+    const silk_encoder_state_FLP   *psEnc,
+    const silk_encoder_control_FLP *psEncCtrl );
+extern void gopus_silk_ltp_clear_context(void);
+extern void gopus_silk_gain_tweak_set_context(
+    const silk_encoder_state_FLP   *psEnc,
+    const silk_encoder_control_FLP *psEncCtrl );
+extern void gopus_silk_gain_tweak_finish_context(
+    const silk_encoder_control_FLP *psEncCtrl );
 
 /* Low Bitrate Redundancy (LBRR) encoding. Reuse all parameters but encode with lower bitrate */
 static OPUS_INLINE void silk_LBRR_encode_FLP(
@@ -170,12 +184,16 @@ opus_int silk_encode_frame_FLP(
         /************************/
         /* Noise shape analysis */
         /************************/
+        gopus_silk_gain_tweak_set_context( psEnc, &sEncCtrl );
         silk_noise_shape_analysis_FLP( psEnc, &sEncCtrl, res_pitch_frame, x_frame );
+        gopus_silk_gain_tweak_finish_context( &sEncCtrl );
 
         /***************************************************/
         /* Find linear prediction coefficients (LPC + LTP) */
         /***************************************************/
+        gopus_silk_ltp_set_context( psEnc, &sEncCtrl );
         silk_find_pred_coefs_FLP( psEnc, &sEncCtrl, res_pitch_frame, x_frame, condCoding );
+        gopus_silk_ltp_clear_context();
 
         /****************************************/
         /* Process gains                        */
@@ -226,6 +244,7 @@ opus_int silk_encode_frame_FLP(
                 /* Noise shaping quantization            */
                 /*****************************************/
                 silk_NSQ_wrapper_FLP( psEnc, &sEncCtrl, &psEnc->sCmn.indices, &psEnc->sCmn.sNSQ, psEnc->sCmn.pulses, x_frame );
+                gopus_silk_encode_stage_dump( psEnc, psRangeEnc, iter, 0 );
 
                 if ( iter == maxIter && !found_lower ) {
                     silk_memcpy( &sRangeEnc_copy2, psRangeEnc, sizeof( ec_enc ) );
@@ -235,12 +254,14 @@ opus_int silk_encode_frame_FLP(
                 /* Encode Parameters                    */
                 /****************************************/
                 silk_encode_indices( &psEnc->sCmn, psRangeEnc, psEnc->sCmn.nFramesEncoded, 0, condCoding );
+                gopus_silk_encode_stage_dump( psEnc, psRangeEnc, iter, 1 );
 
                 /****************************************/
                 /* Encode Excitation Signal             */
                 /****************************************/
                 silk_encode_pulses( psRangeEnc, psEnc->sCmn.indices.signalType, psEnc->sCmn.indices.quantOffsetType,
                       psEnc->sCmn.pulses, psEnc->sCmn.frame_length );
+                gopus_silk_encode_stage_dump( psEnc, psRangeEnc, iter, 2 );
 
                 nBits = ec_tell( psRangeEnc );
 
@@ -264,9 +285,11 @@ opus_int silk_encode_frame_FLP(
                     }
 
                     silk_encode_indices( &psEnc->sCmn, psRangeEnc, psEnc->sCmn.nFramesEncoded, 0, condCoding );
+                    gopus_silk_encode_stage_dump( psEnc, psRangeEnc, iter, 1 );
 
                     silk_encode_pulses( psRangeEnc, psEnc->sCmn.indices.signalType, psEnc->sCmn.indices.quantOffsetType,
                         psEnc->sCmn.pulses, psEnc->sCmn.frame_length );
+                    gopus_silk_encode_stage_dump( psEnc, psRangeEnc, iter, 2 );
 
                     nBits = ec_tell( psRangeEnc );
                 }

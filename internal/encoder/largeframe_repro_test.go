@@ -6,14 +6,13 @@ import (
 	"testing"
 )
 
-// TestLargeFrameNoPanic guards the encoder against the index-out-of-range panic
-// in the SILK VAD band decimation (encoder/vad.go) that fired when a sub-48 kHz
-// frame produced a SILK/transition-prefill frame shorter than VADMinFrameLength.
+// TestLargeFrameNoPanic checks that SILK encoding and transition-prefill VAD
+// handle frames shorter than VADMinFrameLength at sub-48 kHz sample rates.
 //
 // libopus opus_encode accepts every 20/40/60/80/100/120 ms frame at all of
 // 8/12/16/24/48 kHz (mono and stereo) and never returns OPUS_BAD_ARG for them.
 // gopus must never panic on any of these inputs: it must return a packet or a
-// clean error. The previously-reproduced crashes were:
+// clean error. The cases include:
 //   - 8 kHz mono/stereo 120 ms (frameSize 960), via the SILK stereo
 //     transition-prefill VAD on the CELT->SILK switch.
 //   - 12 kHz mono/stereo 80 ms (frameSize 960), same path.

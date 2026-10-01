@@ -77,17 +77,19 @@ trap cleanup EXIT
 # Each entry is:  <label>;<GOARCH>;<comma-separated build tags>
 #
 # Feature tags come from Makefile LINT_TAG_CONFIGS
-#   (purego gopus_dred gopus_osce gopus_qext gopus_fixed_point gopus_custom_modes)
+#   (nosimd gopus_dred gopus_osce gopus_qext gopus_fixed_point gopus_custom_modes)
 # plus the default (no tags) build. The build-config-matrix CI gate runs the
-# whole suite under `purego`, and the parity/oracle gates run under
+# whole suite under `nosimd`, and the parity/oracle gates run under
 # gopus_libopus_oracle (which also pulls in the non-test allocation probe and the
 # internal/libopustest Probe* exports). gopus_custom_modes carries real non-test CELT
 # custom-mode source, so it must be analyzed too.
 #
-# GOARCH: arm64 is the dev host (native, also exercises arm64 && !purego asm
-# paths); amd64 is analyzed cross (the amd64 && !purego kernels). Both archs are
-# shipped/tested in CI (macos-latest + ubuntu-24.04-arm are arm64; ubuntu-latest
-# + windows-latest are amd64).
+# GOARCH: arm64 is the dev host and amd64 is analyzed cross. Source selection
+# follows GOARCH, build tags, and the inherited GOEXPERIMENT setting: ordinary
+# builds select scalar Go, while GOEXPERIMENT=simd opts into archsimd files and
+# `nosimd` forces scalar selection. Both architectures are shipped/tested in CI
+# (macos-latest + ubuntu-24.04-arm are arm64; ubuntu-latest + windows-latest are
+# amd64).
 #
 # The oracle overlay is combined with each feature tag because the parity tests
 # that reference cross-package probes are themselves tag-gated; a probe is only
@@ -101,7 +103,7 @@ add_cfg() { CONFIGS+=("$1"); }
 # Core feature builds, both arches.
 for arch in arm64 amd64; do
   add_cfg "default;${arch};"
-  add_cfg "purego;${arch};purego"
+  add_cfg "nosimd;${arch};nosimd"
   add_cfg "dred;${arch};gopus_dred"
   add_cfg "extra_controls;${arch};gopus_osce"
   add_cfg "qext;${arch};gopus_qext"
@@ -120,7 +122,7 @@ if [ "${QUICK}" = "0" ]; then
     add_cfg "oracle_qext;${arch};gopus_qext,gopus_libopus_oracle"
     add_cfg "oracle_fixed;${arch};gopus_fixed_point,gopus_libopus_oracle"
     add_cfg "oracle_custom;${arch};gopus_custom_modes,gopus_libopus_oracle"
-    add_cfg "oracle_purego;${arch};purego,gopus_libopus_oracle"
+    add_cfg "oracle_nosimd;${arch};nosimd,gopus_libopus_oracle"
   done
   # Composite optional-feature builds the public-API contract tests cover, plus
   # niche source-bearing tags (silk trace, neon tone LPC corr, libopus bench).

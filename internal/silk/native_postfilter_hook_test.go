@@ -15,10 +15,7 @@ func TestNativePostfilterHookFeedsMonoResampler(t *testing.T) {
 	for i := range pcm {
 		pcm[i] = 0.3 * float32(math.Sin(2*math.Pi*440*float64(i)/float64(config.SampleRate)))
 	}
-	encoded, err := Encode(pcm, BandwidthWideband, true)
-	if err != nil {
-		t.Fatalf("Encode: %v", err)
-	}
+	encoded := encodeTestPacket(t, BandwidthWideband, pcm)
 
 	rdRef := &rangecoding.Decoder{}
 	rdRef.Init(encoded)
@@ -66,5 +63,33 @@ func TestNativePostfilterHookFeedsMonoResampler(t *testing.T) {
 	}
 	if hookEnergy != 0 {
 		t.Fatalf("hooked decode energy=%g want 0", hookEnergy)
+	}
+}
+
+func TestNativeOSCEBypassClampWithoutModel(t *testing.T) {
+	dec := NewDecoder()
+	st := &decoderState{fsKHz: 16, nbSubfr: 4}
+	samples := make([]int16, 320)
+	samples[0] = -32768
+	samples[1] = -32767
+	samples[2] = 32767
+	dec.processNativePostfilterFrame(0, st, nil, samples)
+	if samples[0] != -32767 || samples[1] != -32767 || samples[2] != 32767 {
+		t.Fatalf("OSCE bypass output clamp got [%d %d %d], want [-32767 -32767 32767]", samples[0], samples[1], samples[2])
+	}
+
+	// libopus calls osce_enhance_frame for other SILK frame geometries too,
+	// but it returns before quantizing them.
+	short := []int16{-32768}
+	dec.processNativePostfilterFrame(0, &decoderState{fsKHz: 16, nbSubfr: 2}, nil, short)
+	if short[0] != -32768 {
+		t.Fatalf("10 ms OSCE bypass changed sample to %d", short[0])
+	}
+
+	allocs := testing.AllocsPerRun(100, func() {
+		dec.processNativePostfilterFrame(0, st, nil, samples)
+	})
+	if allocs != 0 {
+		t.Fatalf("warmed OSCE bypass allocations=%g want 0", allocs)
 	}
 }

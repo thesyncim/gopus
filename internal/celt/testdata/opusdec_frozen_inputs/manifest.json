@@ -1,0 +1,114 @@
+{
+  "encoder_producer": {
+    "avx": true,
+    "avx2": true,
+    "commit": "1ee7f25232a25d640aa92ece60d952036c2b09bd",
+    "cpu_model": "AMD EPYC 7763 64-Core Processor",
+    "fma": true,
+    "go_version": "go1.27.1-X:simd",
+    "goamd64": "v1",
+    "goarch": "amd64",
+    "goexperiment": "simd",
+    "goos": "linux"
+  },
+  "entries": [
+    {
+      "name": "mono_20ms_single",
+      "sha256": "cc90d1ccaec4961a618c06c7b846e3a49047f67961c801c87e741b981d019d38",
+      "sample_rate": 48000,
+      "channels": 1,
+      "frames": 3,
+      "file": "cc90d1ccaec4961a618c06c7b846e3a49047f67961c801c87e741b981d019d38.ogg"
+    },
+    {
+      "name": "stereo_20ms_single",
+      "sha256": "a905c438807677265551276218d92ccc773e89ec03b1c7054f62ac964f0b61fe",
+      "sample_rate": 48000,
+      "channels": 2,
+      "frames": 1,
+      "file": "a905c438807677265551276218d92ccc773e89ec03b1c7054f62ac964f0b61fe.ogg"
+    },
+    {
+      "name": "mono_20ms_silence",
+      "sha256": "f631dea38f06b46e5591c61b601ec2239ec8610c8d6c6365e93126b594d63741",
+      "sample_rate": 48000,
+      "channels": 1,
+      "frames": 1,
+      "file": "f631dea38f06b46e5591c61b601ec2239ec8610c8d6c6365e93126b594d63741.ogg"
+    },
+    {
+      "name": "mono_20ms_multiframe",
+      "sha256": "0a897d88caf87aad786ec421acd846d2a6ceeb9006aed0b828fd672aafb8cc51",
+      "sample_rate": 48000,
+      "channels": 1,
+      "frames": 5,
+      "file": "0a897d88caf87aad786ec421acd846d2a6ceeb9006aed0b828fd672aafb8cc51.ogg"
+    },
+    {
+      "name": "mono_20ms_chirp",
+      "sha256": "da34d991c260cfd75b443f941806feb007637cfc4a666faa20f03f7381ead65c",
+      "sample_rate": 48000,
+      "channels": 1,
+      "frames": 3,
+      "file": "da34d991c260cfd75b443f941806feb007637cfc4a666faa20f03f7381ead65c.ogg"
+    },
+    {
+      "name": "mono_20ms_impulse",
+      "sha256": "e5f439a497910d6542fac72d58e637ebaf494d133ccb10600f388abe03cb12fb",
+      "sample_rate": 48000,
+      "channels": 1,
+      "frames": 1,
+      "file": "e5f439a497910d6542fac72d58e637ebaf494d133ccb10600f388abe03cb12fb.ogg"
+    },
+    {
+      "name": "mono_20ms_noise",
+      "sha256": "30e26943d43c207a44d4020e84bcb1031cc5d70b5414c4ccd746d5af7c15ab4a",
+      "sample_rate": 48000,
+      "channels": 1,
+      "frames": 1,
+      "file": "30e26943d43c207a44d4020e84bcb1031cc5d70b5414c4ccd746d5af7c15ab4a.ogg"
+    },
+    {
+      "name": "mono_20ms_lowamp",
+      "sha256": "1a99da7a99a8f4daa4dc6ef115b2b86f8ce40a171916b96fa97cfc575497f69a",
+      "sample_rate": 48000,
+      "channels": 1,
+      "frames": 1,
+      "file": "1a99da7a99a8f4daa4dc6ef115b2b86f8ce40a171916b96fa97cfc575497f69a.ogg"
+    },
+    {
+      "name": "stereo_20ms_chirp",
+      "sha256": "2305e4a4f768cb03b27a989da9a2b6f9338fafc82d8bb32b5769ba19e0b11072",
+      "sample_rate": 48000,
+      "channels": 2,
+      "frames": 1,
+      "file": "2305e4a4f768cb03b27a989da9a2b6f9338fafc82d8bb32b5769ba19e0b11072.ogg"
+    },
+    {
+      "name": "stereo_20ms_silence",
+      "sha256": "077c2dce273cf926db421a016d87e29666e6e48b8530c90e239eccc493006612",
+      "sample_rate": 48000,
+      "channels": 2,
+      "frames": 1,
+      "file": "077c2dce273cf926db421a016d87e29666e6e48b8530c90e239eccc493006612.ogg"
+    },
+    {
+      "name": "stereo_20ms_multiframe",
+      "sha256": "a168b7ddb1d9ea96e7c2e2646b936e4c4f3d04a39e0d9cfe911cb014b2acb7ff",
+      "sample_rate": 48000,
+      "channels": 2,
+      "frames": 4,
+      "file": "a168b7ddb1d9ea96e7c2e2646b936e4c4f3d04a39e0d9cfe911cb014b2acb7ff.ogg"
+    }
+  ],
+  "frozen_decoder_producer": {
+    "evidence_runs": [
+      "https://github.com/thesyncim/gopus/actions/runs/36001803330",
+      "https://github.com/thesyncim/gopus/actions/runs/36007082978"
+    ],
+    "libopus_package": "1.4-1build1",
+    "libopusfile_package": "0.12-4build3",
+    "opus_tools_package": "0.2-1build3"
+  },
+  "version": 1
+}

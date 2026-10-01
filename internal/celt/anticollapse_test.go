@@ -122,13 +122,14 @@ func TestAntiCollapseStereo(t *testing.T) {
 	// Mark band 5 as collapsed for left channel only
 	// Mark band 10 as collapsed for both channels
 	for i := range MaxBands {
-		if i == 5 {
+		switch i {
+		case 5:
 			collapse[i*channels+0] = 0    // L collapsed
 			collapse[i*channels+1] = 0xFF // R not collapsed
-		} else if i == 10 {
+		case 10:
 			collapse[i*channels+0] = 0 // L collapsed
 			collapse[i*channels+1] = 0 // R collapsed
-		} else {
+		default:
 			collapse[i*channels+0] = 0xFF
 			collapse[i*channels+1] = 0xFF
 		}

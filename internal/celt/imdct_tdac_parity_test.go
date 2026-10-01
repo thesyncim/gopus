@@ -5,15 +5,15 @@ import (
 	"testing"
 )
 
-// imdctTDACWindowFMA32ScalarRef is an independent scalar reference for the TDAC
+// imdctTDACWindowScalarRef is an independent scalar reference for the TDAC
 // windowing kernel. It re-derives the mdctMulSubMix/mdctMulAddMix formulas the
 // kernel applies, selecting the same rounding shape as the production flags:
 // when mdctUseFMALikeMixEnabled is set (arm64) it rounds the standalone product
 // to float32 and fuses the first multiply into the add/sub via math.FMA,
-// matching the purego fallback and the arm64 assembly bit-for-bit; otherwise it
-// keeps both products separately rounded and non-fused, matching the kernel on
-// non-arm64 hosts where the kernel is built but only reached on arm64.
-func imdctTDACWindowFMA32ScalarRef(out, xsrc, window []float32, yOut0, xOut0, xSrc0, wBwd0, count int) {
+// matching the arm64 Go SIMD and scalar implementations bit-for-bit; otherwise
+// it keeps both products separately rounded and non-fused, matching the kernel
+// on non-arm64 hosts where the arm64 implementation is not selected.
+func imdctTDACWindowScalarRef(out, xsrc, window []float32, yOut0, xOut0, xSrc0, wBwd0, count int) {
 	for i := range count {
 		x1 := xsrc[xSrc0-i]
 		x2 := out[yOut0+i]
@@ -57,8 +57,8 @@ func TestIMDCTTDACWindowFMA32MatchesScalar(t *testing.T) {
 		}
 		yp1 := blockStart
 		xp1 := blockStart + overlap - 1
-		imdctTDACWindowFMA32(got, buf, window, yp1, xp1, xp1-start, overlap-1, count)
-		imdctTDACWindowFMA32ScalarRef(want, buf, window, yp1, xp1, xp1-start, overlap-1, count)
+		imdctTDACWindow(got, buf, window, yp1, xp1, xp1-start, overlap-1, count)
+		imdctTDACWindowScalarRef(want, buf, window, yp1, xp1, xp1-start, overlap-1, count)
 		for i := range want {
 			if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
 				t.Fatalf("inplace overlap=%d idx=%d: got %v want %v", overlap, i, got[i], want[i])
@@ -72,8 +72,8 @@ func TestIMDCTTDACWindowFMA32MatchesScalar(t *testing.T) {
 			got2[i] = float32((i*11%67)-33) * 0.013
 			want2[i] = got2[i]
 		}
-		imdctTDACWindowFMA32(got2, got2, window, 0, overlap-1, overlap-1, overlap-1, count)
-		imdctTDACWindowFMA32ScalarRef(want2, want2, window, 0, overlap-1, overlap-1, overlap-1, count)
+		imdctTDACWindow(got2, got2, window, 0, overlap-1, overlap-1, overlap-1, count)
+		imdctTDACWindowScalarRef(want2, want2, window, 0, overlap-1, overlap-1, overlap-1, count)
 		for i := range want2 {
 			if math.Float32bits(got2[i]) != math.Float32bits(want2[i]) {
 				t.Fatalf("inbuf overlap=%d idx=%d: got %v want %v", overlap, i, got2[i], want2[i])
@@ -82,7 +82,7 @@ func TestIMDCTTDACWindowFMA32MatchesScalar(t *testing.T) {
 	}
 }
 
-func BenchmarkIMDCTTDACWindowFMA32(b *testing.B) {
+func BenchmarkIMDCTTDACWindow(b *testing.B) {
 	overlap := 120
 	count := overlap / 2
 	window := make([]float32, overlap)
@@ -95,6 +95,6 @@ func BenchmarkIMDCTTDACWindowFMA32(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		imdctTDACWindowFMA32(out, out, window, 0, overlap-1, overlap-1, overlap-1, count)
+		imdctTDACWindow(out, out, window, 0, overlap-1, overlap-1, overlap-1, count)
 	}
 }

@@ -9,11 +9,11 @@
 #endif
 
 #include "config.h"
-#include "celt/arch.h"
-#include "celt/float_cast.h"
-#include "src/opus_private.h"
+#include "arch.h"
+#include "float_cast.h"
+#include "opus_private.h"
 #include "opus_defines.h"
-#include "src/mapping_matrix.h"
+#include "mapping_matrix.h"
 
 #define INPUT_MAGIC "GPMI"
 #define OUTPUT_MAGIC "GPMO"
@@ -66,7 +66,7 @@ int main(void) {
     fprintf(stderr, "bad input magic\n");
     return 1;
   }
-  if (!read_u32(&version) || version != 1 ||
+  if (!read_u32(&version) || version != 2 ||
       !read_u32(&mode) ||
       !read_u32(&rows) ||
       !read_u32(&cols) ||
@@ -98,13 +98,33 @@ int main(void) {
     free(matrix);
     return 1;
   }
-  if (!read_exact(matrix_data, matrix_count * sizeof(*matrix_data)) ||
-      !read_exact(input, sample_count * sizeof(*input))) {
+  if (!read_exact(matrix_data, matrix_count * sizeof(*matrix_data))) {
     fprintf(stderr, "truncated input\n");
     free(matrix_data);
     free(input);
     free(matrix);
     return 1;
+  }
+
+  /* The wire carries normalized float PCM, independently of opus_res width. */
+  for (size_t i = 0; i < sample_count; i++) {
+    float sample;
+    if (!read_exact(&sample, sizeof(sample))) {
+      fprintf(stderr, "truncated PCM input\n");
+      free(matrix_data);
+      free(input);
+      free(matrix);
+      return 1;
+    }
+    input[i] = FLOAT2RES(sample);
+  }
+
+  /* Expose the actual samples consumed by the matrix after codec conversion. */
+  if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(2) ||
+      !write_u32((uint32_t)sample_count)) return 1;
+  for (size_t i = 0; i < sample_count; i++) {
+    float sample = RES2FLOAT(input[i]);
+    if (!write_exact(&sample, sizeof(sample))) return 1;
   }
 
   mapping_matrix_init(matrix, (int)rows, (int)cols, 0, matrix_data,
@@ -123,8 +143,7 @@ int main(void) {
       mapping_matrix_multiply_channel_out_float(matrix, input + col, (int)col,
           (int)cols, output, (int)rows, (int)frame_size);
     }
-    if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(1) ||
-        !write_u32((uint32_t)((size_t)rows * (size_t)frame_size)) ||
+    if (!write_u32((uint32_t)((size_t)rows * (size_t)frame_size)) ||
         !write_exact(output, (size_t)rows * (size_t)frame_size * sizeof(*output))) {
       fprintf(stderr, "write failed\n");
       free(output);
@@ -147,8 +166,7 @@ int main(void) {
       mapping_matrix_multiply_channel_out_short(matrix, input + col, (int)col,
           (int)cols, output, (int)rows, (int)frame_size);
     }
-    if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(1) ||
-        !write_u32((uint32_t)((size_t)rows * (size_t)frame_size)) ||
+    if (!write_u32((uint32_t)((size_t)rows * (size_t)frame_size)) ||
         !write_exact(output, (size_t)rows * (size_t)frame_size * sizeof(*output))) {
       fprintf(stderr, "write failed\n");
       free(output);

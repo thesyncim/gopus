@@ -1,6 +1,7 @@
 package gopus
 
 import (
+	"fmt"
 	"math"
 	"testing"
 )
@@ -119,8 +120,79 @@ func TestHotPathAllocsEncodeRestrictedSilkLowComplexity(t *testing.T) {
 			t.Fatalf("Encode: %v", err)
 		}
 	})
-	if allocs > encodeRestrictedSilkHotPathAllocBudget {
-		t.Fatalf("Encode(restricted SILK complexity 0) allocs/op = %.2f, want <= %d", allocs, encodeRestrictedSilkHotPathAllocBudget)
+	if allocs != 0 {
+		t.Fatalf("Encode(restricted SILK complexity 0) allocs/op = %.2f, want 0", allocs)
+	}
+}
+
+func TestHotPathAllocsEncodeHybridComplexityZero(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		channels  int
+		frameSize int
+	}{
+		{name: "mono_10ms", channels: 1, frameSize: 480},
+		{name: "stereo_20ms", channels: 2, frameSize: 960},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: tc.channels, Application: ApplicationAudio})
+			if err != nil {
+				t.Fatalf("NewEncoder: %v", err)
+			}
+			if err := enc.SetMode(EncoderModeHybrid); err != nil {
+				t.Fatalf("SetMode: %v", err)
+			}
+			if err := enc.SetFrameSize(tc.frameSize); err != nil {
+				t.Fatalf("SetFrameSize: %v", err)
+			}
+			frameDuration := ExpertFrameDuration10Ms
+			if tc.frameSize == 960 {
+				frameDuration = ExpertFrameDuration20Ms
+			}
+			if err := enc.SetExpertFrameDuration(frameDuration); err != nil {
+				t.Fatalf("SetExpertFrameDuration: %v", err)
+			}
+			if err := enc.SetBandwidth(BandwidthSuperwideband); err != nil {
+				t.Fatalf("SetBandwidth: %v", err)
+			}
+			if err := enc.SetMaxBandwidth(BandwidthSuperwideband); err != nil {
+				t.Fatalf("SetMaxBandwidth: %v", err)
+			}
+			if err := enc.SetBitrate(48000); err != nil {
+				t.Fatalf("SetBitrate: %v", err)
+			}
+			if err := enc.SetBitrateMode(BitrateModeVBR); err != nil {
+				t.Fatalf("SetBitrateMode: %v", err)
+			}
+			if err := enc.SetComplexity(0); err != nil {
+				t.Fatalf("SetComplexity: %v", err)
+			}
+			if err := enc.SetSignal(SignalVoice); err != nil {
+				t.Fatalf("SetSignal: %v", err)
+			}
+			if tc.channels == 2 {
+				if err := enc.SetForceChannels(2); err != nil {
+					t.Fatalf("SetForceChannels: %v", err)
+				}
+			}
+
+			pcm := testSineFrame(tc.frameSize * tc.channels)
+			packet := make([]byte, 4000)
+			for range 5 {
+				if _, err := enc.Encode(pcm, packet); err != nil {
+					t.Fatalf("warmup Encode: %v", err)
+				}
+			}
+
+			allocs := testing.AllocsPerRun(200, func() {
+				if _, err := enc.Encode(pcm, packet); err != nil {
+					t.Fatalf("Encode: %v", err)
+				}
+			})
+			if allocs != 0 {
+				t.Fatalf("Hybrid complexity 0 Encode allocs/op = %.2f, want 0", allocs)
+			}
+		})
 	}
 }
 
@@ -146,6 +218,44 @@ func TestHotPathAllocsDecodeFloat32(t *testing.T) {
 	}
 }
 
+func TestHotPathAllocsDecodeSilenceTransitions(t *testing.T) {
+	for _, channels := range []int{1, 2} {
+		t.Run(fmt.Sprintf("channels=%d", channels), func(t *testing.T) {
+			dec, err := NewDecoder(DefaultDecoderConfig(48000, channels))
+			if err != nil {
+				t.Fatalf("NewDecoder: %v", err)
+			}
+			silenceTOC := byte(31 << 3)
+			if channels == 2 {
+				silenceTOC |= 4
+			}
+			silence := []byte{silenceTOC, 0xff, 0xfe}
+			signal := testCELTPacket()
+			if channels == 2 {
+				signal = testStereoCELTPacket()
+			}
+			pcm := make([]float32, 960*channels)
+			decodeCycle := func() {
+				t.Helper()
+				for _, packet := range [][]byte{silence, signal, silence} {
+					if n, err := dec.Decode(packet, pcm); err != nil {
+						t.Fatalf("Decode: %v", err)
+					} else if n != 960 {
+						t.Fatalf("Decode samples=%d want 960", n)
+					}
+				}
+			}
+			for range 5 {
+				decodeCycle()
+			}
+			allocs := testing.AllocsPerRun(200, decodeCycle)
+			if allocs != 0 {
+				t.Fatalf("Decode silence/signal/silence allocs/op = %.2f, want 0", allocs)
+			}
+		})
+	}
+}
+
 func TestHotPathAllocsDecodeInt16(t *testing.T) {
 	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
 	if err != nil {
@@ -163,10 +273,7 @@ func TestHotPathAllocsDecodeInt16(t *testing.T) {
 			t.Fatalf("DecodeInt16: %v", err)
 		}
 	})
-	// The default (float) build is strictly zero-alloc. Under
-	// -tags gopus_fixed_point, DecodeInt16 additionally runs the integer
-	// FIXED_POINT CELT decoder for libopus-exact output, which is not yet
-	// zero-alloc; allow its documented per-frame allocation budget there.
+	// Both float and fixed-point builds reuse decoder-owned working buffers.
 	if allocs > decodeInt16HotPathAllocBudget {
 		t.Fatalf("Decode(int16) allocs/op = %.2f, want <= %d", allocs, decodeInt16HotPathAllocBudget)
 	}
@@ -197,10 +304,8 @@ func TestHotPathAllocsDecodePLC(t *testing.T) {
 	}
 }
 
-// TestHotPathAllocsDecodeSILKPLCMono guards the SILK packet-loss path: a
-// steady-state Decode(nil) after a SILK packet must not allocate in the gopus
-// decode entry. The only permitted allocations are the SILK PLC concealment
-// kernel's own working buffers (plc.ConcealSILKWithLTP), bounded by the budget.
+// TestHotPathAllocsDecodeSILKPLCMono requires zero allocations over received
+// audio and loss, keeping the concealment state active throughout measurement.
 func TestHotPathAllocsDecodeSILKPLCMono(t *testing.T) {
 	packet := encodeFrameForDecodeGuard(t, ApplicationVoIP, 1, BandwidthWideband, 24000)
 	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
@@ -217,18 +322,30 @@ func TestHotPathAllocsDecodeSILKPLCMono(t *testing.T) {
 		}
 	}
 	allocs := testing.AllocsPerRun(300, func() {
-		if _, err := dec.Decode(nil, pcm); err != nil {
-			t.Fatalf("Decode PLC: %v", err)
+		if n, err := dec.Decode(packet, pcm); err != nil || n != 960 {
+			t.Fatalf("Decode received samples=%d err=%v", n, err)
+		}
+		if n, err := dec.Decode(nil, pcm); err != nil || n != 960 {
+			t.Fatalf("Decode PLC samples=%d err=%v", n, err)
 		}
 	})
+	active := false
+	for _, sample := range pcm {
+		if math.IsNaN(float64(sample)) || math.IsInf(float64(sample), 0) {
+			t.Fatal("SILK concealment output must be finite")
+		}
+		active = active || sample != 0
+	}
+	if !active {
+		t.Fatal("SILK concealment measurement must contain active output")
+	}
 	if allocs > silkPLCMonoHotPathAllocBudget {
 		t.Fatalf("Decode(SILK mono PLC) allocs/op = %.2f, want <= %d", allocs, silkPLCMonoHotPathAllocBudget)
 	}
 }
 
-// TestHotPathAllocsDecodeSILKPLCStereo guards the stereo SILK packet-loss path.
-// As with mono, the gopus decode entry is zero-alloc; the residual is the SILK
-// PLC concealment kernel run once per internal channel (mid/side).
+// TestHotPathAllocsDecodeSILKPLCStereo exercises both SILK channels over
+// received/lost cycles with zero warm allocations.
 func TestHotPathAllocsDecodeSILKPLCStereo(t *testing.T) {
 	packet := encodeFrameForDecodeGuard(t, ApplicationVoIP, 2, BandwidthWideband, 32000)
 	dec, err := NewDecoder(DefaultDecoderConfig(48000, 2))
@@ -245,12 +362,62 @@ func TestHotPathAllocsDecodeSILKPLCStereo(t *testing.T) {
 		}
 	}
 	allocs := testing.AllocsPerRun(300, func() {
-		if _, err := dec.Decode(nil, pcm); err != nil {
-			t.Fatalf("Decode PLC: %v", err)
+		if n, err := dec.Decode(packet, pcm); err != nil || n != 960 {
+			t.Fatalf("Decode received samples=%d err=%v", n, err)
+		}
+		if n, err := dec.Decode(nil, pcm); err != nil || n != 960 {
+			t.Fatalf("Decode PLC samples=%d err=%v", n, err)
 		}
 	})
+	active := false
+	for _, sample := range pcm {
+		if math.IsNaN(float64(sample)) || math.IsInf(float64(sample), 0) {
+			t.Fatal("SILK concealment output must be finite")
+		}
+		active = active || sample != 0
+	}
+	if !active {
+		t.Fatal("SILK concealment measurement must contain active output")
+	}
 	if allocs > silkPLCStereoHotPathAllocBudget {
 		t.Fatalf("Decode(SILK stereo PLC) allocs/op = %.2f, want <= %d", allocs, silkPLCStereoHotPathAllocBudget)
+	}
+}
+
+// TestHotPathAllocsDecodeSILKAndHybridStereo covers the stereo SILK decode
+// kernels (MS-to-LR, LPC synthesis/analysis, resampler up2HQ and FIR
+// interpolation) and the hybrid CELT band path at steady state.
+func TestHotPathAllocsDecodeSILKAndHybridStereo(t *testing.T) {
+	cases := []struct {
+		name    string
+		bw      Bandwidth
+		bitrate int
+	}{
+		{"SILK-WB", BandwidthWideband, 32000},
+		{"Hybrid-SWB", BandwidthSuperwideband, 48000},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			packet := encodeFrameForDecodeGuard(t, ApplicationVoIP, 2, tc.bw, tc.bitrate)
+			dec, err := NewDecoder(DefaultDecoderConfig(48000, 2))
+			if err != nil {
+				t.Fatalf("NewDecoder: %v", err)
+			}
+			pcm := make([]float32, 960*2)
+			for range 3 {
+				if _, err := dec.Decode(packet, pcm); err != nil {
+					t.Fatalf("warmup Decode: %v", err)
+				}
+			}
+			allocs := testing.AllocsPerRun(200, func() {
+				if _, err := dec.Decode(packet, pcm); err != nil {
+					t.Fatalf("Decode: %v", err)
+				}
+			})
+			if allocs != 0 {
+				t.Fatalf("Decode(%s stereo) allocs/op = %.2f, want 0", tc.name, allocs)
+			}
+		})
 	}
 }
 
@@ -391,8 +558,8 @@ func TestHotPathAllocsMultistreamEncode(t *testing.T) {
 			t.Fatalf("Encode: %v", err)
 		}
 	})
-	if allocs > multistreamEncodeHotPathAllocBudget {
-		t.Fatalf("Multistream Encode allocs/op = %.2f, want <= %d", allocs, multistreamEncodeHotPathAllocBudget)
+	if allocs != 0 {
+		t.Fatalf("Multistream Encode allocs/op = %.2f, want 0", allocs)
 	}
 }
 

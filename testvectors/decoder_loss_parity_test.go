@@ -8,11 +8,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/thesyncim/gopus"
+	"github.com/thesyncim/gopus/internal/extsupport"
 )
 
 // decoderLossQualityBar returns the trusted QualityBar for a loss/FEC fixture
@@ -269,7 +269,7 @@ func buildDecoderLossStressPatterns(frames int) []decoderLossPattern {
 func TestDecoderLossParityLibopusFixture(t *testing.T) {
 	t.Parallel()
 	requireTestTier(t, testTierParity)
-
+	opusDemo := requireFixtureOpusDemo(t)
 	fixture, err := loadLibopusDecoderLossFixture()
 	if err != nil {
 		t.Fatalf("load decoder loss fixture: %v", err)
@@ -298,9 +298,15 @@ func TestDecoderLossParityLibopusFixture(t *testing.T) {
 			for _, r := range c.Results {
 				t.Run(r.Pattern, func(t *testing.T) {
 					t.Parallel()
-					refDecoded, err := decodeLibopusDecoderLossSamples(r)
-					if err != nil {
-						t.Fatalf("decode fixture reference samples: %v", err)
+					var refDecoded []float32
+					if extsupport.DREDRuntime || extsupport.QEXT {
+						var err error
+						refDecoded, err = decodeLossPatternWithMatchedTierReference(fixture.SampleRate, c.Channels, packets, r.parsedLossBits)
+						if err != nil {
+							t.Fatalf("matched-feature libopus loss decode: %v", err)
+						}
+					} else {
+						refDecoded = decodeLossPatternWithPairedLibopus(t, opusDemo, c, r.LossBits)
 					}
 					gotDecoded := decodeWithInternalDecoderLossPattern(
 						t,
@@ -313,17 +319,13 @@ func TestDecoderLossParityLibopusFixture(t *testing.T) {
 						t.Fatalf("decoded streams empty: ref=%d got=%d", len(refDecoded), len(gotDecoded))
 					}
 
-					// Both sides follow the same decode cadence. Allow <=1 frame drift.
-					maxLenDrift := c.FrameSize * c.Channels
-					if d := lossAbsInt(len(refDecoded) - len(gotDecoded)); d > maxLenDrift {
-						t.Fatalf("decoded length drift too large: ref=%d got=%d drift=%d max=%d",
-							len(refDecoded), len(gotDecoded), d, maxLenDrift)
+					if len(refDecoded) != len(gotDecoded) {
+						t.Fatalf("decoded length mismatch: matched C=%d Go=%d", len(refDecoded), len(gotDecoded))
 					}
 
-					compareLen := min(len(gotDecoded), len(refDecoded))
 					bar := decoderLossQualityBar(c, r.Pattern)
 					maxDelay := max(4*c.FrameSize, 960)
-					cmp, err := CompareDecodedFloat32(gotDecoded[:compareLen], refDecoded[:compareLen], fixture.SampleRate, c.Channels, maxDelay)
+					cmp, err := CompareDecodedFloat32(gotDecoded, refDecoded, fixture.SampleRate, c.Channels, maxDelay)
 					if err != nil {
 						t.Fatalf("compare decoded quality: %v", err)
 					}
@@ -334,14 +336,44 @@ func TestDecoderLossParityLibopusFixture(t *testing.T) {
 	}
 }
 
+// decodeLossPatternWithPairedLibopus runs the same loss mask through the
+// build-matched pinned opus_demo, including its FEC and PLC request cadence.
+func decodeLossPatternWithPairedLibopus(t *testing.T, opusDemo string, c libopusDecoderLossCaseFile, lossBits string) []float32 {
+	t.Helper()
+	bitstream, err := buildDecoderLossBitstream(c)
+	if err != nil {
+		t.Fatalf("build loss bitstream: %v", err)
+	}
+	dir := t.TempDir()
+	bitPath := filepath.Join(dir, "packets.bit")
+	lossPath := filepath.Join(dir, "pattern.loss")
+	outPath := filepath.Join(dir, "decoded.f32")
+	if err := os.WriteFile(bitPath, bitstream, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeLossBitsFile(lossPath, lossBits); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(opusDemo, "-d", "48000", fmt.Sprint(c.Channels), "-f32", "-lossfile", lossPath, bitPath, outPath)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("paired opus_demo loss decode: %v (%s)", err, output)
+	}
+	raw, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := decodeRawFloat32LE(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return decoded
+}
+
 func TestDecoderLossStressPatternsAgainstOpusDemo(t *testing.T) {
 	t.Parallel()
 	requireTestTier(t, testTierExhaustive)
 
-	opusDemo, ok := getFixtureOpusDemoPath()
-	if !ok {
-		t.Skip("tmp_check opus_demo not found; skipping decoder loss stress parity check")
-	}
+	opusDemo := requireFixtureOpusDemo(t)
 
 	fixture, err := loadLibopusDecoderLossFixture()
 	if err != nil {
@@ -482,15 +514,11 @@ func TestDecoderLossFixtureHonestyWithOpusDemo(t *testing.T) {
 	t.Parallel()
 	requireTestTier(t, testTierExhaustive)
 
-	opusDemo, ok := getFixtureOpusDemoPath()
-	if !ok {
-		t.Skip("tmp_check opus_demo not found; skipping decoder loss fixture honesty check")
-	}
-
 	fixture, err := loadLibopusDecoderLossFixture()
 	if err != nil {
 		t.Fatalf("load decoder loss fixture: %v", err)
 	}
+	opusDemo := fixtureProducerOpusDemo(t, fixture.Provenance)
 
 	tmpDir, err := os.MkdirTemp("", "gopus-decoder-loss-honesty-*")
 	if err != nil {
@@ -536,27 +564,7 @@ func TestDecoderLossFixtureHonestyWithOpusDemo(t *testing.T) {
 					}
 
 					if !bytes.Equal(gotRaw, wantRaw) {
-						if runtime.GOARCH == "amd64" {
-							gotSamples, err := decodeRawFloat32LE(gotRaw)
-							if err != nil {
-								t.Fatalf("decode live payload: %v", err)
-							}
-							wantSamples, err := decodeRawFloat32LE(wantRaw)
-							if err != nil {
-								t.Fatalf("decode fixture payload: %v", err)
-							}
-							q, delay, err := computeOpusCompareQualityBetweenDecoded(wantSamples, gotSamples, 48000, c.Channels, amd64FixtureWaveformMaxDelay)
-							if err != nil {
-								t.Fatalf("compute fixture opus_compare quality on amd64: %v", err)
-							}
-							if q < amd64FixtureWaveformMinQ {
-								t.Fatalf("decoder loss fixture drift on amd64: Q=%.2f delay=%d (got=%d bytes want=%d bytes)",
-									q, delay, len(gotRaw), len(wantRaw))
-							}
-							t.Logf("non-bitexact decoder loss drift on amd64 accepted: Q=%.2f delay=%d", q, delay)
-							return
-						}
-						t.Fatalf("decoder loss fixture drift: got=%d bytes want=%d bytes", len(gotRaw), len(wantRaw))
+						t.Fatalf("decoder loss fixture PCM differs from producer decode: got=%d bytes want=%d bytes", len(gotRaw), len(wantRaw))
 					}
 				})
 			}

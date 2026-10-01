@@ -10,6 +10,8 @@ package celt
 
 import (
 	"bytes"
+	"encoding/json"
+	"os"
 	"testing"
 )
 
@@ -300,17 +302,36 @@ func TestLibopusCrossValidationMultipleFrames(t *testing.T) {
 	t.Logf("Cross-validation PASSED: %d consecutive frames", numFrames)
 }
 
-// TestLibopusCrossValidationFixtureFallback ensures fixture decode path remains valid.
+// TestLibopusCrossValidationFixtureFallback checks the real fallback lookup
+// against immutable captured Ogg inputs and their complete recorded PCM.
 func TestLibopusCrossValidationFixtureFallback(t *testing.T) {
 	t.Setenv("GOPUS_DISABLE_OPUSDEC", "1")
-
-	scenarios := buildCrossvalFixtureScenarios(t)
+	scenarios := loadFrozenOpusdecInputs(t)
+	data, err := os.ReadFile("testdata/opusdec_frozen_inputs/expected_pcm.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture opusdecCrossvalFixtureFile
+	if err := json.Unmarshal(data, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	// Initialize once before replacing only the cache values, then restore
+	// them after the test; the Once itself is never copied or reset.
+	_, _ = loadOpusdecCrossvalFixtureMap()
+	savedMap, savedErr := opusdecCrossvalFixtureMap, opusdecCrossvalFixtureErr
+	t.Cleanup(func() { opusdecCrossvalFixtureMap, opusdecCrossvalFixtureErr = savedMap, savedErr })
+	opusdecCrossvalFixtureMap = make(map[string]opusdecCrossvalFixtureEntry, len(fixture.Entries))
+	opusdecCrossvalFixtureErr = nil
+	for _, entry := range fixture.Entries {
+		opusdecCrossvalFixtureMap[entry.SHA256] = entry
+	}
 	for _, sc := range scenarios {
 		t.Run(sc.name, func(t *testing.T) {
-			decoded := decodeWithOpusdecOrSkip(t, sc.ogg)
-			if len(decoded) == 0 {
-				t.Fatal("fixture fallback decode returned no samples")
+			decoded, err := decodeWithOpusdec(sc.ogg)
+			if err != nil {
+				t.Fatal(err)
 			}
+			assertCELTFilterFloat32Bits(t, "frozen fallback PCM", decoded, sc.pcm)
 		})
 	}
 }

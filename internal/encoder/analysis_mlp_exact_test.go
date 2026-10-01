@@ -14,7 +14,7 @@ func gemmAccumF32GenericReference(out []float32, weights []float32, rows, cols, 
 		xj := x[j]
 		w := weights[j*colStride : j*colStride+rows]
 		for i := range rows {
-			out[i] += w[i] * xj
+			out[i] += gemmAccumF32GenericReferenceProduct(w[i], xj)
 		}
 	}
 }

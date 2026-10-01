@@ -63,30 +63,30 @@ func assertCELTVariantPostfilterHeaderParityForCase(t *testing.T, fixtureCase en
 		t.Fatalf("signal hash mismatch: got=%s want=%s", got, fixtureCase.SignalSHA256)
 	}
 
-	libPackets, _, err := decodeEncoderVariantsFixturePackets(fixtureCase)
+	ref, err := runPairedLibopusVariantPacketReference(fixtureCase, signal)
 	if err != nil {
-		t.Fatalf("decode fixture packets: %v", err)
+		t.Fatalf("run matched live libopus reference: %v", err)
 	}
-	goPackets, err := encodeGopusForVariantsCase(fixtureCase, signal)
+	goPackets, goRanges, err := encodeGopusForVariantsCase(fixtureCase, signal)
 	if err != nil {
 		t.Fatalf("encode gopus packets: %v", err)
 	}
-	if len(goPackets) != len(libPackets) {
-		t.Fatalf("packet count mismatch: got=%d want=%d", len(goPackets), len(libPackets))
-	}
+	comparison := compareEncoderPacketRanges(ref.packets, ref.finalRanges, goPackets, goRanges)
+	logEncoderVariantPacketReference(t, fixtureCase, ref, comparison)
 
 	libDec := celt.NewDecoder(fixtureCase.Channels)
 	goDec := celt.NewDecoder(fixtureCase.Channels)
 
 	var mismatches []string
-	for i := range libPackets {
+	frames := min(len(ref.packets), len(goPackets))
+	for i := 0; i < frames; i++ {
 		got, err := decodeCELTPostfilterHeader(goDec, goPackets[i], fixtureCase.FrameSize)
 		if err != nil {
 			t.Fatalf("decode gopus header frame %d: %v", i, err)
 		}
-		want, err := decodeCELTPostfilterHeader(libDec, libPackets[i], fixtureCase.FrameSize)
+		want, err := decodeCELTPostfilterHeader(libDec, ref.packets[i], fixtureCase.FrameSize)
 		if err != nil {
-			t.Fatalf("decode fixture header frame %d: %v", i, err)
+			t.Fatalf("decode live libopus header frame %d: %v", i, err)
 		}
 		if got != want {
 			mismatches = append(mismatches, fmt.Sprintf("frame %d: got pitch=%d qg=%d tap=%d, want pitch=%d qg=%d tap=%d",
@@ -98,7 +98,10 @@ func assertCELTVariantPostfilterHeaderParityForCase(t *testing.T, fixtureCase en
 		t.Log(msg)
 	}
 	if len(mismatches) > 0 {
-		t.Fatalf("CELT postfilter header mismatches: %d/%d", len(mismatches), len(libPackets))
+		t.Fatalf("CELT postfilter header mismatches: %d/%d; packet/range evidence: %s", len(mismatches), frames, comparison.summary())
+	}
+	if !comparison.countsExact() {
+		t.Fatalf("CELT packet/range count mismatch; postfilter header mismatches=%d/%d; %s", len(mismatches), frames, comparison.summary())
 	}
 }
 

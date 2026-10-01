@@ -517,10 +517,10 @@ func assertRepacketizerCaseParity(t *testing.T, tc repacketizerOracleCase, w rep
 // dumpRepacketizerCase renders a failing case as reproducible hex for triage.
 func dumpRepacketizerCase(tc repacketizerOracleCase) string {
 	var out strings.Builder
-	out.WriteString(fmt.Sprintf("  begin=%d end=%d maxlen=%d padNewLen=%d packets=%d\n",
-		tc.begin, tc.end, tc.maxlen, tc.padNewLen, len(tc.packets)))
+	fmt.Fprintf(&out, "  begin=%d end=%d maxlen=%d padNewLen=%d packets=%d\n",
+		tc.begin, tc.end, tc.maxlen, tc.padNewLen, len(tc.packets))
 	for i, p := range tc.packets {
-		out.WriteString(fmt.Sprintf("  pkt[%d]=%s\n", i, hex.EncodeToString(p)))
+		fmt.Fprintf(&out, "  pkt[%d]=%s\n", i, hex.EncodeToString(p))
 	}
 	return out.String()
 }

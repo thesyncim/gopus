@@ -140,6 +140,32 @@ func TestMultistreamDecoderOSCEBWELACERuntimeIntegration(t *testing.T) {
 	}
 	t.Logf("multistream OSCE postfilter altered %d/%d samples; max abs diff %g",
 		diffCount, len(pcm), maxAbsDiff)
+	warmPCM := make([]float32, frameSize*channels)
+	// Warm the recurrent postfilters before measuring the public caller buffer.
+	for range 3 {
+		if n, err := dec.Decode(packet, warmPCM); err != nil || n != frameSize {
+			t.Fatalf("warm Decode returned %d, %v", n, err)
+		}
+	}
+	if allocs := testing.AllocsPerRun(20, func() {
+		if n, err := dec.Decode(packet, warmPCM); err != nil || n != frameSize {
+			t.Fatalf("warm Decode returned %d, %v", n, err)
+		}
+	}); allocs != 0 {
+		t.Fatalf("warm multistream OSCE allocations=%g, want 0", allocs)
+	}
+
+	var warmEnergy float64
+	for i, v := range warmPCM {
+		if math.IsNaN(float64(v)) || math.IsInf(float64(v), 0) {
+			t.Fatalf("warm OSCE output[%d]=%v is not finite", i, v)
+		}
+		warmEnergy += float64(v) * float64(v)
+	}
+	if warmEnergy == 0 {
+		t.Fatal("warm OSCE output is silent")
+	}
+
 }
 
 func TestMultistreamDecoderOSCELACEFeedsPublicPCM(t *testing.T) {

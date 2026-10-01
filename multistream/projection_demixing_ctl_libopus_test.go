@@ -2,7 +2,6 @@ package multistream
 
 import (
 	"encoding/binary"
-	"fmt"
 	"sync"
 	"testing"
 
@@ -18,16 +17,16 @@ var (
 
 func getProjectionDemixingCTLPath() (string, error) {
 	projDemixingCTLOnce.Do(func() {
-		if _, ok := libopustooling.FindOrEnsureOpusDemo(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots()); !ok {
-			projDemixingCTLErr = fmt.Errorf("libopus reference tree not found")
+		if _, err := libopustooling.FindOrEnsureOpusDemo(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots()); err != nil {
+			projDemixingCTLErr = err
 			return
 		}
-		projDemixingCTLPath, projDemixingCTLErr = libopustest.BuildCHelper(libopustest.CHelperConfig{
+		projDemixingCTLPath, projDemixingCTLErr = buildMultistreamReferenceHelper(libopustest.CHelperConfig{
 			Label:      "projection demixing CTL",
 			OutputBase: "gopus_libopus_projection_demixing_ctl",
 			SourceFile: "libopus_projection_demixing_ctl.c",
 			CFlags:     []string{"-O2", "-DNDEBUG"},
-			Libs:       []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
+			Libs:       []string{"-lm"},
 		})
 	})
 	return projDemixingCTLPath, projDemixingCTLErr
@@ -236,7 +235,7 @@ func TestGetDemixingMatrixMatchesDecoder(t *testing.T) {
 	// Encode and decode a frame to verify the pipeline works end-to-end.
 	frameSize := 960
 	pcm := generateMultichannelSine(channels, frameSize)
-	packet, err := enc.Encode(pcm, frameSize)
+	packet, err := encodePacket(enc, pcm, frameSize)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}

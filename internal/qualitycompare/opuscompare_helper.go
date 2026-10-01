@@ -84,9 +84,14 @@ func getOpusCompareHelperPath() (string, error) {
 			return
 		}
 
-		opusCompare, ok := libopustooling.FindOrEnsureOpusCompare(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots())
-		if !ok {
-			opusCompareHelperPathErr = fmt.Errorf("opus_compare not found in pinned libopus tree")
+		opusCompare, err := libopustooling.FindOrEnsureOpusCompare(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots())
+		if err != nil {
+			opusCompareHelperPathErr = err
+			return
+		}
+		variant, err := libopustooling.ResolveLibopusReferenceVariant()
+		if err != nil {
+			opusCompareHelperPathErr = err
 			return
 		}
 		opusRoot := filepath.Dir(opusCompare)
@@ -103,10 +108,17 @@ func getOpusCompareHelperPath() (string, error) {
 			"-std=c99",
 			"-O3",
 			"-DNDEBUG",
+		}
+		if variant == libopustooling.LibopusReferenceScalar {
+			args = append(args, strings.Fields(libopustooling.LibopusScalarCVectorizationFlags)...)
+		}
+		args = append(args,
+			"-I", filepath.Join(opusRoot, "src"),
+			"-I", filepath.Join(opusRoot, "include"),
 			srcPath,
 			"-lm",
 			"-o", outPath,
-		}
+		)
 		cmd := exec.Command(ccPath, args...)
 		output, err := cmd.CombinedOutput()
 		if err != nil {

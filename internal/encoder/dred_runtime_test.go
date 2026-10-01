@@ -431,8 +431,7 @@ func TestEncoderBackfillsDREDActivityFromSILKNoDecision(t *testing.T) {
 	if len(packet) == 0 {
 		t.Fatal("Encode returned empty packet")
 	}
-	signalType, _ := enc.silkEncoder.LastEncodedSignalInfo()
-	if signalType != 0 {
+	if signalType := enc.silkMode.SignalType; signalType != 0 {
 		t.Fatalf("SILK signalType=%d want no-voice test frame", signalType)
 	}
 	if enc.dred == nil || enc.dred.runtime == nil {

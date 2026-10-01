@@ -15,7 +15,6 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/encoder"
-	"github.com/thesyncim/gopus/internal/libopustooling"
 	"github.com/thesyncim/gopus/types"
 )
 
@@ -123,10 +122,6 @@ func findEncoderCompliancePacketsFixtureCase(mode encoder.Mode, bandwidth types.
 	return encoderCompliancePacketsFixtureTC{}, false
 }
 
-func getFixtureOpusDemoPathForEncoder() (string, bool) {
-	return libopustooling.FindOrEnsureOpusDemo(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots())
-}
-
 func modeToOpusDemoApp(mode string) (string, error) {
 	switch strings.ToLower(mode) {
 	case "celt":
@@ -231,10 +226,7 @@ func TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo(t *testing.T) {
 	t.Parallel()
 	requireTestTier(t, testTierExhaustive)
 
-	opusDemo, ok := getFixtureOpusDemoPathForEncoder()
-	if !ok {
-		t.Skip("tmp_check opus_demo not found; skipping encoder packet fixture honesty")
-	}
+	opusDemo := requireFixtureOpusDemo(t)
 	fixture, err := loadEncoderCompliancePacketsFixture()
 	if err != nil {
 		t.Fatalf("load encoder packets fixture: %v", err)

@@ -1,37 +1,35 @@
 # gopus
 
-Pure-Go Opus codec — RFC 6716 / RFC 8251, bit-exact and quality parity with
-pinned libopus 1.6.1, a drop-in for the C library with no cgo.
+An Opus audio codec in pure Go, with no cgo. gopus implements RFC 6716 and
+RFC 8251 and targets strong behavioral and audio-quality parity with libopus
+1.6.1. It includes encoding, decoding, multistream, projection/ambisonics,
+Ogg files and RTP RED recovery.
 
-Encoder, decoder, multistream, projection/ambisonics, Ogg, and RTP RED — all in
-plain Go, with caller-owned, zero-allocation encode and decode hot paths. Codec
-math and bitstream decisions are matched to the pinned reference and proven by a
-live C oracle (see [Parity & testing](#parity--testing)).
+The caller-buffer APIs reuse storage and keep the covered encode, decode and
+container hot paths allocation-free after warmup. All codec kernels are Go code;
+Go 1.27's experimental SIMD support is optional.
+
+- [API reference](https://pkg.go.dev/github.com/thesyncim/gopus)
+- [Runnable examples](examples/README.md)
+- [Correctness and performance evidence](reports/validation.md)
 
 ## Install
+
+Requires Go 1.27 or newer:
 
 ```sh
 go get github.com/thesyncim/gopus
 ```
 
-Requires Go 1.25 or newer.
-
 ## Quick start
 
-The hot-path API takes caller-owned buffers and returns the number of bytes /
-samples written, so the encode and decode loops allocate nothing:
-
-```go
-func (e *Encoder) Encode(pcm []float32, data []byte) (int, error)
-func (d *Decoder) Decode(data []byte, pcm []float32) (int, error)
-```
-
-Encode one 20 ms stereo frame at 48 kHz, then decode it back:
+Encode and decode a 20 ms stereo frame at 48 kHz:
 
 ```go
 package main
 
 import (
+	"fmt"
 	"log"
 
 	"github.com/thesyncim/gopus"
@@ -41,7 +39,7 @@ func main() {
 	const (
 		sampleRate = 48000
 		channels   = 2
-		frameSize  = 960 // 20 ms at 48 kHz
+		frameSize  = 960 // samples per channel
 	)
 
 	enc, err := gopus.NewEncoder(gopus.EncoderConfig{
@@ -52,156 +50,139 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(sampleRate, channels))
+	cfg := gopus.DefaultDecoderConfig(sampleRate, channels)
+	dec, err := gopus.NewDecoder(cfg)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	pcm := make([]float32, frameSize*channels) // your interleaved input
-	packet := make([]byte, 4000)               // reusable encode buffer
-	out := make([]float32, frameSize*channels) // reusable decode buffer
+	pcm := make([]float32, frameSize*channels) // interleaved input, normally [-1, 1]
+	packet := make([]byte, cfg.MaxPacketBytes)
+	out := make([]float32, cfg.MaxPacketSamples*channels)
 
-	n, err := enc.Encode(pcm, packet) // n = bytes written to packet
+	n, err := enc.Encode(pcm, packet) // bytes written
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	samples, err := dec.Decode(packet[:n], out) // samples = per-channel samples
+	samples, err := dec.Decode(packet[:n], out) // samples per channel
 	if err != nil {
 		log.Fatal(err)
 	}
-	_ = out[:samples*channels]
+	decoded := out[:samples*channels]
+	fmt.Printf("decoded %d samples per channel (%d total)\n", samples, len(decoded))
 }
 ```
 
-`int16` and `int24` PCM use the same caller-buffer shape — only the slice
-element type changes:
+### Buffers, frames, and state
 
-```go
-pcm16 := make([]int16, frameSize*channels) // interleaved 16-bit input
-packet := make([]byte, 4000)
-out16 := make([]int16, frameSize*channels)
+PCM channels are interleaved. A frame size counts samples **per channel**, so
+20 ms at 48 kHz is 960 samples per channel or 1,920 values for stereo. `Encode`
+returns packet bytes; `Decode` returns samples per channel. Use `packet[:n]`
+for the encoded packet and `out[:samples*channels]` for the decoded PCM.
 
-n, err := enc.EncodeInt16(pcm16, packet)   // also EncodeInt24([]int32, …)
-// …
-samples, err := dec.DecodeInt16(packet[:n], out16) // also DecodeInt24(…, []int32)
-```
+`Encoder.FrameSize()` determines the required input length. `len(packet)` sets
+the encode byte budget. For arbitrary incoming packets, allocate output for
+`DecoderConfig.MaxPacketSamples * Channels`. The default limits are **5,760
+samples per channel** and **1,500 packet bytes**; 5,760 samples is 120 ms at
+48 kHz. Set those limits explicitly when your stream needs larger buffers,
+including 120 ms packets at native 96 kHz.
 
-Tune the encoder through libopus-style CTL methods (`SetBitrate`, `SetVBR`,
-`SetComplexity`, `SetInBandFEC`, `SetDTX`, …). Pass a nil packet to `Decode` to
-run packet-loss concealment for a dropped frame.
+Reuse each codec instance and its buffers. Construction and initial warmup can
+allocate. Instances retain stream history and require external synchronization
+if shared between goroutines. Use one instance per independent stream. `Reset`
+clears stream history and retains the stream format and ordinary controls.
+Encoder reset also disables DRED emission in tagged builds.
 
-See [examples/](examples/) for Ogg files, ffmpeg interop, RED loss recovery,
-WebRTC control, and benchmarks.
+`EncodeInt16` and `DecodeInt16` use `[]int16`. `EncodeInt24` takes
+right-justified signed 24-bit samples in `[]int32`, in the range
+[-8,388,608, 8,388,607]. `DecodeInt24` writes into a caller-provided `[]int32`
+buffer at the same PCM scale; it does not clamp to that range, so output gain
+can produce larger values.
+All formats use the same interleaved layout.
 
-## Features
+### Packet loss
 
-| Area | gopus |
-| --- | --- |
-| Coding modes | SILK, CELT, Hybrid, with automatic mode selection |
-| Sample rates | 8, 12, 16, 24, 48 kHz (native sub-48 kHz encode, no upsampling) |
-| Channels | Mono, stereo, multistream, projection / ambisonics |
-| Frame sizes | 2.5–120 ms |
-| Bitrate control | CBR, VBR, CVBR, low-delay, DTX |
-| Resilience | Packet loss concealment, in-band FEC / LBRR |
-| PCM formats | `float32`, `int16`, `int24` (single-stream and multistream) |
-| Containers | `container/ogg` (Ogg read/write), `container/red` (RFC 2198 RTP RED parse/build/recover) |
-| libopus surface | Full public API: the libopus CTL surface, packet parsing, soft clipping, and matching error codes |
+Pass an empty or nil packet to `Decode` for packet-loss concealment. To request
+one missing 20 ms stereo frame at 48 kHz, pass `out[:960*2]`. A buffer whose
+length equals `MaxPacketSamples * Channels` instead requests the last decoded
+packet's duration when available.
 
-## Public API
+When the following packet arrives, `DecodeWithFEC(packet, missingPCM, true)`
+recovers the missing audio from in-band FEC when available and otherwise
+conceals the loss. Then call `Decode(packet, out)` on the **same packet** for its
+primary audio. At native 96 kHz, a FEC request always uses concealment and
+ignores the supplied packet. The [packet-loss example](examples/packet-loss) demonstrates this
+ordering. Transport framing, packet timing, and jitter buffering belong to the
+application; the codec processes the packets supplied to it.
 
-The importable surface is four packages. Everything else lives under `internal/`
-and is not importable.
+### Encoder controls
 
-| Package | Use it for |
-| --- | --- |
-| `github.com/thesyncim/gopus` | `Encoder` / `Decoder` (float32 / int16 / int24), streaming `Reader` / `Writer`, multistream and DRED constructors, packet parsing, repacketizer, soft clip, CTLs, error codes |
-| `github.com/thesyncim/gopus/multistream` | Lower-level multistream `Encoder` / `Decoder` and projection / ambisonics (`NewProjectionEncoder` / `NewProjectionDecoder`) |
-| `github.com/thesyncim/gopus/container/ogg` | Read and write Ogg Opus files (RFC 7845) |
-| `github.com/thesyncim/gopus/container/red` | `Encoder` / `Decoder` structs (plus `Build` / `Parse` / `FindRecovery`) to build, parse, and recover RFC 2198 RTP RED payloads |
-| `github.com/thesyncim/gopus/types` | Shared `Mode` / `Bandwidth` / `Signal` enums |
+Configure bitrate, VBR, complexity, FEC, and DTX with the encoder's control
+methods. `NewEncoder` starts at 64 kbps; libopus starts with automatic bitrate
+selection. Set matching controls when comparing output. `Bitrate()` returns the
+configured target, including `BitrateAuto` and `BitrateMax`; libopus reports an
+effective bitrate instead.
 
-Multistream is reachable two ways: `gopus.NewMultistreamEncoder` /
-`gopus.NewMultistreamDecoder` (and the `…Default` constructors for 1–8 channels
-in Vorbis order) wrap the lower-level `multistream` package, which also carries
-the projection / ambisonics constructors (mapping families 0/1/3/255).
+DTX can produce a short one- or two-byte packet, or no packet. A zero encode
+byte count with a nil error means there is no packet to send.
 
-Write an Ogg Opus file with the `container/ogg` writer:
+## Packages and features
 
-```go
-w, err := ogg.NewWriter(file, sampleRate, channels)
-if err != nil {
-	log.Fatal(err)
-}
-defer w.Close()
+| Package | API |
+|---|---|
+| [gopus](https://pkg.go.dev/github.com/thesyncim/gopus) | Single-stream codec, streaming reader/writer, multistream facade, packet parsing, repacketizer and controls |
+| [multistream](https://pkg.go.dev/github.com/thesyncim/gopus/multistream) | Multistream codec and projection/ambisonics |
+| [container/ogg](https://pkg.go.dev/github.com/thesyncim/gopus/container/ogg) | Ogg Opus reading and writing (RFC 7845) |
+| [container/red](https://pkg.go.dev/github.com/thesyncim/gopus/container/red) | RTP RED payload construction, parsing and recovery (RFC 2198) |
+| [types](https://pkg.go.dev/github.com/thesyncim/gopus/types) | Shared mode, bandwidth and signal enums |
 
-n, _ := enc.Encode(pcm, packet)
-if err := w.WritePacket(packet[:n], frameSize); err != nil {
-	log.Fatal(err)
-}
-```
+| Feature | Support |
+|---|---|
+| Modes | SILK, CELT and Hybrid, with automatic selection |
+| Sample rates | 8, 12, 16, 24 and 48 kHz; native 96 kHz with `gopus_qext` |
+| Channels | Mono, stereo, multistream and projection/ambisonics |
+| Frame durations | 2.5, 5, 10, 20, 40, 60, 80, 100 and 120 ms, subject to mode constraints |
+| Rate control | CBR, VBR, constrained VBR, low-delay and DTX |
+| Recovery | Packet-loss concealment and in-band FEC/LBRR |
+| PCM | Float32, int16 and int24, including multistream |
 
-## Optional features behind build tags
+### Build configuration
 
-The default build is core encode/decode/multistream/Ogg/RED — matching a default
-libopus `./configure`. Optional features are exposed exactly the way libopus
-exposes them: behind a compile flag in libopus, behind the matching Go build tag
-here. The default build links ZERO of their code (enforced by
-`TestDefaultBuildIsZeroCostForGatedFeatures`).
+Ordinary builds use scalar Go kernels. `GOEXPERIMENT=simd` compiles
+`simd/archsimd` kernels where implemented; runtime CPU checks select supported
+kernels and the rest use scalar code. `-tags nosimd` or `-tags purego` forces
+the scalar path, including the matching scalar C reference in oracle tests.
 
-| gopus build tag | libopus flag |
-| --- | --- |
-| `gopus_dred` | `--enable-dred` |
-| `gopus_osce` | `--enable-osce` (+ `ENABLE_DEEP_PLC`) |
-| `gopus_qext` | `--enable-qext` |
-| `gopus_custom_modes` | `--enable-custom-modes` |
-| `gopus_fixed_point` | `--enable-fixed-point` |
+Optional features mirror libopus build flags and are excluded from the default
+build's import graph:
 
-Under their tag these are parity-complete — none are experimental:
-
-- **`gopus_dred`** — DRED (RDOVAE), control + standalone surfaces.
-- **`gopus_osce`** — OSCE BWE / LACE / NoLACE plus the deep-PLC family
-  (PitchDNN / FARGAN), exactly as `--enable-osce`.
-- **`gopus_qext`** — QEXT framing and native 96 kHz (Opus HD): decode is
-  sample-exact, and the public `Encode` at `Fs=96000` is byte-exact (TOC, padding,
-  main CELT payload, reserved QEXT extension) vs libopus `--enable-qext`. 96 kHz is
-  CELT-only fullband (mirroring libopus) and accepted only under this tag;
-  default-build API rates stay 8/12/16/24/48 kHz.
-- **`gopus_custom_modes`** — Opus Custom standard modes.
-- **`gopus_fixed_point`** — integer CELT/SILK pipeline (libopus `FIXED_POINT`);
-  public decode and encode are bit-exact vs the `--enable-fixed-point` oracle.
-
-One more tag is orthogonal to the feature flags above and has no libopus
-equivalent:
-
-- **`purego`** — forces the scalar Go code path, disabling the architecture
-  assembly kernels (arm64 NEON, amd64 AVX2). Output is identical to the default
-  build except that this is the bit-exact tier on every architecture; use it when
-  you want the reference numeric path or to build for a target without an asm
-  kernel. The default build (no tag) already selects asm only where libopus does.
+| Go build tag | libopus flag | Feature |
+|---|---|---|
+| `gopus_dred` | `--enable-dred` | DRED controls and standalone recovery |
+| `gopus_osce` | `--enable-osce` (+ `ENABLE_DEEP_PLC`) | OSCE BWE/LACE/NoLACE and deep PLC |
+| `gopus_qext` | `--enable-qext` | QEXT and native 96 kHz |
+| `gopus_custom_modes` | `--enable-custom-modes` | Opus Custom modes |
+| `gopus_fixed_point` | `--enable-fixed-point` | Integer CELT/SILK pipeline |
 
 Default builds expose no optional extensions; `SetDNNBlob(...)` is a no-op
-returning `ErrOptionalExtensionUnavailable`. This matches a default libopus build,
-where the DNN / PitchDNN / FARGAN / RDOVAE neural code is empty and none of it is
-compiled; gopus keeps those packages out of the default import graph. DNN blob
-loading (USE_WEIGHTS_FILE model loading) requires `-tags gopus_dred` or
-`-tags gopus_osce`; QEXT requires `-tags gopus_qext`; DRED
-control/standalone surfaces require `-tags gopus_dred`; OSCE BWE/LACE/NoLACE
-require `-tags gopus_osce`. Under their build tag these are
-parity-complete and supported, exactly as libopus exposes them behind the
-corresponding compile flag.
+returning `ErrOptionalExtensionUnavailable`. DNN model loading follows libopus's
+`USE_WEIGHTS_FILE` configuration. A build tag enables an implementation; it does
+not establish parity for every feature, architecture or packet sequence.
+Libopus rejects fixed-point combined with DRED/OSCE; those combinations have no
+matching supported C reference lane.
 
-| Extension | Status | Probe |
-| --- | --- | --- |
-| DNN blob loading | Supported under `gopus_dred` / `gopus_osce` | `OptionalExtensionDNNBlob` |
-| QEXT | Supported under `gopus_qext` | `OptionalExtensionQEXT` |
-| DRED | Supported under `gopus_dred` (control + standalone) | `OptionalExtensionDRED` |
-| OSCE BWE | Supported under `gopus_osce` | `OptionalExtensionOSCEBWE` |
+| Extension | Availability | Probe |
+|---|---|---|
+| DNN blob loading | Available under `gopus_dred` / `gopus_osce` | `OptionalExtensionDNNBlob` |
+| QEXT | Available under `gopus_qext` | `OptionalExtensionQEXT` |
+| DRED | Available under `gopus_dred` (control + standalone) | `OptionalExtensionDRED` |
+| OSCE BWE | Extra controls under `gopus_osce`; support probe returns false | `OptionalExtensionOSCEBWE` |
 
-The `gopus_osce` tag enables the OSCE and deep-PLC family exactly as
-libopus's `--enable-osce` does. These features are supported under the tag and
-link zero code into the default build.
+`SupportsOptionalExtension(OptionalExtensionOSCEBWE)` reports false: these
+controls are exposed for parity work. DRED controls and standalone recovery
+APIs also compile with `gopus_osce`, while the supported DRED probe follows
+`gopus_dred`. Consult the [validation reference](reports/validation.md#coverage)
+for tested feature combinations. Run tagged tests with the matching reference:
 
 ```sh
 go test -tags gopus_qext ./...
@@ -209,123 +190,86 @@ go test -tags gopus_dred ./...
 go test -tags gopus_osce ./...
 ```
 
-```sh
-make test-dnn-blob-parity
-make test-qext-parity
-make test-dred-tag
-make test-extra-controls-parity
-make test-custom-parity
-```
-
 ## Performance
 
-gopus is built for real-time use, where steady allocation is the enemy:
+The table pairs **C scalar with Go scalar** and **C SIMD with Go SIMD**, using
+identical inputs and controls. Values are median **ns/sample per channel**
+(lower is faster) on AMD EPYC 7763, Go 1.27.1 and GCC 13.3.0, with
+**GOAMD64=v3**, PGO and candidate `4b660d668`. Each case has three runs of
+at least 250 ms. Go reports zero allocations; C allocations are not measured.
 
-- **Zero-allocation hot paths.** `Encode` / `Decode` (and their `int16` / `int24`
-  variants) reuse caller-owned buffers; all scratch is pre-allocated at
-  construction, so a steady-state encode or decode loop performs no heap
-  allocations.
-- **Allocation-free containers too.** `container/ogg` (`Reader.ReadPacketInto` /
-  `Writer.WritePacket`) and `container/red` (`Decoder.Parse` / `Encoder.Encode`)
-  own their buffers and the redundant-frame history, so steady-state demux/mux and
-  RED packetization allocate nothing once warm — each locked by an
-  `AllocsPerRun == 0` test.
-- **SIMD where libopus has it.** On amd64 the float pitch cross-correlation uses
-  an AVX2 kernel that mirrors libopus's `celt_pitch_xcorr_avx2`, computing several
-  correlation lags per FMA instead of one scalar FMA per element — bit-identical
-  output, materially faster stereo CELT and Hybrid encode. Encode-side SILK
-  kernels also dispatch to the same architecture-specific lanes as libopus where
-  the pinned reference provides them.
+| Workload | C scalar | Go scalar | C SIMD | Go SIMD |
+|---|---:|---:|---:|---:|
+| Encode CELT, fullband, 20 ms stereo, 128 kbps | 176.89 | 197.94 | 129.50 | 126.28 |
+| Encode CELT, fullband, 5 ms mono, 64 kbps | 75.99 | 93.79 | 69.83 | 80.00 |
+| Encode SILK, wideband, 20 ms mono, 32 kbps | 705.61 | 685.98 | 462.01 | 329.21 |
+| Encode Hybrid, fullband, 20 ms mono, 64 kbps | 363.00 | 420.99 | 253.40 | 225.80 |
+| Encode Hybrid, fullband, 20 ms stereo, 96 kbps | 200.37 | 227.97 | 145.10 | 139.57 |
+| Decode RFC vectors, float32 | 38.22 | 42.29 | 35.90 | 33.14 |
+| Decode RFC vectors, int16 | 42.23 | 46.80 | 38.83 | 37.64 |
 
-The required `perf-linux` CI lane publishes both steady-state Go benchmark
-guardrails and libopus-relative ratios. This table comes from `perf-linux` run
-`28648782556` on a GitHub linux/amd64 runner (`go1.25.0`, AMD EPYC 7763):
+Decoder rows aggregate 20,075 identical packets. Go SIMD takes 2.5–28.7% less time
+than matched C SIMD in four encode workloads and 14.6% more for 5 ms CELT.
+Float32 vector decode takes 7.7% less time; int16 takes 3.1% less time.
+These results describe the measured revision and workloads. A same-host
+[incremental benchmark](https://github.com/thesyncim/gopus/actions/runs/36870981432)
+of the v3 parity fixes (`4b660d668` → `bce51d66f`) on AMD EPYC 9V74 changes
+public encoder time by −0.35% to +0.42%, with zero allocations in all 80 timing
+samples. These are paired measurements on a separate host; they do not rescale
+the EPYC 7763 tables. The
+[passing native benchmark](https://github.com/thesyncim/gopus/actions/runs/36852328909) records all targets and raw samples. The
+[performance reference](reports/validation.md#performance) contains all **53
+replacement routines**, assembly/Go/`nosimd` comparisons, allocations and
+per-row provenance.
 
-| Benchmark | CI result |
-| --- | ---: |
-| `BenchmarkEncoderEncode_CallerBuffer` | 94,064 ns/op, 0 B/op, 0 allocs/op |
-| `BenchmarkEncoderEncodeInt16` | 94,773 ns/op, 0 B/op, 0 allocs/op |
-| `BenchmarkDecoderDecode_CELT` | 20,832 ns/op, 0 B/op, 0 allocs/op |
-| `BenchmarkDecoderDecodeInt16` | 22,504 ns/op, 0 B/op, 0 allocs/op |
-
-The same lane compares gopus against libopus 1.6.1 on the same runner; lower
-ratios are closer to libopus, and every gopus path below reports 0 allocs/op:
-
-| Path | gopus/libopus |
-| --- | ---: |
-| Decode vectors, Float32 | 1.334x |
-| Decode vectors, Int16 | 1.326x |
-| Encode, all Float32 cases | 1.489x |
-| Encode, CELT-FB-20ms-stereo-128k | 1.556x |
-| Encode, CELT-FB-5ms-mono-64k | 1.471x |
-| Encode, Hybrid-FB-20ms-mono-64k | 1.504x |
-| Encode, Hybrid-FB-20ms-stereo-96k | 1.685x |
-| Encode, SILK-WB-20ms-mono-32k | 1.395x |
-
-Run the benchmarks for numbers on your machine:
+Use **GOAMD64=v3** on a supporting CPU and select the same C compiler target:
 
 ```sh
-go run ./examples/bench-encode
-go run ./examples/bench-decode
+GOAMD64=v3 GOEXPERIMENT=simd GOPUS_LIBOPUS_AMD64_TARGET=v3 go run ./examples/bench-encode
+GOAMD64=v3 GOEXPERIMENT=simd GOPUS_LIBOPUS_AMD64_TARGET=v3 go run ./examples/bench-decode
 ```
 
-`make bench-guard` runs the benchmark guardrails used in CI.
+For scalar comparisons, retain both target settings and use `GOEXPERIMENT=nosimd`.
+On ARM64, omit both AMD64 target settings. The [native v3 audit](https://github.com/thesyncim/gopus/actions/runs/36870981432)
+at `bce51d66f` passes both matched lanes: 19 CBR cases and 2,175 packets/ranges,
+60 encoder, 24 decoder, 15 allocation and 200 analyzer corpus/variant cases.
+All 11 stereo-width cases and all 51 sidecar packets/ranges also agree with
+matching live C. [Current evidence](reports/validation.md#analyzer-history-and-getter-on-amd64-v3).
+The optional [v1/v2/v3 audit](reports/validation.md#amd64-compiler-targets)
+runs on one native host; routine PR CI does not run that matrix.
 
 ## Parity & testing
 
-gopus is codec-complete against libopus 1.6.1: the full public API and CTL
-surface, plus the optional surface mirrored tag-for-flag (above). The pinned
-`tmp_check/opus-1.6.1/` is the reference — when behavior is uncertain, gopus
-matches libopus unless fixture evidence says otherwise.
+The [parity contract](reports/validation.md#parity-contract) requires exact
+API/protocol behavior and integer arithmetic, matching entropy ranges for
+identical packets and history, and preservation of established exact regressions.
+C and Go use the same features, controls, scalar widths and effective CPU
+instructions. SIMD Go versus scalar C is not a parity comparison.
 
-Parity is proven on two tiers, against a live libopus C oracle:
+Floating-point allowances require a reproducible rounding cause, a narrow
+kernel-specific bound, independent quality/recovery evidence and a reviewed
+executable regression. Unexplained mismatches remain failures. Exact oracle
+checks and real-audio `opus_compare` quality checks complement each other;
+neither proves every possible input and state sequence.
 
-- **Bit-exact kernel oracles.** Isolated kernels (range coder, NLSF/LPC/gain,
-  PVQ/bands, MDCT/KISS-FFT, resamplers, DNN matmuls) are compared bit-for-bit
-  against C. Every public decode entry point is two-sided differential-fuzzed
-  against the same oracle.
-- **`opus_compare` quality on real audio.** End-to-end audio is judged by
-  libopus's own `opus_compare` (RFC 8251's conformance metric), tier-matched so
-  gopus tracks the reference at least as closely as libopus tracks itself across
-  builds. SILK decode is bit-exact; CELT/Hybrid sit inside the near-exact
-  envelope. The encoder precision guard runs on representative real recordings,
-  where `opus_compare` Q is a genuine quality measure.
+The [coverage audit](reports/validation.md#coverage) records the build
+configurations, inputs, and state sequences covered by exact comparisons,
+and identifies evidence gaps. The documented
+[C reference boundary](reports/validation.md#reference-boundary) is an unsafe
+custom-QEXT history read at 96 kHz / 2,048 samples; Go uses bounded concealment
+and compares defined C behavior.
 
-One residual is documented: a few CELT float kernels drift by ≤1 ULP on
-darwin/arm64 (a per-arch float budget). amd64/CI is bit-exact; the default arm64
-build is quality-gated for that tail, exactly as libopus's NEON path is relative
-to its own scalar build.
-
-Pre-v1: latest release is `v0.1.1` (see [Trust And Verification](#trust-and-verification)).
-
-## Verification
-
-Run focused tests while iterating. Before merge-ready codec changes, run:
-
-```sh
-go test ./...
-make test-doc-contract
-make lint
-make test-consumer-smoke
-make test-examples-smoke
-make verify-production
-```
-
-```sh
-make verify-production-exhaustive
-make release-evidence
-```
-
-Before a tag is published the tagged commit must be green on the required branch
-checks (below), and `make release-evidence` must produce a PASS summary.
+Use `make test-fast` for iteration, `make test` for the live C-oracle suite,
+and `make test-doc-contract` for documentation contracts. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for the verification and release checklist.
 
 ## Trust And Verification
 
-Released version: `v0.1.1`.
+Released version: `v0.1.2`. The API is pre-v1.
 
-`v0.1.0` was retracted: it was tagged but its GitHub Release never published.
-
-Latest release evidence: attached to the [`v0.1.1` release](https://github.com/thesyncim/gopus/releases/tag/v0.1.1).
+`v0.1.0` was retracted: its GitHub Release never published.
+Latest release evidence: attached to the
+[v0.1.2 release](https://github.com/thesyncim/gopus/releases/tag/v0.1.2).
 
 Required branch checks:
 
@@ -337,27 +281,12 @@ Required branch checks:
 - `test-windows`
 <!-- required-checks:end -->
 
-These aggregate gates make the libopus C-oracle parity suites mandatory across
-Linux, macOS, and Windows; each lane builds the pinned libopus C reference first
-under `GOWORK=off GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1` and compares
-against committed arch-matched fixtures. They are the authoritative codec gate:
-`release.yml` publishes a tag only after verifying these checks are green on the
-tagged commit. `make release-evidence` then captures the supplementary safety and
-performance gates that are not in the required CI set, plus build provenance; it
-does not re-run the codec suites, since doing so against a live native libopus
-reference compares gopus's single portable float order against another toolchain's
-rounding rather than measuring a defect.
+These checks build the pinned C reference with matching features and instructions
+and run mandatory parity suites on Linux, macOS and Windows. The release workflow
+requires green checks on the tagged commit; `make release-evidence` must also
+produce a PASS summary with safety, performance and build provenance.
 
-Security policy: [SECURITY.md](SECURITY.md). Consumer smoke test:
+Security reports: [SECURITY.md](SECURITY.md). External API verification:
 [examples/external-consumer-smoke/smoke_test.go](examples/external-consumer-smoke/smoke_test.go).
-
-## Docs
-
-- [CONTRIBUTING.md](CONTRIBUTING.md)
-- [SECURITY.md](SECURITY.md)
-- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
-- [examples/README.md](examples/README.md)
-
-## License
-
-See [LICENSE](LICENSE).
+Contributions follow [CONTRIBUTING.md](CONTRIBUTING.md) and the
+[code of conduct](CODE_OF_CONDUCT.md). See [LICENSE](LICENSE) for licensing.

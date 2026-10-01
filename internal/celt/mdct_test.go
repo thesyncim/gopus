@@ -684,7 +684,7 @@ func TestSynthesize_Basic(t *testing.T) {
 	coeffs := make([]float32, n)
 	coeffs[0] = 1.0
 
-	samples := dec.Synthesize(coeffs, false, 1)
+	samples := dec.synthesizeTest(coeffs, false, 1)
 
 	// Should produce some output
 	if len(samples) == 0 {
@@ -715,49 +715,10 @@ func TestSynthesize_TransientMode(t *testing.T) {
 		coeffs[i*120] = 1.0
 	}
 
-	samples := dec.Synthesize(coeffs, true, 4)
+	samples := dec.synthesizeTest(coeffs, true, 4)
 
 	if len(samples) == 0 {
 		t.Error("Synthesize (transient) produced no output")
-	}
-}
-
-// TestDeEmphasis tests the de-emphasis filter.
-func TestDeEmphasis(t *testing.T) {
-	dec := NewDecoder(1)
-
-	// Create impulse
-	samples := make([]float32, 100)
-	samples[0] = 1.0
-
-	dec.applyDeemphasis(samples)
-
-	// First sample should still be 1.0 (no history)
-	// Note: With float32 precision used to match libopus, we need slightly
-	// looser tolerance than the theoretical float64 value.
-	if math.Abs(float64(float64(samples[0]-1.0))) > 1e-6 {
-		t.Errorf("First sample = %v, want 1.0", samples[0])
-	}
-
-	// Second sample should be PreemphCoef (previous output was 1.0)
-	// The de-emphasis filter uses float32 precision to match libopus,
-	// so we compare against the float32 representation of PreemphCoef.
-	expected32 := float32(PreemphCoef)
-	if math.Abs(float64(float64(samples[1]-expected32))) > 1e-6 {
-		t.Errorf("Second sample = %v, want %v (float32)", samples[1], expected32)
-	}
-
-	// Verify exponential decay pattern
-	// Using float32 precision, so error accumulates - use looser tolerance
-	for i := 2; i < 10; i++ {
-		// Expected value using float32 math (matching libopus)
-		var expectedF32 float32 = float32(PreemphCoef)
-		for j := 1; j < i; j++ {
-			expectedF32 *= float32(PreemphCoef)
-		}
-		if math.Abs(float64(float64(samples[i]-expectedF32))) > 1e-5 {
-			t.Errorf("Sample[%d] = %v, want %v", i, samples[i], expectedF32)
-		}
 	}
 }
 

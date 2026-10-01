@@ -13,9 +13,8 @@
 //	    (cfg ≥ 16). libopus forces MODE_CELT_ONLY unconditionally for
 //	    RESTRICTED_LOWDELAY (opus_encoder.c line 1470–1472).
 //
-//	(b) Byte-exact packet parity against the pinned libopus 1.6.1 oracle.
-//	    Hard gate on amd64; arm64 CELT FMA drift (≤1 ULP) reported as
-//	    residual per project_arm64_celt_1ulp_drift.md.
+//	(b) Exact packet bytes and final ranges against the build-paired libopus
+//	    1.6.1 oracle, with identical automatic channel/bandwidth controls.
 //
 //	(c) Lookahead() == sampleRate/400 for RESTRICTED_LOWDELAY (no delay
 //	    compensation added). libopus opus_encoder.c OPUS_GET_LOOKAHEAD
@@ -46,12 +45,13 @@ var ldOracleHelperCache libopustest.HelperCache
 
 func getLDOracleHelperPath(t testing.TB) (string, bool) {
 	t.Helper()
-	path, err := ldOracleHelperCache.CHelperPath(libopustest.CHelperConfig{
-		Label:      "low-delay encode",
-		OutputBase: "gopus_libopus_lowdelay_encode",
-		SourceFile: "libopus_vbr_cvbr_encode_info.c",
-		CFlags:     []string{"-O2", "-DNDEBUG"},
-		Libs:       []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
+	path, err := ldOracleHelperCache.Path(func() (string, error) {
+		return libopustest.BuildPublicAPIHelper(libopustest.CHelperConfig{
+			Label:      "low-delay encode",
+			OutputBase: "gopus_libopus_lowdelay_encode",
+			SourceFile: "libopus_vbr_cvbr_encode_info.c",
+			CFlags:     []string{"-O2", "-DNDEBUG"},
+		})
 	})
 	if err != nil {
 		if libopustest.StrictRefRequired() {
@@ -121,7 +121,7 @@ func ldTestMatrix() []ldMatrixCase {
 // ── gopus encoder ────────────────────────────────────────────────────────────
 
 // ldEncoderPCM encodes PCM through gopus with ApplicationLowDelay and VBR.
-func ldEncoderPCM(tc ldMatrixCase, pcm []float32) ([][]byte, error) {
+func ldEncoderPCM(tc ldMatrixCase, pcm []float32) ([]oracleResult, error) {
 	enc, err := gopus.NewEncoder(gopus.EncoderConfig{
 		SampleRate:  48000,
 		Channels:    tc.channels,
@@ -148,7 +148,7 @@ func ldEncoderPCM(tc ldMatrixCase, pcm []float32) ([][]byte, error) {
 
 	samplesPerFrame := tc.frameSize * tc.channels
 	buf := make([]byte, 4000)
-	packets := make([][]byte, 0, tc.nFrames)
+	packets := make([]oracleResult, 0, tc.nFrames)
 	for i := 0; i < tc.nFrames; i++ {
 		frame := pcm[i*samplesPerFrame : (i+1)*samplesPerFrame]
 		n, encErr := enc.Encode(frame, buf)
@@ -157,7 +157,7 @@ func ldEncoderPCM(tc ldMatrixCase, pcm []float32) ([][]byte, error) {
 		}
 		pkt := make([]byte, n)
 		copy(pkt, buf[:n])
-		packets = append(packets, pkt)
+		packets = append(packets, oracleResult{data: pkt, finalRange: enc.FinalRange()})
 	}
 	return packets, nil
 }
@@ -167,9 +167,10 @@ func ldEncoderPCM(tc ldMatrixCase, pcm []float32) ([][]byte, error) {
 // assertLDCELTOnlyMode checks that every packet in packets has a CELT TOC
 // (cfg ≥ 16 in bits 7:3 of the TOC byte).
 // Reference: RFC 6716 §3.1; opus_encoder.c line 1470–1472.
-func assertLDCELTOnlyMode(t *testing.T, packets [][]byte) {
+func assertLDCELTOnlyMode(t *testing.T, packets []oracleResult) {
 	t.Helper()
-	for i, pkt := range packets {
+	for i, result := range packets {
+		pkt := result.data
 		if len(pkt) == 0 {
 			t.Errorf("frame %d: empty packet", i)
 			continue
@@ -317,9 +318,7 @@ func TestLowDelayLookahead(t *testing.T) {
 // matrix, asserting:
 //
 //	(a) Each packet has a CELT-only TOC byte (cfg >= 16).
-//	(b) Packet bytes are identical on amd64 (hard gate); arm64 CELT FMA
-//	    drift (≤1 ULP per operation) is reported as residual per
-//	    project_arm64_celt_1ulp_drift.md.
+//	(b) Packet bytes and final ranges are identical in every matched build.
 func TestLowDelayCrossModeParity(t *testing.T) {
 	t.Parallel()
 	requireTestTier(t, testTierParity)
@@ -364,7 +363,7 @@ func runLDParityCase(t *testing.T, tc ldMatrixCase, helperPath string) {
 		oracleModeVBR, // OPUS_SET_VBR(1), OPUS_SET_VBR_CONSTRAINT(0)
 		uint32(opusApplicationRestrictedLowDelay), // 2051
 		48000, tc.channels, tc.frameSize, tc.bitrate,
-		opusBandwidthFB, // OPUS_BANDWIDTH_FULLBAND — let oracle auto-select from FB
+		opusBandwidthAuto, // Match the Go encoder's automatic bandwidth selection.
 		opusSig,
 		pcm,
 		tc.nFrames,
@@ -404,22 +403,16 @@ func runLDParityCase(t *testing.T, tc ldMatrixCase, helperPath string) {
 	// (b) Byte parity comparison.
 	var diffFrames []int
 	for i := range refResults {
-		if !bytes.Equal(gotPackets[i], refResults[i].data) {
+		if !bytes.Equal(gotPackets[i].data, refResults[i].data) {
 			diffFrames = append(diffFrames, i)
+		}
+		if gotPackets[i].finalRange != refResults[i].finalRange {
+			t.Errorf("frame %d final range: got=%08x want=%08x", i, gotPackets[i].finalRange, refResults[i].finalRange)
 		}
 	}
 
-	// RESTRICTED_LOWDELAY is CELT-only (asserted above on both encoders), so every
-	// diverging frame is a CELT float-analysis near-tie flip — the documented
-	// ≤1-ULP boundary on the pure-Go builds (arm64 FMA, and amd64-purego Go float
-	// vs the scalar libopus this gate links). In unconstrained VBR a near-tie flip
-	// also shifts the chosen bit allocation, so a frame's length can change as a
-	// downstream effect of the same boundary. Only the amd64 asm/SIMD build is held
-	// strictly bit-exact. See project_arm64_celt_1ulp_drift.md.
-	floatBoundary := encoderCELTFloatBoundaryBuild()
-
 	if len(diffFrames) == 0 {
-		t.Logf("PASS: %d packets byte-exact vs libopus RESTRICTED_LOWDELAY oracle", tc.nFrames)
+		t.Logf("checked %d packet bytes and final ranges against the matched libopus RESTRICTED_LOWDELAY oracle", tc.nFrames)
 		return
 	}
 
@@ -429,7 +422,7 @@ func runLDParityCase(t *testing.T, tc ldMatrixCase, helperPath string) {
 			t.Logf("  ... and %d more differing frames", len(diffFrames)-3)
 			break
 		}
-		got := gotPackets[fi]
+		got := gotPackets[fi].data
 		want := refResults[fi].data
 		first := -1
 		limit := min(len(want), len(got))
@@ -446,19 +439,6 @@ func runLDParityCase(t *testing.T, tc ldMatrixCase, helperPath string) {
 			fi, len(got), len(want), first)
 	}
 
-	if floatBoundary {
-		// Pure-Go CELT float residual: CELT float arithmetic on arm64 uses FMA
-		// contraction that diverges from clang -ffp-contract=on by ≤1 ULP per
-		// operation, and the amd64-purego Go float backend diverges from gcc's
-		// scalar CELT path by the same magnitude. The CELT-only mode and packet
-		// count are asserted strictly above on every build. amd64 asm/CI gate
-		// holds bit-exact. Reference: project_arm64_celt_1ulp_drift.md.
-		t.Logf("RESIDUAL (pure-Go CELT float boundary): %d/%d packets differ — "+
-			"CELT float FMA/codegen vs the scalar libopus oracle "+
-			"(project_arm64_celt_1ulp_drift.md); amd64 asm/CI gate holds",
-			len(diffFrames), tc.nFrames)
-	} else {
-		t.Errorf("low-delay byte parity FAIL: %d/%d packets differ (arch=%s/%s)",
-			len(diffFrames), tc.nFrames, runtime.GOOS, runtime.GOARCH)
-	}
+	t.Errorf("low-delay byte parity FAIL: %d/%d packets differ (arch=%s/%s)",
+		len(diffFrames), tc.nFrames, runtime.GOOS, runtime.GOARCH)
 }

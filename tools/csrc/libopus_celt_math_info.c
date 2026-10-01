@@ -11,6 +11,7 @@
 
 #include "config.h"
 #include "celt/bands.h"
+#include "celt/cpu_support.h"
 #include "celt/entcode.h"
 #include "celt/mathops.h"
 #include "celt/vq.h"
@@ -62,7 +63,7 @@ static int write_u32(uint32_t value) {
   return write_exact(&value, sizeof(value));
 }
 
-static int eval_record(uint32_t mode) {
+static int eval_record(uint32_t mode, int arch) {
   uint32_t a;
   uint32_t b;
   uint32_t out_bits;
@@ -154,7 +155,7 @@ static int eval_record(uint32_t mode) {
         }
         memcpy(&vy[i], &a, sizeof(vy[i]));
       }
-      out_bits = (uint32_t)(int32_t)stereo_itheta(vx, vy, stereo != 0, (int)n, 0);
+      out_bits = (uint32_t)(int32_t)stereo_itheta(vx, vy, stereo != 0, (int)n, arch);
       free(vx);
       free(vy);
       return write_u32(out_bits);
@@ -192,15 +193,36 @@ int main(void) {
   uint32_t mode;
   uint32_t count;
   uint32_t i;
+  int arch;
+  uint32_t output_version;
+  uint32_t rtcd_enabled;
+  uint32_t presume_neon;
 
   if (!set_binary_stdio()) return 1;
   if (!read_exact(magic, sizeof(magic)) || memcmp(magic, INPUT_MAGIC, sizeof(magic)) != 0) return 1;
   if (!read_u32(&version) || version != 1 || !read_u32(&mode) || !read_u32(&count)) return 1;
   if (mode > MODE_DYNALLOC_IMPORTANCE) return 1;
+  /* Version 2 reports the selected dispatch metadata for stereo itheta. */
+  output_version = mode == MODE_STEREO_ITHETA_Q30 ? 2 : 1;
+  arch = opus_select_arch();
+#ifdef OPUS_HAVE_RTCD
+  rtcd_enabled = 1;
+#else
+  rtcd_enabled = 0;
+#endif
+#ifdef OPUS_ARM_PRESUME_NEON_INTR
+  presume_neon = 1;
+#else
+  presume_neon = 0;
+#endif
 
-  if (!write_exact(OUTPUT_MAGIC, sizeof(magic)) || !write_u32(1) || !write_u32(count)) return 1;
+  if (!write_exact(OUTPUT_MAGIC, sizeof(magic)) || !write_u32(output_version) || !write_u32(count)) return 1;
+  if (mode == MODE_STEREO_ITHETA_Q30) {
+    if (!write_u32((uint32_t)arch) || !write_u32(rtcd_enabled) ||
+        !write_u32(presume_neon)) return 1;
+  }
   for (i = 0; i < count; i++) {
-    if (!eval_record(mode)) return 1;
+    if (!eval_record(mode, arch)) return 1;
   }
   return 0;
 }

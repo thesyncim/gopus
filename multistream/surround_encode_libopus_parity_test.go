@@ -1,9 +1,9 @@
 package multistream
 
 import (
+	"bytes"
 	"fmt"
 	"math"
-	"runtime"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -11,33 +11,51 @@ import (
 
 var surroundRefencodeHelper libopustest.HelperCache
 
-// armEncodeFloatDrift reports the darwin/arm64-only ≤1-ULP CELT float drift that
-// can flip a single quantization step and cascade into differing packet bytes.
-// CI runs amd64, where surround encode is byte-exact. See
-// project_arm64_celt_1ulp_drift.md.
-func armEncodeFloatDrift() bool {
-	return runtime.GOOS == "darwin" && runtime.GOARCH == "arm64"
-}
-
 // surroundEncodeRef holds the result of driving libopus
-// opus_multistream_surround_encoder_create + opus_multistream_encode_float
-// through the refencode_multistream C helper.
+// opus_multistream_surround_encoder_create and the matching float or short
+// encode entry point through the refencode_multistream C helper.
 type surroundEncodeRef struct {
 	streams        int
 	coupledStreams int
 	mapping        []byte
 	packets        [][]byte
+	ranges         []uint32
 }
 
 // encodeLibopusSurround runs the libopus surround encoder oracle for the given
 // parameters and PCM (interleaved float32, frameCount frames of frameSize each).
-func encodeLibopusSurround(sampleRate, channels, mappingFamily, application int, bitrate int, vbr, vbrConstraint bool, complexity, bandwidth, frameSize, frameCount, maxPacketBytes int, pcm []float32) (*surroundEncodeRef, error) {
-	binPath, err := surroundRefencodeHelper.CHelperPath(libopustest.CHelperConfig{
-		Label:      "multistream surround reference encode",
-		OutputBase: "gopus_libopus_refencode_public_multistream",
-		SourceFile: "libopus_refencode_multistream.c",
-		CFlags:     []string{"-O3", "-DNDEBUG"},
-		Libs:       []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
+func encodeLibopusSurround(sampleRate, channels, mappingFamily, application int, bitrate int, vbr, vbrConstraint bool, complexity, bandwidth, frameSize, frameCount, maxPacketBytes int, pcm []float32, dtx bool) (*surroundEncodeRef, error) {
+	return encodeLibopusSurroundFormat(sampleRate, channels, mappingFamily, application,
+		bitrate, vbr, vbrConstraint, complexity, bandwidth, frameSize, frameCount,
+		maxPacketBytes, 0, pcm, nil, dtx)
+}
+
+// encodeLibopusSurroundInt16 calls opus_multistream_encode with the exact short
+// input passed to the Go public EncodeInt16 entry point.
+func encodeLibopusSurroundInt16(sampleRate, channels, mappingFamily, application int, bitrate int, vbr, vbrConstraint bool, complexity, bandwidth, frameSize, frameCount, maxPacketBytes int, pcm []int16, dtx bool) (*surroundEncodeRef, error) {
+	return encodeLibopusSurroundFormat(sampleRate, channels, mappingFamily, application,
+		bitrate, vbr, vbrConstraint, complexity, bandwidth, frameSize, frameCount,
+		maxPacketBytes, 1, nil, pcm, dtx)
+}
+
+func encodeLibopusSurroundFormat(sampleRate, channels, mappingFamily, application int, bitrate int, vbr, vbrConstraint bool, complexity, bandwidth, frameSize, frameCount, maxPacketBytes, sampleFormat int, pcm32 []float32, pcm16 []int16, dtx bool) (*surroundEncodeRef, error) {
+	wantSamples := frameCount * frameSize * channels
+	if frameCount <= 0 || frameSize <= 0 || channels <= 0 ||
+		(sampleFormat == 0 && (len(pcm32) != wantSamples || len(pcm16) != 0)) ||
+		(sampleFormat == 1 && (len(pcm16) != wantSamples || len(pcm32) != 0)) ||
+		(sampleFormat != 0 && sampleFormat != 1) {
+		return nil, fmt.Errorf("surround oracle input format=%d float samples=%d short samples=%d want %d",
+			sampleFormat, len(pcm32), len(pcm16), wantSamples)
+	}
+	binPath, err := surroundRefencodeHelper.Path(func() (string, error) {
+		return buildMultistreamReferenceHelper(libopustest.CHelperConfig{
+			Label:       "multistream surround reference encode",
+			OutputBase:  "gopus_libopus_refencode_public_multistream",
+			SourceFile:  "libopus_refencode_multistream.c",
+			CFlags:      []string{"-O3", "-DNDEBUG"},
+			RefIncludes: []string{"celt", "src"},
+			Libs:        []string{"-lm"},
+		})
 	})
 	if err != nil {
 		return nil, err
@@ -52,7 +70,7 @@ func encodeLibopusSurround(sampleRate, channels, mappingFamily, application int,
 
 	payload := libopustest.NewOraclePayloadVersion(
 		"GMEI",
-		1,
+		3,
 		uint32(sampleRate),
 		uint32(channels),
 		uint32(mappingFamily),
@@ -65,11 +83,18 @@ func encodeLibopusSurround(sampleRate, channels, mappingFamily, application int,
 		uint32(frameSize),
 		uint32(frameCount),
 		uint32(maxPacketBytes),
-		0, // SAMPLE_FORMAT_FLOAT32
+		uint32(sampleFormat),
+		boolU32(dtx),
 	)
-	payload.Float32s(pcm...)
+	if sampleFormat == 1 {
+		for _, sample := range pcm16 {
+			payload.I16(sample)
+		}
+	} else {
+		payload.Float32s(pcm32...)
+	}
 
-	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "multistream surround reference encode", "GMEO")
+	reader, err := libopustest.RunOracleVersion(binPath, payload.Bytes(), "multistream surround reference encode", "GMEO", 3)
 	if err != nil {
 		return nil, err
 	}
@@ -83,16 +108,18 @@ func encodeLibopusSurround(sampleRate, channels, mappingFamily, application int,
 	mapping := make([]byte, chans)
 	copy(mapping, reader.Bytes(chans))
 
-	packetCount := int(reader.U32())
+	packetCount := reader.Count(frameCount)
 	packets := make([][]byte, packetCount)
+	ranges := make([]uint32, packetCount)
 	for i := range packets {
+		ranges[i] = reader.U32()
 		n := int(reader.U32())
 		packets[i] = append([]byte(nil), reader.Bytes(n)...)
 	}
 	if err := reader.ExpectConsumed(); err != nil {
 		return nil, err
 	}
-	return &surroundEncodeRef{streams: streams, coupledStreams: coupled, mapping: mapping, packets: packets}, nil
+	return &surroundEncodeRef{streams: streams, coupledStreams: coupled, mapping: mapping, packets: packets, ranges: ranges}, nil
 }
 
 // generateSurroundSweep builds a multi-frame multichannel PCM buffer with a
@@ -114,10 +141,8 @@ func generateSurroundSweep(channels, frameSize, frameCount int) []float32 {
 	return pcm
 }
 
-// runSurroundEncodeParity drives both gopus and libopus surround encoders with
-// identical parameters and PCM, then asserts byte-exact packet equality. The
-// darwin/arm64 documented ≤1-ULP CELT drift is logged and skipped (CI is amd64,
-// where this is byte-exact).
+// runSurroundEncodeParity drives both encoders with identical PCM and controls,
+// then checks every packet byte and final range.
 func runSurroundEncodeParity(t *testing.T, sampleRate, channels, frameSize, frameCount, bitrate, complexity int, vbr, vbrConstraint bool) {
 	t.Helper()
 
@@ -131,9 +156,9 @@ func runSurroundEncodeParity(t *testing.T, sampleRate, channels, frameSize, fram
 	pcm := generateSurroundSweep(channels, frameSize, frameCount)
 
 	ref, err := encodeLibopusSurround(sampleRate, channels, mappingFamily, application,
-		bitrate, vbr, vbrConstraint, complexity, bandwidthAuto, frameSize, frameCount, maxPacketBytes, pcm)
+		bitrate, vbr, vbrConstraint, complexity, bandwidthAuto, frameSize, frameCount, maxPacketBytes, pcm, false)
 	if err != nil {
-		libopustest.HelperUnavailable(t, "multistream surround reference encode", err)
+		t.Fatalf("live C surround encode: %v", err)
 	}
 
 	enc, err := NewEncoderDefault(sampleRate, channels)
@@ -156,41 +181,20 @@ func runSurroundEncodeParity(t *testing.T, sampleRate, channels, frameSize, fram
 	for i := range frameCount {
 		start := i * frameSize * channels
 		frame := pcm[start : start+frameSize*channels]
-		got, err := enc.EncodeFloat32WithAnalysisMaxBytes(frame, frameSize, frame, maxPacketBytes)
+		got, err := encodePacketMax(enc, frame, frameSize, frame, maxPacketBytes)
 		if err != nil {
 			t.Fatalf("frame %d: gopus Encode: %v", i, err)
 		}
-		want := ref.packets[i]
-
-		diverged := len(got) != len(want)
-		mismatch := -1
-		if !diverged {
-			for j := range got {
-				if got[j] != want[j] {
-					mismatch = j
-					diverged = true
-					break
-				}
+		if !bytes.Equal(got, ref.packets[i]) || enc.GetFinalRange() != ref.ranges[i] {
+			mismatch := firstByteMismatch(got, ref.packets[i])
+			var byteValues string
+			if mismatch >= 0 && mismatch < len(got) && mismatch < len(ref.packets[i]) {
+				byteValues = fmt.Sprintf(" byte Go/C=%02x/%02x", got[mismatch], ref.packets[i][mismatch])
 			}
+			t.Errorf("frame %d: firstByte=%d%s len Go/C=%d/%d range Go/C=%08x/%08x", i,
+				mismatch, byteValues, len(got), len(ref.packets[i]),
+				enc.GetFinalRange(), ref.ranges[i])
 		}
-		if !diverged {
-			continue
-		}
-		// The stream/coupled layout is asserted hard above. A per-frame byte (or, in
-		// VBR, length) divergence here is the documented ≤1-ULP CELT float boundary
-		// on the pure-Go builds (arm64 FMA, amd64-purego Go float vs the scalar
-		// libopus oracle); only the amd64 asm/SIMD build is held strictly bit-exact.
-		// See project_arm64_celt_1ulp_drift.md.
-		if armEncodeFloatDrift() || !gopusBuildIsAsm {
-			t.Logf("frame %d: documented pure-Go ≤1-ULP CELT float drift (gopus len=%d libopus len=%d firstMismatch=%d)",
-				i, len(got), len(want), mismatch)
-			return
-		}
-		if len(got) != len(want) {
-			t.Fatalf("frame %d: packet length mismatch: gopus=%d libopus=%d", i, len(got), len(want))
-		}
-		t.Fatalf("frame %d: byte %d mismatch: gopus=0x%02x libopus=0x%02x (len=%d)",
-			i, mismatch, got[mismatch], want[mismatch], len(got))
 	}
 }
 

@@ -9,35 +9,16 @@ import (
 
 // SILK low-bitrate DTX/loss-concealment shared-path parity.
 //
-// This regression locks in the classification of the SILK-MB/NB mono 10 ms
-// 8000 bps "shared float path diverges" finding surfaced by the fixed-point
-// decode fuzz harness (decode_differential_fuzz_fixedpoint_test.go's
-// fixedPointSpecificDivergence), and pins the parts of that path that ARE exact
-// so any regression in them hard-fails.
+// This test checks the SILK-MB/NB mono 10 ms, 8000 bps path, including active
+// decode, padded empty frames, concealment, and recovery.
 //
-// Root cause (verified): at SILK low bitrate the encoder emits code-3 padded
-// packets whose single inner frame is 1 byte (an empty/DTX frame). libopus
-// opus_decode_frame routes any per-frame len<=1 to data=NULL → lost_flag=1
-// (src/opus_decoder.c:315-321, 469), i.e. SILK loss concealment. gopus mirrors
-// that routing (decoder_opus_frame.go's len(data)<=1 → PLC). Both therefore run
-// silk_PLC_conceal for that frame. The two findings:
-//
-//  1. ACTIVE SILK decode is bit-exact. Every frame up to the first concealed
-//     (DTX) frame matches the stateful libopus FLOAT oracle sample-for-sample,
-//     and the entropy coder (per-packet final range) is bit-identical on every
-//     active frame. So NLSF/LPC/LTP/gains/resample are correct (asserted here).
-//
-//  2. The SILK loss-concealment SYNTHESIS is bit-exact too. silk_PLC_conceal
-//     (silk/PLC.c) runs at the SILK frame's actual LPC order (10 for NB/MB, 16
-//     for WB) and reads the exact integer sLPC_Q14_buf history, so the concealed
-//     frame AND the following active frame match the libopus float oracle
-//     sample-for-sample. This pins the regression where the mono PLC path used a
-//     stale Decoder-level LPC order (defaulting to 16) and so discarded the
-//     integer LPC history in favour of a float-derived fallback, corrupting
-//     unvoiced concealment and leaving wrong cross-frame state.
-//
-// Both findings are hard-asserted on every architecture (the SILK PLC path is
-// integer Q-domain and bit-reproducible).
+// At the tested SILK low bitrate, the encoder emits code-3 padded packets whose
+// single inner frame is one byte (an empty/DTX frame). libopus
+// opus_decode_frame routes per-frame payloads of length at most one to
+// data=NULL and lost_flag=1 (src/opus_decoder.c:315-321, 469), which selects
+// SILK concealment. gopus applies the same rule in decoder_opus_frame.go. The
+// active, concealed, and recovered outputs and final ranges match the selected
+// C reference for the tested sequence.
 func TestSILKLowBitrateDTXConcealmentSharedPathParity(t *testing.T) {
 	libopustest.RequireOracle(t)
 	const sampleRate = 48000
@@ -62,7 +43,7 @@ func TestSILKLowBitrateDTXConcealmentSharedPathParity(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			packets, frameSize := encodeSILKConcealmentProbePackets(t, c.bw, c.frameMs, c.bitrate, c.channels, c.content, frames)
 			if len(packets) == 0 {
-				t.Skip("encoder produced no packets")
+				t.Fatal("encoder produced no packets")
 			}
 
 			firstPLC := -1
@@ -73,7 +54,7 @@ func TestSILKLowBitrateDTXConcealmentSharedPathParity(t *testing.T) {
 				}
 			}
 			if firstPLC < 0 {
-				t.Skipf("%s: no DTX/concealment frame in stream — not the target edge", c.name)
+				t.Fatalf("%s: no DTX/concealment frame in stream", c.name)
 			}
 
 			// gopus stateful FLOAT decode + per-packet final range.
@@ -89,6 +70,9 @@ func TestSILKLowBitrateDTXConcealmentSharedPathParity(t *testing.T) {
 				if derr != nil {
 					t.Fatalf("gopus decode: %v", derr)
 				}
+				if n != frameSize {
+					t.Fatalf("gopus samples=%d want %d", n, frameSize)
+				}
 				gPCM = append(gPCM, buf[:n*c.channels]...)
 				gRanges = append(gRanges, gdec.FinalRange())
 			}
@@ -103,68 +87,17 @@ func TestSILKLowBitrateDTXConcealmentSharedPathParity(t *testing.T) {
 				libopustest.HelperUnavailable(t, "stateful float reference", err)
 				return
 			}
-			if len(gPCM) != len(oPCM) {
-				t.Fatalf("%s: sample count gopus=%d libopus=%d", c.name, len(gPCM), len(oPCM))
+			if len(gPCM) != len(oPCM) || len(gRanges) != len(oRanges) {
+				t.Fatalf("%s: samples/ranges gopus=%d/%d libopus=%d/%d", c.name,
+					len(gPCM), len(gRanges), len(oPCM), len(oRanges))
 			}
 
-			// Finding (1) HARD assertion: every ACTIVE frame strictly before the
-			// first concealment frame must be bit-exact, and its per-packet final
-			// range bit-identical. The whole path here — SILK active decode, the
-			// silk_PLC_conceal synthesis, and the native->API-rate resampler — is
-			// integer Q-domain (no CELT/Hybrid float FMA), so it is bit-reproducible
-			// on every architecture, including darwin/arm64. The tolerance is
-			// therefore a strict 0 on all arches, not the few-LSB FMA budget the
-			// shared float path carries.
-			const activeTol = float32(0)
-			activeLimit := firstPLC * frameSize * c.channels
-			var worstActive float32
-			for i := range activeLimit {
-				if d := absF32(gPCM[i] - oPCM[i]); d > worstActive {
-					worstActive = d
+			for i := range gRanges {
+				if gRanges[i] != oRanges[i] {
+					t.Fatalf("%s: frame %d final range=%08x want %08x", c.name, i, gRanges[i], oRanges[i])
 				}
 			}
-			if worstActive > activeTol {
-				t.Errorf("%s: ACTIVE SILK decode diverged before any concealment frame: worst|Δ|=%g > %g (active SILK must be bit-exact)", c.name, worstActive, activeTol)
-			}
-			for i := 0; i < firstPLC; i++ {
-				if i < len(oRanges) && gRanges[i] != oRanges[i] {
-					t.Errorf("%s: ACTIVE frame %d final range mismatch gopus=0x%08x libopus=0x%08x (entropy decode must match on active frames)", c.name, i, gRanges[i], oRanges[i])
-				}
-			}
-
-			// Finding (1b): the first concealment frame's LEADING samples are
-			// bit-exact (the LPC/gain/pitch state handed to silk_PLC_conceal is
-			// correct). Assert at least a handful match to lock the state handoff.
-			lo := firstPLC * frameSize * c.channels
-			leadExact := 0
-			for lo+leadExact < len(gPCM) && leadExact < frameSize*c.channels {
-				if gPCM[lo+leadExact] != oPCM[lo+leadExact] {
-					break
-				}
-				leadExact++
-			}
-			if leadExact < 8 {
-				t.Errorf("%s: concealment frame leading samples not bit-exact (leadExact=%d); the PLC state handoff (sLPC/prevGain/lag) regressed", c.name, leadExact)
-			}
-
-			// Finding (2) HARD assertion: the concealment synthesis and every
-			// active frame that follows it are bit-exact vs the libopus float
-			// oracle. The SILK PLC path is integer Q-domain, so the concealed frame
-			// and the recovered active frames match the oracle sample-for-sample
-			// (strict 0, every architecture) once the PLC runs at the frame's true
-			// LPC order.
-			var worstFull float32
-			worstIdx := 0
-			for i := range gPCM {
-				if d := absF32(gPCM[i] - oPCM[i]); d > worstFull {
-					worstFull = d
-					worstIdx = i
-				}
-			}
-			if worstFull > activeTol {
-				t.Errorf("%s: SILK PLC concealment diverged from libopus: worst|Δ|=%g > %g @sample%d (frame %d); the concealed frame + following active frames must be bit-exact (silk/PLC.c silk_PLC_conceal)",
-					c.name, worstFull, activeTol, worstIdx, worstIdx/(frameSize*c.channels))
-			}
+			assertAPIRateFloat32BitsExact(t, gPCM, oPCM, c.name+" DTX/PLC sequence")
 		})
 	}
 }

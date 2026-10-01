@@ -152,23 +152,27 @@ func (m *mockSILKDecoder) LPCOrder() int               { return m.lpcOrder }
 func (m *mockSILKDecoder) IsPreviousFrameVoiced() bool { return m.wasVoiced }
 func (m *mockSILKDecoder) OutputHistory() []float32    { return m.history }
 func (m *mockSILKDecoder) HistoryIndex() int           { return m.histIdx }
+func (m *mockSILKDecoder) GetLagPrev() int             { return 0 }
 
 type mockSILKExtendedDecoder struct {
 	mockSILKDecoder
-	signalType   int
-	ltpCoefQ14   [ltpOrder]int16
-	pitchLag     int
-	lastGainQ16  int32
-	ltpScaleQ14  int32
-	excitation   []int32
-	lpcQ12       []int16
-	slpcQ14      []int32
-	fsKHz        int
-	subfrLength  int
-	nbSubfr      int
-	ltpMemLength int
-	outBufQ0     []int16
+	firstFrameAfterReset bool
+	signalType           int
+	ltpCoefQ14           [ltpOrder]int16
+	pitchLag             int
+	lastGainQ16          int32
+	ltpScaleQ14          int32
+	excitation           []int32
+	lpcQ12               []int16
+	slpcQ14              []int32
+	fsKHz                int
+	subfrLength          int
+	nbSubfr              int
+	ltpMemLength         int
+	outBufQ0             []int16
 }
+
+func (m *mockSILKExtendedDecoder) IsFirstFrameAfterReset() bool { return m.firstFrameAfterReset }
 
 func (m *mockSILKExtendedDecoder) GetLastSignalType() int        { return m.signalType }
 func (m *mockSILKExtendedDecoder) GetLTPCoefficients() [5]int16  { return m.ltpCoefQ14 }
@@ -186,7 +190,10 @@ func (m *mockSILKExtendedDecoder) GetLTPMemoryLength() int {
 	return m.ltpMemLength
 }
 func (m *mockSILKExtendedDecoder) GetSLPCQ14HistoryQ14() []int32 { return m.slpcQ14 }
-func (m *mockSILKExtendedDecoder) GetOutBufHistoryQ0() []int16   { return m.outBufQ0 }
+func (m *mockSILKExtendedDecoder) SetSLPCQ14HistoryQ14(history []int32) {
+	copy(m.slpcQ14, history)
+}
+func (m *mockSILKExtendedDecoder) GetOutBufHistoryQ0() []int16 { return m.outBufQ0 }
 
 func TestConcealSILKWithLTPLongFrameNoPanic(t *testing.T) {
 	dec := &mockSILKExtendedDecoder{
@@ -527,17 +534,17 @@ type mockCELTDecoder struct {
 	prevEnergy   []float32
 	rng          uint32
 	preemphState []float32
-	overlapBuf   []float32
 }
 
-func (m *mockCELTDecoder) Channels() int                { return m.channels }
-func (m *mockCELTDecoder) PrevEnergy() []float32        { return m.prevEnergy }
-func (m *mockCELTDecoder) SetPrevEnergy(e []float32)    { copy(m.prevEnergy, e) }
-func (m *mockCELTDecoder) RNG() uint32                  { return m.rng }
-func (m *mockCELTDecoder) SetRNG(r uint32)              { m.rng = r }
-func (m *mockCELTDecoder) PreemphState() []float32      { return m.preemphState }
-func (m *mockCELTDecoder) OverlapBuffer() []float32     { return m.overlapBuf }
-func (m *mockCELTDecoder) SetOverlapBuffer(s []float32) { copy(m.overlapBuf, s) }
+func (m *mockCELTDecoder) Channels() int             { return m.channels }
+func (m *mockCELTDecoder) PrevEnergy() []float32     { return m.prevEnergy }
+func (m *mockCELTDecoder) SetPrevEnergy(e []float32) { copy(m.prevEnergy, e) }
+func (m *mockCELTDecoder) RNG() uint32               { return m.rng }
+func (m *mockCELTDecoder) SetRNG(r uint32)           { m.rng = r }
+func (m *mockCELTDecoder) PreemphState() []float32   { return m.preemphState }
+func (m *mockCELTDecoder) SetPreemphState(samples []float32) {
+	copy(m.preemphState, samples)
+}
 
 // SynthesizeFloat32 performs a simple pass-through for testing.
 func (m *mockCELTDecoder) SynthesizeFloat32(coeffs []float32, transient bool, shortBlocks int) []float32 {
@@ -567,7 +574,6 @@ func TestCELTPLCOutput(t *testing.T) {
 		prevEnergy:   make([]float32, 21), // MaxBands
 		rng:          22222,
 		preemphState: make([]float32, 1),
-		overlapBuf:   make([]float32, 120),
 	}
 
 	// Set some energy values
@@ -605,7 +611,6 @@ func TestCELTPLCEnergyDecay(t *testing.T) {
 		prevEnergy:   make([]float32, 21),
 		rng:          22222,
 		preemphState: make([]float32, 1),
-		overlapBuf:   make([]float32, 120),
 	}
 
 	// Set initial energy
@@ -635,7 +640,6 @@ func TestCELTPLCStereo(t *testing.T) {
 		prevEnergy:   make([]float32, 42), // 21 * 2 channels
 		rng:          22222,
 		preemphState: make([]float32, 2),
-		overlapBuf:   make([]float32, 240), // 120 * 2
 	}
 
 	for i := range dec.prevEnergy {
@@ -661,7 +665,6 @@ func TestCELTHybridPLC(t *testing.T) {
 		prevEnergy:   make([]float32, 21),
 		rng:          22222,
 		preemphState: make([]float32, 1),
-		overlapBuf:   make([]float32, 120),
 	}
 
 	// Set energy - including for high bands (17-21)
@@ -744,8 +747,8 @@ func TestSILKPLCStateCreation(t *testing.T) {
 		t.Errorf("PrevGainQ16[1] = %d, want %d", state.PrevGainQ16[1], 1<<16)
 	}
 
-	if state.RandScaleQ14 != (1 << 14) {
-		t.Errorf("RandScaleQ14 = %d, want %d", state.RandScaleQ14, 1<<14)
+	if state.RandScaleQ14 != 0 {
+		t.Errorf("RandScaleQ14 = %d, want 0", state.RandScaleQ14)
 	}
 
 	if state.SubfrLength != 20 {
@@ -783,8 +786,8 @@ func TestSILKPLCStateReset(t *testing.T) {
 		t.Error("After reset: LastFrameLost should be false")
 	}
 
-	if state.RandScaleQ14 != (1 << 14) {
-		t.Errorf("After reset: RandScaleQ14 = %d, want %d", state.RandScaleQ14, 1<<14)
+	if state.RandScaleQ14 != 0 {
+		t.Errorf("After reset: RandScaleQ14 = %d, want 0", state.RandScaleQ14)
 	}
 }
 

@@ -13,16 +13,7 @@ const (
 var celtSynthesisHelper HelperCache
 
 func buildCELTSynthesisHelper() (string, error) {
-	return BuildCHelper(CHelperConfig{
-		Label:       "celt synthesis fixed",
-		OutputBase:  "gopus_libopus_celt_synthesis_fixed",
-		SourceFile:  "libopus_celt_synthesis_fixed_info.c",
-		FixedRef:    true,
-		CFlags:      []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"},
-		RefIncludes: []string{"celt", "silk"},
-		Libs:        []string{FixedRefPath(".libs", "libopus.a"), "-lm"},
-		DeadStrip:   true,
-	})
+	return BuildCHelper(celtSynthesisHelperConfig())
 }
 
 func getCELTSynthesisHelperPath() (string, error) {

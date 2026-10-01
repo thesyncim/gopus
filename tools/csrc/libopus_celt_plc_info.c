@@ -1,7 +1,10 @@
 #include <stdint.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#define CELT_DECODER_C
 
 #ifdef _WIN32
 #include <fcntl.h>
@@ -15,13 +18,229 @@
 #include "celt/os_support.h"
 #include "celt/pitch.h"
 
+#ifdef GOPUS_CELT_PITCH_KERNEL_TRACE
+#define PITCH_TRACE_MAX 32
+
+static int write_u32(uint32_t value);
+static int write_float_array(const float *src, uint32_t n);
+
+extern int __real__celt_autocorr(const opus_val16 *x, opus_val32 *ac,
+    const celt_coef *window, int overlap, int lag, int n, int arch);
+extern void __real__celt_lpc(opus_val16 *lpc, const opus_val32 *ac, int p);
+extern void __real_celt_pitch_xcorr_avx2(const float *x, const float *y,
+    float *xcorr, int len, int max_pitch, int arch);
+
+static int g_pitch_kernel_trace_enabled;
+static uint32_t g_pitch_xcorr_calls;
+static uint32_t g_pitch_autocorr_calls;
+static uint32_t g_pitch_lpc_calls;
+static uint32_t g_pitch_trace_overflow;
+static uint32_t g_pitch_xcorr_len;
+static uint32_t g_pitch_xcorr_max_pitch;
+static uint32_t g_pitch_xcorr_arch;
+static uint32_t g_pitch_xcorr_x_count;
+static uint32_t g_pitch_xcorr_y_count;
+static uint32_t g_pitch_xcorr_output_count;
+static uint32_t g_pitch_autocorr_n;
+static uint32_t g_pitch_autocorr_lag;
+static uint32_t g_pitch_autocorr_arch;
+static uint32_t g_pitch_autocorr_window_present;
+static uint32_t g_pitch_autocorr_overlap;
+static uint32_t g_pitch_autocorr_ac_count;
+static uint32_t g_pitch_lpc_order;
+static uint32_t g_pitch_lpc_ac_count;
+static float g_pitch_xcorr_x[PITCH_TRACE_MAX];
+static float g_pitch_xcorr_y[PITCH_TRACE_MAX];
+static float g_pitch_xcorr_output[PITCH_TRACE_MAX];
+static float g_pitch_autocorr_input[PITCH_TRACE_MAX];
+static float g_pitch_autocorr_ac[PITCH_TRACE_MAX];
+static float g_pitch_lpc_ac[PITCH_TRACE_MAX];
+static float g_pitch_lpc_output[PITCH_TRACE_MAX];
+
+void __wrap_celt_pitch_xcorr_avx2(const float *x, const float *y,
+    float *xcorr, int len, int max_pitch, int arch) {
+  uint32_t call = 0;
+  if (g_pitch_kernel_trace_enabled) {
+    call = g_pitch_xcorr_calls++;
+    if (call == 0) {
+      g_pitch_xcorr_len = len > 0 ? (uint32_t)len : 0;
+      g_pitch_xcorr_max_pitch = max_pitch > 0 ? (uint32_t)max_pitch : 0;
+      g_pitch_xcorr_arch = (uint32_t)arch;
+      if (len < 0 || max_pitch < 0 || len > PITCH_TRACE_MAX ||
+          max_pitch > PITCH_TRACE_MAX || len + max_pitch - 1 > PITCH_TRACE_MAX) {
+        g_pitch_trace_overflow = 1;
+      } else {
+        uint32_t i;
+        g_pitch_xcorr_x_count = (uint32_t)len;
+        g_pitch_xcorr_y_count = (uint32_t)(len + max_pitch - 1);
+        g_pitch_xcorr_output_count = (uint32_t)max_pitch;
+        for (i = 0; i < g_pitch_xcorr_x_count; i++) g_pitch_xcorr_x[i] = x[i];
+        for (i = 0; i < g_pitch_xcorr_y_count; i++) g_pitch_xcorr_y[i] = y[i];
+      }
+    }
+  }
+
+  __real_celt_pitch_xcorr_avx2(x, y, xcorr, len, max_pitch, arch);
+
+  if (g_pitch_kernel_trace_enabled && call == 0 && !g_pitch_trace_overflow) {
+    uint32_t i;
+    for (i = 0; i < g_pitch_xcorr_output_count; i++) g_pitch_xcorr_output[i] = xcorr[i];
+  }
+}
+
+int __wrap__celt_autocorr(const opus_val16 *x, opus_val32 *ac,
+    const celt_coef *window, int overlap, int lag, int n, int arch) {
+  uint32_t call = 0;
+  if (g_pitch_kernel_trace_enabled) {
+    call = g_pitch_autocorr_calls++;
+    if (call == 0) {
+      g_pitch_autocorr_n = n > 0 ? (uint32_t)n : 0;
+      g_pitch_autocorr_lag = lag >= 0 ? (uint32_t)lag : 0;
+      g_pitch_autocorr_arch = (uint32_t)arch;
+      g_pitch_autocorr_window_present = window != NULL;
+      g_pitch_autocorr_overlap = overlap >= 0 ? (uint32_t)overlap : 0;
+      if (n < 0 || n > PITCH_TRACE_MAX || lag < 0 || lag + 1 > PITCH_TRACE_MAX) {
+        g_pitch_trace_overflow = 1;
+      } else {
+        uint32_t i;
+        for (i = 0; i < (uint32_t)n; i++) g_pitch_autocorr_input[i] = x[i];
+      }
+    }
+  }
+
+  int result = __real__celt_autocorr(x, ac, window, overlap, lag, n, arch);
+
+  if (g_pitch_kernel_trace_enabled && call == 0 && !g_pitch_trace_overflow) {
+    uint32_t i;
+    g_pitch_autocorr_ac_count = (uint32_t)lag + 1;
+    for (i = 0; i < g_pitch_autocorr_ac_count; i++) g_pitch_autocorr_ac[i] = ac[i];
+  }
+  return result;
+}
+
+void __wrap__celt_lpc(opus_val16 *lpc, const opus_val32 *ac, int p) {
+  uint32_t call = 0;
+  if (g_pitch_kernel_trace_enabled) {
+    call = g_pitch_lpc_calls++;
+    if (call == 0) {
+      g_pitch_lpc_order = p > 0 ? (uint32_t)p : 0;
+      if (p < 0 || p + 1 > PITCH_TRACE_MAX) {
+        g_pitch_trace_overflow = 1;
+      } else {
+        uint32_t i;
+        g_pitch_lpc_ac_count = (uint32_t)p + 1;
+        for (i = 0; i < g_pitch_lpc_ac_count; i++) g_pitch_lpc_ac[i] = ac[i];
+      }
+    }
+  }
+
+  __real__celt_lpc(lpc, ac, p);
+
+  if (g_pitch_kernel_trace_enabled && call == 0 && !g_pitch_trace_overflow) {
+    uint32_t i;
+    for (i = 0; i < (uint32_t)p; i++) g_pitch_lpc_output[i] = lpc[i];
+  }
+}
+
+static void reset_pitch_kernel_trace(void) {
+  g_pitch_xcorr_calls = 0;
+  g_pitch_autocorr_calls = 0;
+  g_pitch_lpc_calls = 0;
+  g_pitch_trace_overflow = 0;
+  g_pitch_xcorr_len = 0;
+  g_pitch_xcorr_max_pitch = 0;
+  g_pitch_xcorr_arch = 0;
+  g_pitch_xcorr_x_count = 0;
+  g_pitch_xcorr_y_count = 0;
+  g_pitch_xcorr_output_count = 0;
+  g_pitch_autocorr_n = 0;
+  g_pitch_autocorr_lag = 0;
+  g_pitch_autocorr_arch = 0;
+  g_pitch_autocorr_window_present = 0;
+  g_pitch_autocorr_overlap = 0;
+  g_pitch_autocorr_ac_count = 0;
+  g_pitch_lpc_order = 0;
+  g_pitch_lpc_ac_count = 0;
+}
+
+static int write_pitch_kernel_trace(void) {
+  if (g_pitch_trace_overflow || g_pitch_autocorr_n > PITCH_TRACE_MAX ||
+      g_pitch_autocorr_ac_count > PITCH_TRACE_MAX ||
+      g_pitch_lpc_order > PITCH_TRACE_MAX || g_pitch_lpc_ac_count > PITCH_TRACE_MAX) return 0;
+  return write_u32(g_pitch_xcorr_calls) &&
+      write_u32(g_pitch_xcorr_len) &&
+      write_u32(g_pitch_xcorr_max_pitch) &&
+      write_u32(g_pitch_xcorr_arch) &&
+      write_u32(g_pitch_xcorr_x_count) &&
+      write_u32(g_pitch_xcorr_y_count) &&
+      write_u32(g_pitch_xcorr_output_count) &&
+      write_float_array(g_pitch_xcorr_x, g_pitch_xcorr_x_count) &&
+      write_float_array(g_pitch_xcorr_y, g_pitch_xcorr_y_count) &&
+      write_float_array(g_pitch_xcorr_output, g_pitch_xcorr_output_count) &&
+      write_u32(g_pitch_autocorr_calls) &&
+      write_u32(g_pitch_lpc_calls) &&
+      write_u32(g_pitch_trace_overflow) &&
+      write_u32(g_pitch_autocorr_n) &&
+      write_u32(g_pitch_autocorr_lag) &&
+      write_u32(g_pitch_autocorr_arch) &&
+      write_u32(g_pitch_autocorr_window_present) &&
+      write_u32(g_pitch_autocorr_overlap) &&
+      write_u32(g_pitch_autocorr_ac_count) &&
+      write_float_array(g_pitch_autocorr_input, g_pitch_autocorr_n) &&
+      write_float_array(g_pitch_autocorr_ac, g_pitch_autocorr_ac_count) &&
+      write_u32(g_pitch_lpc_order) &&
+      write_u32(g_pitch_lpc_ac_count) &&
+      write_float_array(g_pitch_lpc_ac, g_pitch_lpc_ac_count) &&
+      write_float_array(g_pitch_lpc_output, g_pitch_lpc_order);
+}
+#endif
+
 #define INPUT_MAGIC "GCPI"
 #define OUTPUT_MAGIC "GCPO"
 #define PLC_LPC_ORDER 24
 #define PLC_DECODE_BUFFER_SIZE 2048
 #define PLC_MAX_PERIOD 1024
-#define PLC_PITCH_LAG_MAX 720
-#define PLC_PITCH_LAG_MIN 100
+
+/* Mode 6 invokes the pinned decoder's actual loss path. Capture the decay
+ * operands at the source MIN32 and its immediately following celt_sqrt call,
+ * so the stage oracle reports values from the same frame/channel execution. */
+static int g_capture_periodic_energy;
+static int g_periodic_energy_count;
+static int g_periodic_decay_pending;
+static opus_val32 g_periodic_energy1[2];
+static opus_val32 g_periodic_energy2[2];
+static opus_val16 g_periodic_decay[2];
+
+static opus_val32 gopus_capture_min32(opus_val32 a, opus_val32 b) {
+  opus_val32 result = a < b ? a : b;
+  if (g_capture_periodic_energy && g_periodic_energy_count < 2) {
+    int channel = g_periodic_energy_count++;
+    g_periodic_energy1[channel] = result;
+    g_periodic_energy2[channel] = b;
+    g_periodic_decay_pending = 1;
+  }
+  return result;
+}
+
+static opus_val16 gopus_capture_celt_sqrt(opus_val32 value) {
+  opus_val16 result = (opus_val16)sqrt(value);
+  if (g_capture_periodic_energy && g_periodic_decay_pending) {
+    g_periodic_decay[g_periodic_energy_count - 1] = result;
+    g_periodic_decay_pending = 0;
+  }
+  return result;
+}
+
+/* Compile the pinned decoder source with the selected reference configuration.
+ * Standalone PLC loops can produce different reduction codegen, so retain the
+ * complete celt_decode_lost() context. Linked leaves come from that archive. */
+#undef MIN32
+#define MIN32(a, b) gopus_capture_min32((a), (b))
+#undef celt_sqrt
+#define celt_sqrt(x) gopus_capture_celt_sqrt((x))
+#include "celt/celt_decoder.c"
+#undef MIN32
+#undef celt_sqrt
 
 enum {
   MODE_LPC = 0,
@@ -30,7 +249,10 @@ enum {
   MODE_PITCH_DOWNSAMPLE = 3,
   MODE_PITCH_SEARCH = 4,
   MODE_REMOVE_DOUBLING = 5,
-  MODE_PERIODIC_CONCEAL = 6
+  MODE_PERIODIC_CONCEAL = 6,
+  MODE_RAW_AUTOCORR = 7,
+  MODE_XCORR_KERNEL = 8,
+  MODE_PITCH_DOWNSAMPLE_TRACE = 9
 };
 
 static int set_binary_stdio(void) {
@@ -134,7 +356,7 @@ static int run_lpc(void) {
   _celt_autocorr(x, ac, window, (int)overlap, PLC_LPC_ORDER, (int)n, arch);
   ac[0] *= 1.0001f;
   for (i = 1; i <= PLC_LPC_ORDER; i++) {
-    ac[i] -= ac[i] * (0.008f * 0.008f) * (float)(i * i);
+    ac[i] -= ac[i] * (0.008f * 0.008f) * i * i;
   }
   _celt_lpc(lpc, ac, PLC_LPC_ORDER);
 
@@ -198,6 +420,22 @@ static int run_fir(void) {
   return 1;
 }
 
+static int run_xcorr_kernel(void) {
+  int arch = opus_select_arch();
+  uint32_t order = 0;
+  opus_val16 x[PLC_LPC_ORDER];
+  opus_val16 y[PLC_LPC_ORDER + 3];
+  opus_val32 sum[4];
+
+  if (!read_u32(&order) || order == 0 || order > PLC_LPC_ORDER) return 0;
+  if (!read_float_array((float *)sum, 4) ||
+      !read_float_array((float *)x, order) ||
+      !read_float_array((float *)y, order + 3)) return 0;
+
+  xcorr_kernel(x, y, sum, (int)order, arch);
+  return write_u32(4) && write_float_array((const float *)sum, 4);
+}
+
 static int run_iir(void) {
   int arch = opus_select_arch();
   uint32_t n = 0;
@@ -239,7 +477,7 @@ static int run_iir(void) {
   return 1;
 }
 
-static int run_pitch_downsample(void) {
+static int run_pitch_downsample(int capture_kernels) {
   int arch = opus_select_arch();
   uint32_t channels = 0;
   uint32_t len = 0;
@@ -267,14 +505,76 @@ static int run_pitch_downsample(void) {
   planes[0] = input;
   if (channels == 2) planes[1] = input + in_per_channel;
 
+  if (capture_kernels) {
+#ifdef GOPUS_CELT_PITCH_KERNEL_TRACE
+    reset_pitch_kernel_trace();
+    g_pitch_kernel_trace_enabled = 1;
+#else
+    free(input);
+    free(x_lp);
+    return 0;
+#endif
+  }
   pitch_downsample(planes, x_lp, (int)len, (int)channels, (int)factor, arch);
+  if (capture_kernels) {
+#ifdef GOPUS_CELT_PITCH_KERNEL_TRACE
+    g_pitch_kernel_trace_enabled = 0;
+#endif
+  }
   if (!write_u32(len) || !write_float_array((const float *)x_lp, len)) {
     free(input);
     free(x_lp);
     return 0;
   }
+#ifdef GOPUS_CELT_PITCH_KERNEL_TRACE
+  if (capture_kernels && !write_pitch_kernel_trace()) {
+    free(input);
+    free(x_lp);
+    return 0;
+  }
+#endif
   free(input);
   free(x_lp);
+  return 1;
+}
+
+static int run_raw_autocorr(void) {
+  int arch = opus_select_arch();
+  uint32_t n = 0;
+  uint32_t lag = 0;
+  uint32_t overlap = 0;
+  opus_val16 *x = NULL;
+  celt_coef *window = NULL;
+  opus_val32 *ac = NULL;
+
+  if (!read_u32(&n) || !read_u32(&lag) || !read_u32(&overlap)) return 0;
+  if (n == 0 || n > 4096 || lag >= n || lag > 64 || overlap > n / 2) return 0;
+  x = (opus_val16 *)malloc((size_t)n * sizeof(*x));
+  window = overlap == 0 ? NULL : (celt_coef *)malloc((size_t)overlap * sizeof(*window));
+  ac = (opus_val32 *)malloc((size_t)(lag + 1) * sizeof(*ac));
+  if (x == NULL || (overlap != 0 && window == NULL) || ac == NULL) {
+    free(x);
+    free(window);
+    free(ac);
+    return 0;
+  }
+  if ((overlap != 0 && !read_float_array((float *)window, overlap)) || !read_float_array((float *)x, n)) {
+    free(x);
+    free(window);
+    free(ac);
+    return 0;
+  }
+
+  _celt_autocorr(x, ac, window, (int)overlap, (int)lag, (int)n, arch);
+  if (!write_u32(lag + 1) || !write_float_array((const float *)ac, lag + 1)) {
+    free(x);
+    free(window);
+    free(ac);
+    return 0;
+  }
+  free(x);
+  free(window);
+  free(ac);
   return 1;
 }
 
@@ -352,224 +652,100 @@ static int run_remove_doubling(void) {
 }
 
 static int run_periodic_conceal(void) {
-  int arch = opus_select_arch();
   uint32_t channels = 0;
   uint32_t frame_size = 0;
   uint32_t overlap = 0;
   uint32_t continue_periodic = 0;
   uint32_t last_pitch_period = 0;
-  celt_coef *window = NULL;
-  celt_sig *decode_mem = NULL;
-  celt_sig *generated = NULL;
-  opus_val16 *lp_pitch_buf = NULL;
-  int pitch_index = 0;
+  float *window = NULL;
+  CELTDecoder *st = NULL;
+  int decode_buffer_size = 0;
   int count = 0;
+  int lm = 0;
   uint32_t c;
 
   if (!read_u32(&channels) || !read_u32(&frame_size) || !read_u32(&overlap) ||
       !read_u32(&continue_periodic) || !read_u32(&last_pitch_period)) {
     return 0;
   }
-  if (channels == 0 || channels > 2 || frame_size == 0 || frame_size > PLC_DECODE_BUFFER_SIZE - PLC_MAX_PERIOD ||
+  if (channels == 0 || channels > 2 || frame_size < 120 || frame_size > 960 ||
       overlap == 0 || overlap > 960 || continue_periodic > 1) {
     return 0;
   }
+  if (frame_size % 120 != 0 || ((frame_size / 120) & ((frame_size / 120) - 1)) != 0) return 0;
+  for (count = 1; count < (int)(frame_size / 120); count <<= 1) lm++;
   count = (int)(frame_size + overlap);
-  if (count > PLC_DECODE_BUFFER_SIZE) return 0;
 
   window = (celt_coef *)malloc((size_t)overlap * sizeof(*window));
-  decode_mem = (celt_sig *)calloc((size_t)channels * (PLC_DECODE_BUFFER_SIZE + overlap), sizeof(*decode_mem));
-  generated = (celt_sig *)malloc((size_t)channels * (size_t)count * sizeof(*generated));
-  lp_pitch_buf = (opus_val16 *)malloc((PLC_DECODE_BUFFER_SIZE >> 1) * sizeof(*lp_pitch_buf));
-  if (window == NULL || decode_mem == NULL || generated == NULL || lp_pitch_buf == NULL) {
-    free(window);
-    free(decode_mem);
-    free(generated);
-    free(lp_pitch_buf);
-    return 0;
-  }
+  if (window == NULL) return 0;
   if (!read_float_array((float *)window, overlap)) {
     free(window);
-    free(decode_mem);
-    free(generated);
-    free(lp_pitch_buf);
     return 0;
   }
+  st = (CELTDecoder *)calloc(1, (size_t)celt_decoder_get_size((int)channels));
+  if (st == NULL || celt_decoder_init(st, 48000, (int)channels) != OPUS_OK) goto done;
+  if (overlap != (uint32_t)st->overlap || memcmp(window, st->mode->window, overlap * sizeof(*window)) != 0) goto done;
+
+  /* This mode consumes the 48 kHz synthetic history (QEXT scale 1). */
+  decode_buffer_size = PLC_DECODE_BUFFER_SIZE;
   for (c = 0; c < channels; c++) {
-    celt_sig *hist = decode_mem + c * (PLC_DECODE_BUFFER_SIZE + overlap);
-    if (!read_float_array((float *)hist, PLC_DECODE_BUFFER_SIZE)) {
-      free(window);
-      free(decode_mem);
-      free(generated);
-      free(lp_pitch_buf);
-      return 0;
-    }
+    celt_sig *hist = st->_decode_mem + c * (decode_buffer_size + st->overlap);
+    if (!read_float_array((float *)hist, PLC_DECODE_BUFFER_SIZE)) goto done;
   }
 
-  if (continue_periodic && last_pitch_period >= 15 && last_pitch_period <= PLC_MAX_PERIOD) {
-    pitch_index = (int)last_pitch_period;
-  } else {
-    celt_sig *planes[2] = {NULL, NULL};
-    planes[0] = decode_mem;
-    if (channels == 2) planes[1] = decode_mem + PLC_DECODE_BUFFER_SIZE + overlap;
-    pitch_downsample(planes, lp_pitch_buf, PLC_DECODE_BUFFER_SIZE >> 1, (int)channels, 2, arch);
-    pitch_search(lp_pitch_buf + (PLC_PITCH_LAG_MAX >> 1), lp_pitch_buf,
-                 PLC_DECODE_BUFFER_SIZE - PLC_PITCH_LAG_MAX,
-                 PLC_PITCH_LAG_MAX - PLC_PITCH_LAG_MIN, &pitch_index, arch);
-    pitch_index = PLC_PITCH_LAG_MAX - pitch_index;
-  }
-  if (pitch_index < 15 || pitch_index > PLC_MAX_PERIOD) {
-    free(window);
-    free(decode_mem);
-    free(generated);
-    free(lp_pitch_buf);
-    return 0;
+  st->plc_duration = 0;
+  st->loss_duration = 0;
+  st->skip_plc = 0;
+  st->start = 0;
+  st->last_frame_type = continue_periodic ? FRAME_PLC_PERIODIC : FRAME_NORMAL;
+  if (continue_periodic) {
+    opus_val16 *lpc;
+    celt_glog *old_band_e;
+    celt_glog *old_log_e;
+    celt_glog *old_log_e2;
+    celt_glog *background_log_e;
+    if (last_pitch_period < 15 || last_pitch_period > PLC_MAX_PERIOD) goto done;
+    st->last_pitch_index = (int)last_pitch_period;
+    old_band_e = (celt_glog *)(st->_decode_mem +
+        (decode_buffer_size + st->overlap) * channels);
+    old_log_e = old_band_e + 2 * st->mode->nbEBands;
+    old_log_e2 = old_log_e + 2 * st->mode->nbEBands;
+    background_log_e = old_log_e2 + 2 * st->mode->nbEBands;
+    lpc = (opus_val16 *)(background_log_e + 2 * st->mode->nbEBands);
+    if (!read_float_array((float *)lpc, channels * PLC_LPC_ORDER)) goto done;
   }
 
+  g_periodic_energy_count = 0;
+  g_periodic_decay_pending = 0;
+  g_capture_periodic_energy = 1;
+#ifdef ENABLE_DEEP_PLC
+  celt_decode_lost(st, (int)frame_size, lm, NULL);
+#else
+  celt_decode_lost(st, (int)frame_size, lm);
+#endif
+  g_capture_periodic_energy = 0;
+  if (g_periodic_energy_count != (int)channels || g_periodic_decay_pending) goto done;
+
+  if (!write_u32((uint32_t)st->last_pitch_index) || !write_u32((uint32_t)count)) goto done;
   for (c = 0; c < channels; c++) {
-    celt_sig *buf = decode_mem + c * (PLC_DECODE_BUFFER_SIZE + overlap);
-    opus_val16 lpc[PLC_LPC_ORDER];
-    opus_val16 *exc = NULL;
-    opus_val16 *fir_tmp = NULL;
-    opus_val16 decay;
-    opus_val16 attenuation;
-    opus_val16 fade = continue_periodic ? QCONST16(.8f, 15) : Q15ONE;
-    opus_val32 S1 = 0;
-    int exc_length = 2 * pitch_index < PLC_MAX_PERIOD ? 2 * pitch_index : PLC_MAX_PERIOD;
-    int extrapolation_offset = PLC_MAX_PERIOD - pitch_index;
-    int i;
-    int j;
-
-    exc = (opus_val16 *)malloc((PLC_MAX_PERIOD + PLC_LPC_ORDER) * sizeof(*exc));
-    fir_tmp = (opus_val16 *)malloc((size_t)exc_length * sizeof(*fir_tmp));
-    if (exc == NULL || fir_tmp == NULL) {
-      free(exc);
-      free(fir_tmp);
-      free(window);
-      free(decode_mem);
-      free(generated);
-      free(lp_pitch_buf);
-      return 0;
-    }
-    for (i = 0; i < PLC_MAX_PERIOD + PLC_LPC_ORDER; i++) {
-      exc[i] = SROUND16(buf[PLC_DECODE_BUFFER_SIZE - PLC_MAX_PERIOD - PLC_LPC_ORDER + i], SIG_SHIFT);
-    }
-
-    if (!continue_periodic) {
-      opus_val32 ac[PLC_LPC_ORDER + 1];
-      _celt_autocorr(exc + PLC_LPC_ORDER, ac, window, (int)overlap,
-                      PLC_LPC_ORDER, PLC_MAX_PERIOD, arch);
-      ac[0] *= 1.0001f;
-      for (i = 1; i <= PLC_LPC_ORDER; i++) {
-        ac[i] -= ac[i] * (0.008f * 0.008f) * (float)(i * i);
-      }
-      _celt_lpc(lpc, ac, PLC_LPC_ORDER);
-    } else {
-      if (!read_float_array((float *)lpc, PLC_LPC_ORDER)) {
-        free(exc);
-        free(fir_tmp);
-        free(window);
-        free(decode_mem);
-        free(generated);
-        free(lp_pitch_buf);
-        return 0;
-      }
-    }
-
-    celt_fir(exc + PLC_LPC_ORDER + PLC_MAX_PERIOD - exc_length, lpc,
-             fir_tmp, exc_length, PLC_LPC_ORDER, arch);
-    OPUS_COPY(exc + PLC_LPC_ORDER + PLC_MAX_PERIOD - exc_length, fir_tmp, exc_length);
-
-    {
-      opus_val32 E1 = 1, E2 = 1;
-      int decay_length = exc_length >> 1;
-      for (i = 0; i < decay_length; i++) {
-        opus_val16 e;
-        e = exc[PLC_LPC_ORDER + PLC_MAX_PERIOD - decay_length + i];
-        E1 += MULT16_16(e, e);
-        e = exc[PLC_LPC_ORDER + PLC_MAX_PERIOD - 2 * decay_length + i];
-        E2 += MULT16_16(e, e);
-      }
-      if (E1 > E2) E1 = E2;
-      decay = celt_sqrt(frac_div32(SHR32(E1, 1), E2));
-    }
-
-    OPUS_MOVE(buf, buf + frame_size, PLC_DECODE_BUFFER_SIZE - frame_size);
-    attenuation = MULT16_16_Q15(fade, decay);
-    for (i = 0, j = 0; i < count; i++, j++) {
-      opus_val16 tmp;
-      if (j >= pitch_index) {
-        j -= pitch_index;
-        attenuation = MULT16_16_Q15(attenuation, decay);
-      }
-      buf[PLC_DECODE_BUFFER_SIZE - frame_size + i] =
-          SHL32(EXTEND32(MULT16_16_Q15(attenuation, exc[PLC_LPC_ORDER + extrapolation_offset + j])), SIG_SHIFT);
-      tmp = SROUND16(buf[PLC_DECODE_BUFFER_SIZE - PLC_MAX_PERIOD - frame_size + extrapolation_offset + j], SIG_SHIFT);
-      S1 += MULT16_16(tmp, tmp);
-    }
-
-    {
-      opus_val16 lpc_mem[PLC_LPC_ORDER];
-      for (i = 0; i < PLC_LPC_ORDER; i++) {
-        lpc_mem[i] = SROUND16(buf[PLC_DECODE_BUFFER_SIZE - frame_size - 1 - i], SIG_SHIFT);
-      }
-      celt_iir(buf + PLC_DECODE_BUFFER_SIZE - frame_size, lpc,
-               buf + PLC_DECODE_BUFFER_SIZE - frame_size, count, PLC_LPC_ORDER,
-               lpc_mem, arch);
-    }
-
-    {
-      opus_val32 S2 = 0;
-      for (i = 0; i < count; i++) {
-        opus_val16 tmp = SROUND16(buf[PLC_DECODE_BUFFER_SIZE - frame_size + i], SIG_SHIFT);
-        S2 += MULT16_16(tmp, tmp);
-      }
-      if (!(S1 > 0.2f * S2)) {
-        for (i = 0; i < count; i++) {
-          buf[PLC_DECODE_BUFFER_SIZE - frame_size + i] = 0;
-        }
-      } else if (S1 < S2) {
-        opus_val16 ratio = celt_sqrt(frac_div32(SHR32(S1, 1) + 1, S2 + 1));
-        for (i = 0; i < (int)overlap; i++) {
-          opus_val16 tmp_g = Q15ONE - MULT16_16_Q15(COEF2VAL16(window[i]), Q15ONE - ratio);
-          buf[PLC_DECODE_BUFFER_SIZE - frame_size + i] =
-              MULT16_32_Q15(tmp_g, buf[PLC_DECODE_BUFFER_SIZE - frame_size + i]);
-        }
-        for (i = (int)overlap; i < count; i++) {
-          buf[PLC_DECODE_BUFFER_SIZE - frame_size + i] =
-              MULT16_32_Q15(ratio, buf[PLC_DECODE_BUFFER_SIZE - frame_size + i]);
-        }
-      }
-    }
-
-    for (i = 0; i < count; i++) {
-      generated[c * count + i] = buf[PLC_DECODE_BUFFER_SIZE - frame_size + i];
-    }
-    free(exc);
-    free(fir_tmp);
-  }
-
-  if (!write_u32((uint32_t)pitch_index) || !write_u32((uint32_t)count)) {
-    free(window);
-    free(decode_mem);
-    free(generated);
-    free(lp_pitch_buf);
-    return 0;
+    celt_sig *hist = st->_decode_mem + c * (decode_buffer_size + st->overlap);
+    if (!write_float_array((const float *)(hist + decode_buffer_size - frame_size), (uint32_t)count)) goto done;
   }
   for (c = 0; c < channels; c++) {
-    if (!write_float_array((const float *)(generated + c * count), (uint32_t)count)) {
-      free(window);
-      free(decode_mem);
-      free(generated);
-      free(lp_pitch_buf);
-      return 0;
-    }
+    if (!write_float((float)g_periodic_energy1[c]) ||
+        !write_float((float)g_periodic_energy2[c]) ||
+        !write_float((float)g_periodic_decay[c])) goto done;
   }
+
+  free(st);
   free(window);
-  free(decode_mem);
-  free(generated);
-  free(lp_pitch_buf);
   return 1;
+
+done:
+  g_capture_periodic_energy = 0;
+  free(st);
+  free(window);
+  return 0;
 }
 
 int main(void) {
@@ -590,13 +766,21 @@ int main(void) {
   } else if (mode == MODE_IIR) {
     ok = run_iir();
   } else if (mode == MODE_PITCH_DOWNSAMPLE) {
-    ok = run_pitch_downsample();
+    ok = run_pitch_downsample(0);
+#ifdef GOPUS_CELT_PITCH_KERNEL_TRACE
+  } else if (mode == MODE_PITCH_DOWNSAMPLE_TRACE) {
+    ok = run_pitch_downsample(1);
+#endif
   } else if (mode == MODE_PITCH_SEARCH) {
     ok = run_pitch_search();
   } else if (mode == MODE_REMOVE_DOUBLING) {
     ok = run_remove_doubling();
   } else if (mode == MODE_PERIODIC_CONCEAL) {
     ok = run_periodic_conceal();
+  } else if (mode == MODE_RAW_AUTOCORR) {
+    ok = run_raw_autocorr();
+  } else if (mode == MODE_XCORR_KERNEL) {
+    ok = run_xcorr_kernel();
   } else {
     return 1;
   }

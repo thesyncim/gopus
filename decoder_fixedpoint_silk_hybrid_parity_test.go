@@ -12,19 +12,18 @@ import (
 var fixedRefdecodeHelper libopustest.HelperCache
 
 // getFixedRefdecodeHelperPath builds the libopus_refdecode_single.c full-pipeline
-// opus_decode / opus_decode24 helper against the FIXED_POINT reference tree
-// (--enable-fixed-point, ENABLE_RES24), so the int16/int24 output is the libopus
-// FIXED_POINT opus_decode result rather than the float build.
+// opus_decode / opus_decode24 helper against the public fixed-point reference
+// selected for this Go build, including ENABLE_QEXT when that tag is active.
 func getFixedRefdecodeHelperPath() (string, error) {
-	return fixedRefdecodeHelper.CHelperPath(libopustest.CHelperConfig{
-		Label:       "fixed-point reference decode",
-		OutputBase:  "gopus_libopus_refdecode_fixed",
-		SourceFile:  "libopus_refdecode_single.c",
-		FixedRef:    true,
-		CFlags:      []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"},
-		RefIncludes: []string{"celt", "silk"},
-		Libs:        []string{libopustest.FixedRefPath(".libs", "libopus.a"), "-lm"},
-		DeadStrip:   true,
+	return fixedRefdecodeHelper.Path(func() (string, error) {
+		return libopustest.BuildPublicAPIHelper(libopustest.CHelperConfig{
+			Label:       "fixed-point reference decode",
+			OutputBase:  "gopus_libopus_refdecode_fixed",
+			SourceFile:  "libopus_refdecode_single.c",
+			CFlags:      []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"},
+			RefIncludes: []string{"celt", "silk"},
+			DeadStrip:   true,
+		})
 	})
 }
 
@@ -147,8 +146,7 @@ func encodeFixedSILKSequence(t *testing.T, channels, frameSize, frames int, bw B
 // opus_decode24 reference. gopus' silk.Decoder is inherently integer (int16
 // native samples + the int16 silk_resampler), and the int16/int24 output of a
 // SILK-only frame round-trips through float32 without loss, so the existing
-// public path is already FIXED_POINT-exact (subject to the documented per-arch
-// 1-ULP budget).
+// public path is checked against the selected FIXED_POINT reference.
 func TestDecoderFixedPointSILKParity(t *testing.T) {
 	libopustest.RequireOracle(t)
 
@@ -173,7 +171,7 @@ func TestDecoderFixedPointSILKParity(t *testing.T) {
 			packets := encodeFixedSILKSequence(t, c.channels, c.frameSize, frames, c.bw)
 			for _, pkt := range packets {
 				if toc := ParseTOC(pkt[0]); toc.Mode != ModeSILK {
-					t.Skipf("encoder produced mode %v, want SILK", toc.Mode)
+					t.Fatalf("encoder produced mode %v, want SILK", toc.Mode)
 				}
 			}
 
@@ -253,7 +251,7 @@ func TestDecoderFixedPointHybridParity(t *testing.T) {
 			for f := 0; f < c.frames; f++ {
 				pkt := encodeAPIRateHybridPacketFrameSize(t, c.channels, c.frameSize)
 				if toc := ParseTOC(pkt[0]); toc.Mode != ModeHybrid {
-					t.Skipf("encoder produced mode %v, want Hybrid", toc.Mode)
+					t.Fatalf("encoder produced mode %v, want Hybrid", toc.Mode)
 				}
 				packets = append(packets, pkt)
 			}

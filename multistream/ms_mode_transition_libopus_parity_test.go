@@ -22,6 +22,10 @@ import (
 // exercises the per-stream streamState transition handling against the libopus
 // multistream oracle.
 func encodeModeSwitchSingleStreamPackets(t *testing.T, channels int, frameSize int, modes []encoder.Mode) [][]byte {
+	return encodeModeSwitchSingleStreamPacketsWithSILKBandwidth(t, channels, frameSize, modes, types.BandwidthFullband)
+}
+
+func encodeModeSwitchSingleStreamPacketsWithSILKBandwidth(t *testing.T, channels int, frameSize int, modes []encoder.Mode, silkBandwidth types.Bandwidth) [][]byte {
 	t.Helper()
 	const sampleRate = 48000
 
@@ -31,6 +35,9 @@ func encodeModeSwitchSingleStreamPackets(t *testing.T, channels int, frameSize i
 		enc := encoder.NewEncoder(sampleRate, channels)
 		enc.SetFrameSize(frameSize)
 		enc.SetBandwidth(types.BandwidthFullband)
+		if m == encoder.ModeSILK && silkBandwidth != types.BandwidthFullband {
+			enc.SetBandwidth(silkBandwidth)
+		}
 		enc.SetBitrate(96000)
 		if err := enc.SetInBandFEC(0); err != nil {
 			t.Fatalf("SetInBandFEC: %v", err)
@@ -77,41 +84,16 @@ func perStreamModes(packets [][]byte) []int {
 	return modes
 }
 
-// TestMultistreamPerStreamModeTransitionMatchesLibopus locks the multistream
-// per-stream mode-transition handling that this change ports from the
-// single-stream gopus.Decoder into the multistream streamState path:
-//
-//   - the CELT decoder OPUS_RESET_STATE on any mode change that did not come
-//     from a redundancy frame, and
-//   - the 5 ms pcm_transition crossfade (smooth_fade) applied whenever the
-//     coding mode crosses the CELT_ONLY boundary (opus_decode_frame).
-//
-// The constituent stream changes coding mode every frame (SILK->CELT->Hybrid
-// ...), each packet from a fresh encoder so the mode switches carry no
-// redundancy and therefore drive the pcm_transition path. Decoding a 1-stream
-// mono multistream packet is identical to decoding the underlying Opus packet.
-//
-// What is gated sample-exact: the body of every CELT-target transition frame
-// after the 5 ms transition window (the part the CELT OPUS_RESET_STATE + CELT
-// decode produce). Before this change the multistream path never reset the CELT
-// decoder on a mode change, so a Hybrid->CELT frame body diverged from libopus
-// by ~0.2; with the reset the body is now bit-exact (amd64; <=1-ULP arm64).
-//
-// The first 5 ms transition window itself is NOT asserted sample-exact: it is a
-// crossfade onto a packet-loss-concealment frame decoded in the previous mode,
-// and gopus's SILK/CELT PLC is not yet bit-exact with libopus on a
-// *no-redundancy* mode transition. That residual is a shared SILK/CELT PLC
-// parity gap -- it reproduces identically on the libopus-gated single-stream
-// gopus.Decoder (a fresh-encoder SILK->CELT transition diverges by the same
-// amount there) -- and is independent of the multistream port. The window is
-// checked only within a loose bound so a gross crossfade regression still trips.
+// TestMultistreamPerStreamModeTransitionMatchesLibopus compares every output
+// sample, including the 5 ms PLC crossfade, with the selected libopus build.
+// Fresh encoders create valid packets whose mode changes carry no redundancy.
+// The sequence exercises CELT resets and transitions in both directions.
 func TestMultistreamPerStreamModeTransitionMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 
 	const (
 		sampleRate = 48000
 		frameSize  = 960 // 20 ms
-		f5         = frameSize / 4
 	)
 
 	// Mode walk crossing the CELT_ONLY boundary in every direction.
@@ -130,8 +112,7 @@ func TestMultistreamPerStreamModeTransitionMatchesLibopus(t *testing.T) {
 			packets := encodeModeSwitchSingleStreamPackets(t, channels, frameSize, modeWalk)
 			modes := perStreamModes(packets)
 
-			// Require an actual CELT-target transition (SILK/Hybrid -> CELT), the
-			// case whose body the CELT OPUS_RESET_STATE fixes.
+			// Require an actual SILK/Hybrid-to-CELT transition in the input.
 			sawCeltTarget := false
 			prev := -1
 			for i, m := range modes {
@@ -174,40 +155,12 @@ func TestMultistreamPerStreamModeTransitionMatchesLibopus(t *testing.T) {
 			}
 
 			perFrame := frameSize * channels
-			celtBoundaryBody := false
-			for f := range modes {
-				// A frame crosses the CELT_ONLY boundary (in either direction) iff
-				// its CELT-ness differs from the previous frame; libopus applies the
-				// 5 ms pcm_transition crossfade exactly on those frames.
-				transition := f > 0 && (modes[f] == streamModeCELT) != (modes[f-1] == streamModeCELT)
-				celtTargetBody := transition && modes[f] == streamModeCELT
-				base := f * perFrame
-				bodyStart := 0
-				if transition {
-					bodyStart = f5 * channels
+			for i := range got {
+				if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
+					t.Fatalf("frame %d (mode=%d) sample %d bits=%08x want=%08x",
+						i/perFrame, modes[i/perFrame], i%perFrame,
+						math.Float32bits(got[i]), math.Float32bits(want[i]))
 				}
-				if celtTargetBody {
-					celtBoundaryBody = true
-				}
-				for i := base; i < base+perFrame && i < len(got); i++ {
-					off := i - base
-					diff := math.Abs(float64(got[i] - want[i]))
-					if off >= bodyStart {
-						// Body after any transition window (and the whole frame when
-						// no transition applies) is locked sample-exact.
-						if diff > 1e-6 {
-							t.Fatalf("frame %d (mode=%d) body not sample-exact at off %d: got=%g want=%g diff=%g",
-								f, modes[f], off, got[i], want[i], diff)
-						}
-					} else if diff > 0.6 {
-						// Transition window: only catch a gross crossfade regression.
-						t.Fatalf("frame %d (mode=%d) transition window grossly wrong at off %d: got=%g want=%g diff=%g",
-							f, modes[f], off, got[i], want[i], diff)
-					}
-				}
-			}
-			if !celtBoundaryBody {
-				t.Fatalf("no CELT-target transition body was checked; modes=%v", modes)
 			}
 		})
 	}

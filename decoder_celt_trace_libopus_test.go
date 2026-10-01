@@ -9,6 +9,8 @@ import (
 
 var libopusCELTTraceHelper libopustest.HelperCache
 
+// libopusCELTTrace reports signal, gain and log-energy values in float units.
+// The C helper removes fixed-point Q formats before serializing those fields.
 type libopusCELTTrace struct {
 	decodedSamples      int
 	internalSamples     int
@@ -37,13 +39,12 @@ type libopusCELTTrace struct {
 }
 
 func buildLibopusCELTTraceHelper() (string, error) {
-	return libopustest.BuildCHelper(libopustest.CHelperConfig{
+	return libopustest.BuildPublicAPIHelper(libopustest.CHelperConfig{
 		Label:       "CELT decode trace",
 		OutputBase:  "gopus_libopus_celt_trace",
 		SourceFile:  "libopus_celt_trace_single.c",
 		CFlags:      []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"},
 		RefIncludes: []string{"src", "celt", "silk", "silk/float"},
-		Libs:        []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
 		DeadStrip:   true,
 	})
 }

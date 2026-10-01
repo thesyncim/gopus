@@ -12,7 +12,8 @@
           u32 nbEBands,   i16 logN[nbEBands],
           u32 overlap,    f32 window[overlap],
           u32 mdct.n, u32 mdct.maxshift,
-          u32 trigLen,    f32 trig[trigLen]
+          u32 trigLen,    f32 trig[trigLen],
+          u32 fftLen,     (f32 real, f32 imag) twiddles[fftLen]
    trigLen = N - (N2>>maxshift), the exact allocation in clt_mdct_init,
    with N=mdct.n and N2=mdct.n/2 (per-shift trig segments concatenated). */
 #include <stdint.h>
@@ -128,6 +129,13 @@ int main(void) {
   uint32_t trigLen = (uint32_t)(mode->mdct.n - ((mode->mdct.n / 2) >> mode->mdct.maxshift));
   write_u32(trigLen);
   for (i = 0; i < (int)trigLen; i++) write_f32((float)mode->mdct.trig[i]);
+
+  uint32_t fftLen = (uint32_t)mode->mdct.kfft[0]->nfft;
+  write_u32(fftLen);
+  for (i = 0; i < (int)fftLen; i++) {
+    write_f32((float)mode->mdct.kfft[0]->twiddles[i].r);
+    write_f32((float)mode->mdct.kfft[0]->twiddles[i].i);
+  }
 
   fflush(stdout);
   /* mode is a static const in static_mode_list; nothing to free. */

@@ -30,7 +30,8 @@ const (
 
 // Page represents a single Ogg page.
 type Page struct {
-	// Version is the stream structure version (always 0).
+	// Version is the stream structure version byte. Ogg currently defines
+	// version 0; ParsePage preserves this field without validating it.
 	Version byte
 
 	// HeaderType contains page flags (continuation, BOS, EOS).
@@ -55,9 +56,10 @@ type Page struct {
 	Payload []byte
 }
 
-// BuildSegmentTable creates a segment table for a packet of the given length.
-// Packets larger than 255 bytes span multiple segments (each 255 bytes except
-// the final segment which contains the remainder).
+// BuildSegmentTable creates a lacing table for a packet of nonnegative length.
+// Each 255-byte entry continues the packet; a final entry below 255 terminates
+// it. An empty packet is represented by one zero entry, and lengths divisible
+// by 255 include an extra zero entry to mark packet completion.
 func BuildSegmentTable(packetLen int) []byte {
 	if packetLen == 0 {
 		return []byte{0}
@@ -170,13 +172,10 @@ func (p *Page) Packets() [][]byte {
 	return packets
 }
 
-// Encode serializes the page to bytes with proper CRC.
-// The output format is:
-//   - 27-byte header
-//   - Segment table
-//   - Payload
-//
-// The CRC is computed over the entire page (with CRC field zeroed).
+// Encode returns a serialized copy of the page and computes its Ogg CRC-32 with
+// the checksum field zeroed. It serializes the fields as supplied and does not
+// validate them; callers must keep len(Segments) within 255 and make the segment
+// lengths sum to len(Payload) for a structurally valid page.
 func (p *Page) Encode() []byte {
 	// Calculate total page size.
 	headerSize := pageHeaderSize + len(p.Segments)
@@ -206,26 +205,13 @@ func (p *Page) Encode() []byte {
 	return data
 }
 
-// ParsePage parses a single Ogg page (RFC 3533 §6) from the front of data.
-// It returns the parsed page, the number of bytes consumed (the full page
-// length, header plus segment table plus payload), and any error.
-//
-// data may contain more than one page or trailing bytes; only the first page
-// is consumed and callers should advance by the returned count. The returned
-// Page owns copies of its segment table and payload, so the input slice may be
-// reused or overwritten afterwards.
-//
-// Errors:
-//
-//   - ErrInvalidPage if data is shorter than a page header, the "OggS" capture
-//     pattern is missing, or the declared segment table or payload extends past
-//     the end of data (a truncated or incomplete page).
-//   - ErrBadCRC if the page CRC-32 does not match the bytes on the wire,
-//     indicating corruption.
-//
-// A truncated page yields ErrInvalidPage with a zero consumed count; the caller
-// can distinguish "need more data" from genuine corruption by buffering more
-// input and retrying.
+// ParsePage parses the first complete Ogg page in data and returns the number of
+// bytes consumed, leaving any following page bytes unconsumed. The returned Page
+// owns copies of its segment table and payload, so data may be reused after the
+// call. It validates the capture pattern, lacing-derived page length, and CRC;
+// it preserves the version and flag bytes without checking stream-level rules.
+// It returns ErrInvalidPage for missing magic or truncated framing, ErrBadCRC
+// for a checksum mismatch, and a consumed count of zero on error.
 func ParsePage(data []byte) (*Page, int, error) {
 	p := &Page{}
 	consumed, err := parsePageInto(data, p)

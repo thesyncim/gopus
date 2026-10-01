@@ -60,7 +60,7 @@ static int set_binary_stdio(void) {
 
 static int valid_sample_rate(uint32_t sample_rate) {
   return sample_rate == 8000 || sample_rate == 12000 || sample_rate == 16000 || sample_rate == 24000 ||
-         sample_rate == 48000;
+         sample_rate == 48000 || sample_rate == 96000;
 }
 
 static int append_items(void **out, size_t *out_len, size_t *out_cap, const void *src, size_t n, size_t item_size) {
@@ -105,6 +105,7 @@ int main(void) {
   uint32_t version = 0;
   uint32_t sample_rate = 48000;
   int32_t decode_gain = 0;
+  uint32_t phase_inversion_disabled = 0;
   uint32_t sample_format = SAMPLE_FORMAT_FLOAT32;
   uint32_t family = 0;
   uint32_t channels = 0;
@@ -138,7 +139,7 @@ int main(void) {
     return 1;
   }
 
-  if (version == 2 || version == 3 || version == 4) {
+  if (version == 2 || version == 3 || version == 4 || version == 5) {
     if (!read_u32(&sample_rate)) {
       fprintf(stderr, "failed to read sample rate\n");
       return 1;
@@ -166,7 +167,13 @@ int main(void) {
     return 1;
   }
 
+  if (version == 5 && !read_u32(&phase_inversion_disabled)) {
+    fprintf(stderr, "failed to read phase inversion control\n");
+    return 1;
+  }
+
   if (!valid_sample_rate(sample_rate) || channels == 0 || streams == 0 || frame_size == 0 ||
+      phase_inversion_disabled > 1 ||
       (sample_format != SAMPLE_FORMAT_FLOAT32 && sample_format != SAMPLE_FORMAT_INT16 && sample_format != SAMPLE_FORMAT_INT24)) {
     fprintf(stderr, "invalid decoder dimensions\n");
     return 1;
@@ -231,7 +238,6 @@ int main(void) {
         return 1;
       }
     }
-
     for (uint32_t i = 0; i < packet_count; i++) {
       uint32_t packet_len = 0;
       unsigned char *packet = NULL;
@@ -307,6 +313,17 @@ int main(void) {
       err = opus_multistream_decoder_ctl(dec, OPUS_SET_GAIN(decode_gain));
       if (err != OPUS_OK) {
         fprintf(stderr, "opus_multistream_decoder_ctl(OPUS_SET_GAIN) failed: %d\n", err);
+        opus_multistream_decoder_destroy(dec);
+        free(mapping);
+        free(demixing);
+        free(frame);
+        return 1;
+      }
+    }
+    if (version == 5) {
+      err = opus_multistream_decoder_ctl(dec, OPUS_SET_PHASE_INVERSION_DISABLED((int)phase_inversion_disabled));
+      if (err != OPUS_OK) {
+        fprintf(stderr, "opus_multistream_decoder_ctl(OPUS_SET_PHASE_INVERSION_DISABLED) failed: %d\n", err);
         opus_multistream_decoder_destroy(dec);
         free(mapping);
         free(demixing);

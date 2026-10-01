@@ -5,7 +5,6 @@ package gopus
 import (
 	"fmt"
 	"math"
-	"os"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -16,12 +15,11 @@ import (
 // the gopus encoder also produces but that the decode-side oracle gates do not
 // otherwise cover. The SAME packet sequence (including DTX packets) is decoded
 // through both libopus (opus_decode_float) and gopus, sample-aligned, and gated
-// on the trusted near-exact comparator. This hardens the decoder's handling of
+// on exact selected-reference PCM. This hardens the decoder's handling of
 // DTX TOC-only packets and the silence/CNG runs they drive.
 //
-// The DTX emit helper needs src/opus_private.h (MODE_* / OPUS_SET_FORCE_MODE),
-// so it is built against the DRED reference tree like the FEC emit helper and is
-// gated behind the gopus_libopus_oracle build tag.
+// The DTX emit helper needs src/opus_private.h (MODE_* / OPUS_SET_FORCE_MODE).
+// It uses the public reference selected by the current Go feature and ISA tags.
 
 const libopusDTXPacketOutputMagic = "GDTX"
 
@@ -29,11 +27,13 @@ var libopusDTXEmitPacketsHelper libopustest.HelperCache
 
 func getLibopusDTXEmitPacketsHelperPath() (string, error) {
 	return libopusDTXEmitPacketsHelper.Path(func() (string, error) {
-		repoRoot, err := os.Getwd()
-		if err != nil {
-			return "", fmt.Errorf("getwd: %w", err)
-		}
-		return libopustest.BuildDREDHelper(repoRoot, "libopus_dtx_emit_packets.c", "gopus_libopus_dtx_emit_packets", true)
+		return libopustest.BuildPublicAPIHelper(libopustest.CHelperConfig{
+			Label:       "public DTX emit",
+			OutputBase:  "gopus_libopus_dtx_emit_packets",
+			SourceFile:  "libopus_dtx_emit_packets.c",
+			CFlags:      []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"},
+			RefIncludes: []string{"celt", "silk", "src"},
+		})
 	})
 }
 
@@ -213,6 +213,7 @@ func TestDecodeLibopusDTXSequenceMatchesLibopus(t *testing.T) {
 			}
 			got := decodeGopusFloat32Sequence(t, sampleRate, tc.channels, tc.cfg.FrameSize, packets)
 			assertAPIRateQualityFloat32(t, got, want, sampleRate, tc.channels, tc.name)
+			assertAPIRateFloat32BitsExact(t, got, want, tc.name)
 		})
 	}
 }

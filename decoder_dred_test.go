@@ -626,6 +626,9 @@ func TestDecoderDecodePLCAppliesNeuralConcealmentWhenReady(t *testing.T) {
 	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
 		t.Fatalf("SetDNNBlob error: %v", err)
 	}
+	if err := dec.SetComplexity(5); err != nil {
+		t.Fatalf("SetComplexity error: %v", err)
+	}
 
 	frameSize := 16000 / 50
 	pcm := make([]float32, frameSize)

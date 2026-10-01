@@ -20,20 +20,29 @@
 //   (b) structured-malformed mutations of valid multistream packets (truncation,
 //       byte/bit flips, first-stream TOC config/code/stereo rewrites, sub-packet
 //       self-delimited length corruption, append junk) → NO-PANIC + accept/reject
-//       parity + sample-count parity vs the libopus multistream oracle, plus a
-//       gross-PCM-divergence guard when both accept.
+//       parity + sample-count parity vs the libopus multistream oracle, plus
+//       exact PCM equality in the requested public sample format when both accept.
 //
 // The multistream oracle (libopus_refdecode_multistream.c) aborts the whole
 // batch on the first opus_multistream_decode* < 0, so accept/reject is probed
-// ONE packet per oracle call: an oracle error ⇔ libopus rejected. A gopus panic
-// (recovered into an error), a gopus-accepts-where-libopus-rejects (or vice
-// versa), or a sample-count mismatch is a HARD failure with the packet printed.
+// ONE packet per oracle call. Only the helper's explicit negative decode status
+// means libopus rejected; build, process, and protocol errors fail the test.
+// A gopus panic (recovered into an error), a gopus-accepts-where-libopus-rejects
+// (or vice versa), or a sample-count mismatch is a HARD failure with the packet
+// printed.
 
 package gopus
 
 import (
+	"bytes"
+	"encoding/binary"
+	"errors"
 	"fmt"
+	"math"
 	"math/rand"
+	"os/exec"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -214,10 +223,17 @@ const (
 	msRobustInt24
 )
 
+func msRobustSampleBytes(format msRobustFormat) int {
+	if format == msRobustInt16 {
+		return 2
+	}
+	return 4
+}
+
 // msRobustGopusDecode decodes one packet through a fresh gopus MultistreamDecoder
 // in the selected format, recovering a panic into an error so a crash minimises
-// to one packet. PCM is returned in the shared float32 comparison scale.
-func msRobustGopusDecode(layout msRobustLayout, format msRobustFormat, packet []byte, frameSize int) (pcm []float32, samples int, err error) {
+// to one packet. PCM is serialized in the public format's original width.
+func msRobustGopusDecode(layout msRobustLayout, format msRobustFormat, packet []byte, frameSize int) (pcm []byte, samples int, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("PANIC in gopus multistream decode: %v", r)
@@ -235,9 +251,9 @@ func msRobustGopusDecode(layout msRobustLayout, format msRobustFormat, packet []
 		if e != nil {
 			return nil, 0, e
 		}
-		out := make([]float32, n*layout.channels)
-		for i := range out {
-			out[i] = float32(buf[i]) / 32768.0
+		out := make([]byte, 2*n*layout.channels)
+		for i, v := range buf[:n*layout.channels] {
+			binary.LittleEndian.PutUint16(out[2*i:], uint16(v))
 		}
 		return out, n, nil
 	case msRobustInt24:
@@ -246,9 +262,9 @@ func msRobustGopusDecode(layout msRobustLayout, format msRobustFormat, packet []
 		if e != nil {
 			return nil, 0, e
 		}
-		out := make([]float32, n*layout.channels)
-		for i := range out {
-			out[i] = float32(buf[i]) / 8388608.0
+		out := make([]byte, 4*n*layout.channels)
+		for i, v := range buf[:n*layout.channels] {
+			binary.LittleEndian.PutUint32(out[4*i:], uint32(v))
 		}
 		return out, n, nil
 	default:
@@ -257,56 +273,124 @@ func msRobustGopusDecode(layout msRobustLayout, format msRobustFormat, packet []
 		if e != nil {
 			return nil, 0, e
 		}
-		return buf[:n*layout.channels], n, nil
-	}
-}
-
-// msRobustOracleSampleFormat maps the fuzz format to the multistream oracle's
-// sample_format selector.
-func msRobustOracleSampleFormat(format msRobustFormat) int {
-	switch format {
-	case msRobustInt16:
-		return 1
-	case msRobustInt24:
-		return libopusRefdecodeMSFormatInt24
-	default:
-		return 0
+		out := make([]byte, 4*n*layout.channels)
+		for i, v := range buf[:n*layout.channels] {
+			binary.LittleEndian.PutUint32(out[4*i:], math.Float32bits(v))
+		}
+		return out, n, nil
 	}
 }
 
 // msRobustOracleDecode decodes ONE packet through the libopus multistream oracle
-// and returns the per-channel sample count and PCM (shared float32 scale). The
-// oracle aborts (returns a non-nil error) on opus_multistream_decode* < 0, so a
-// non-nil err means libopus REJECTED the packet — exactly the accept/reject
-// signal the parity check needs.
-func msRobustOracleDecode(layout msRobustLayout, format msRobustFormat, packet []byte, frameSize int) (pcm []float32, samples int, rejected bool, err error) {
+// and returns the per-channel sample count and raw-format PCM. The helper prints
+// its negative decoder return code before exiting; unrelated errors remain errors.
+func msRobustOracleDecode(layout msRobustLayout, format msRobustFormat, packet []byte, frameSize int) (pcm []byte, samples int, rejected bool, err error) {
 	switch format {
 	case msRobustInt16:
 		out, e := decodeLibopusMultistreamInt16Gain(48000, layout.channels, layout.streams, layout.coupled, frameSize, 0, layout.mapping, [][]byte{packet})
 		if e != nil {
-			return nil, 0, true, nil
+			return nil, 0, msRobustOracleRejected(e), msRobustOracleError(e)
 		}
-		f := make([]float32, len(out))
+		f := make([]byte, 2*len(out))
 		for i, v := range out {
-			f[i] = float32(v) / 32768.0
+			binary.LittleEndian.PutUint16(f[2*i:], uint16(v))
 		}
 		return f, len(out) / layout.channels, false, nil
 	case msRobustInt24:
 		out, e := decodeLibopusMultistreamInt24(48000, layout.channels, layout.streams, layout.coupled, frameSize, layout.mapping, [][]byte{packet})
 		if e != nil {
-			return nil, 0, true, nil
+			return nil, 0, msRobustOracleRejected(e), msRobustOracleError(e)
 		}
-		f := make([]float32, len(out))
+		f := make([]byte, 4*len(out))
 		for i, v := range out {
-			f[i] = float32(v) / 8388608.0
+			binary.LittleEndian.PutUint32(f[4*i:], uint32(v))
 		}
 		return f, len(out) / layout.channels, false, nil
 	default:
 		out, e := decodeLibopusMultistreamFloat32(48000, layout.channels, layout.streams, layout.coupled, frameSize, layout.mapping, [][]byte{packet})
 		if e != nil {
-			return nil, 0, true, nil
+			return nil, 0, msRobustOracleRejected(e), msRobustOracleError(e)
 		}
-		return out, len(out) / layout.channels, false, nil
+		f := make([]byte, 4*len(out))
+		for i, v := range out {
+			binary.LittleEndian.PutUint32(f[4*i:], math.Float32bits(v))
+		}
+		return f, len(out) / layout.channels, false, nil
+	}
+}
+
+func msRobustOracleRejected(err error) bool {
+	// libopus_refdecode_multistream.c reports only negative decode return codes
+	// with this diagnostic and exit code 1. Build, launch, and protocol failures
+	// do not carry both the typed child exit and the complete decoder marker.
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
+		return false
+	}
+	const marker = "(opus_multistream_decode_float failed: "
+	message := err.Error()
+	start := strings.LastIndex(message, marker)
+	if start < 0 || !strings.HasSuffix(message, ")") {
+		return false
+	}
+	code, parseErr := strconv.ParseInt(strings.TrimSuffix(message[start+len(marker):], ")"), 10, 32)
+	return parseErr == nil && code < 0
+}
+
+func msRobustOracleError(err error) error {
+	if msRobustOracleRejected(err) {
+		return nil
+	}
+	return err
+}
+
+func TestMSRobustOracleErrorClassification(t *testing.T) {
+	libopustest.RequireOracle(t)
+	layout := msRobustLayouts()[0]
+	_, _, rejected, err := msRobustOracleDecode(layout, msRobustInt16, []byte{0xff}, 960)
+	if !rejected || err != nil {
+		t.Fatalf("invalid packet: rejected=%v error=%v, want decoder rejection", rejected, err)
+	}
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{
+		{"build", fmt.Errorf("compile multistream reference: compiler failed")},
+		{"process", fmt.Errorf("run helper: exit status 1 (failed to read packet payload)")},
+		{"truncated wire", fmt.Errorf("multistream helper: truncated output header")},
+		{"truncated decode marker", fmt.Errorf("run helper: exit status 1 (opus_multistream_decode_float failed: -4")},
+		{"forged decode marker", fmt.Errorf("run helper: exit status 1 (opus_multistream_decode_float failed: -4)")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if msRobustOracleRejected(tc.err) || msRobustOracleError(tc.err) == nil {
+				t.Fatalf("infrastructure error classified as decoder rejection: %v", tc.err)
+			}
+		})
+	}
+}
+
+// The appended bytes form a SILK-to-CELT redundancy payload. libopus captures
+// the integer SILK body before fading the CELT tail into its opus_res output.
+func TestDecodeMultistreamMalformedSILKRedundancyParity(t *testing.T) {
+	libopustest.RequireOracle(t)
+	layout := msRobustLayouts()[0]
+	packet := []byte{
+		0x40, 0x82, 0x2e, 0x68, 0x51, 0x73, 0xfb, 0x43,
+		0x3c, 0xec, 0xdf, 0xa7, 0xe6, 0xca, 0xd8, 0xbc,
+		0xa7, 0xa4, 0x7a, 0x58, 0x4b, 0x92, 0x89, 0x7d,
+		0x80, 0x1c, 0x65, 0xfc, 0x40, 0xaf, 0xa6, 0x1d,
+		0x51, 0x63, 0x52, 0x57, 0x7a,
+	}
+	for _, format := range []msRobustFormat{msRobustFloat32, msRobustInt16, msRobustInt24} {
+		got, gotN, gotErr := msRobustGopusDecode(layout, format, packet, 960)
+		want, wantN, rejected, oracleErr := msRobustOracleDecode(layout, format, packet, 960)
+		if oracleErr != nil {
+			t.Fatalf("format %d selected C oracle: %v", format, oracleErr)
+		}
+		if rejected || gotErr != nil || gotN != wantN || !bytes.Equal(got, want) {
+			t.Fatalf("format %d: rejected=%v Go=(n=%d, err=%v, bytes=%x) C=(n=%d, bytes=%x)",
+				format, rejected, gotN, gotErr, got, wantN, want)
+		}
 	}
 }
 
@@ -341,8 +425,8 @@ func TestDecodeMultistreamRobustnessRandom(t *testing.T) {
 				if samples < 0 || samples > frameSize {
 					t.Fatalf("%s/fmt%d: samples=%d outside [0,%d] — packet=% x", lo.name, format, samples, frameSize, buf)
 				}
-				if len(pcm) != samples*lo.channels {
-					t.Fatalf("%s/fmt%d: pcm len=%d want %d — packet=% x", lo.name, format, len(pcm), samples*lo.channels, buf)
+				if len(pcm) != samples*lo.channels*msRobustSampleBytes(format) {
+					t.Fatalf("%s/fmt%d: pcm bytes=%d want %d — packet=% x", lo.name, format, len(pcm), samples*lo.channels*msRobustSampleBytes(format), buf)
 				}
 				msRobustRequireFinite(t, lo.name, format, pcm, buf)
 			}
@@ -360,9 +444,8 @@ func TestDecodeMultistreamRobustnessRandom(t *testing.T) {
 
 // TestDecodeMultistreamRobustnessMalformed mutates valid multistream packets and
 // asserts gopus and the libopus multistream oracle agree on accept-vs-reject and
-// per-channel sample count, with NO panic. When both accept, a gross PCM
-// divergence (the signature of a real decode mistake, not ULP amplification on
-// corrupt input) is also flagged.
+// per-channel sample count, with NO panic. Accepted PCM must match in the
+// selected public output format, including every int24 integer bit.
 func TestDecodeMultistreamRobustnessMalformed(t *testing.T) {
 	libopustest.RequireOracle(t)
 	if _, err := decodeLibopusMultistreamFloat32(48000, 1, 1, 0, 960, []byte{0}, [][]byte{minimalCELTProbePacket(t)}); err != nil {
@@ -415,24 +498,19 @@ func TestDecodeMultistreamRobustnessMalformed(t *testing.T) {
 			continue
 		}
 
-		// ---- gross PCM divergence guard on accepted corrupt input ----
-		// Valid only in the default (float) build, where gopus and the float
-		// multistream oracle use identical arithmetic. Under gopus_fixed_point gopus
-		// decodes int16/int24 through the integer path against this same float
-		// oracle, so a PCM-value diff is the expected float-vs-integer gap amplified
-		// by the unstable filters garbage drives, not a decode mistake; the
-		// accept/reject + no-panic invariants above remain enforced under both.
-		if robustFixedPointDecode {
-			continue
-		}
-		worst := malformedPCMWorst(uint32(msRobustOracleSampleFormat(format)), gpcm, opcm)
-		if worst > malformedPCMGrossTol {
+		// ---- exact same-format PCM on accepted corrupt input ----
+		if !bytes.Equal(gpcm, opcm) {
 			pcmDiverged++
-			t.Errorf("%s: gross PCM divergence (worst |Δ|=%g, tol=%g) on accepted packet=% x",
-				label, worst, malformedPCMGrossTol, m)
+			first := 0
+			for first < min(len(gpcm), len(opcm)) && gpcm[first] == opcm[first] {
+				first++
+			}
+			end := min(first+msRobustSampleBytes(format), min(len(gpcm), len(opcm)))
+			t.Errorf("%s: PCM bytes differ at %d (sample=%d, Go=%x C=%x, Go len=%d C len=%d), accepted packet=% x",
+				label, first, first/msRobustSampleBytes(format), gpcm[first:end], opcm[first:end], len(gpcm), len(opcm), m)
 		}
 	}
-	t.Logf("multistream malformed sweep: %d cases, %d gross PCM divergence(s)", total, pcmDiverged)
+	t.Logf("multistream malformed sweep: %d cases, %d exact PCM divergence(s)", total, pcmDiverged)
 }
 
 // isMSRobustPanic reports whether an error came from a recovered panic (the
@@ -443,9 +521,13 @@ func isMSRobustPanic(err error) bool {
 
 // msRobustRequireFinite asserts decoded float PCM is finite (no NaN/Inf) — a
 // decoder must never emit non-finite samples even on garbage input.
-func msRobustRequireFinite(t *testing.T, name string, format msRobustFormat, pcm []float32, packet []byte) {
+func msRobustRequireFinite(t *testing.T, name string, format msRobustFormat, pcm []byte, packet []byte) {
 	t.Helper()
-	for i, v := range pcm {
+	if format != msRobustFloat32 {
+		return
+	}
+	for i := 0; i < len(pcm)/4; i++ {
+		v := math.Float32frombits(binary.LittleEndian.Uint32(pcm[4*i:]))
 		if v != v || v > 3.4e38 || v < -3.4e38 { // NaN or |x|>~FLT_MAX
 			t.Fatalf("%s/fmt%d: sample[%d]=%v not finite — packet=% x", name, format, i, v, packet)
 		}

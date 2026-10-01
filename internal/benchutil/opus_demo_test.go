@@ -2,11 +2,63 @@ package benchutil
 
 import (
 	"encoding/binary"
+	"errors"
 	"math"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/thesyncim/gopus/internal/libopustest"
+	"github.com/thesyncim/gopus/internal/libopustooling"
 )
+
+func TestReferenceToolOverridesStayInsideSelectedStampedTree(t *testing.T) {
+	t.Setenv("GOPUS_LIBOPUS_REF_SCALAR", "auto")
+	for _, tc := range []struct {
+		env  string
+		tool string
+		path func() (string, error)
+	}{
+		{env: "OPUS_DEMO_PATH", tool: "opus_demo", path: OpusDemoPath},
+		{env: "OPUS_COMPARE_PATH", tool: "opus_compare", path: OpusComparePath},
+	} {
+		t.Run(tc.env, func(t *testing.T) {
+			external := filepath.Join(t.TempDir(), tc.tool)
+			if err := os.WriteFile(external, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv(tc.env, external)
+			_, err := tc.path()
+			if err == nil {
+				t.Fatalf("accepted executable override outside selected stamped tree: %s", external)
+			}
+			var configErr *libopustooling.LibopusReferenceConfigError
+			if !errors.As(err, &configErr) {
+				t.Fatalf("override error is not a typed configuration error: %T %v", err, err)
+			}
+		})
+	}
+}
+
+func TestStrictHelperUnavailableIsFailureNotSkip(t *testing.T) {
+	const childEnv = "GOPUS_BENCHUTIL_STRICT_CHILD"
+	if os.Getenv(childEnv) == "1" {
+		t.Setenv("GOPUS_STRICT_LIBOPUS_REF", "1")
+		libopustest.HelperUnavailable(t, "strict probe", errors.New("missing oracle"))
+		return
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=^TestStrictHelperUnavailableIsFailureNotSkip$")
+	cmd.Env = append(os.Environ(), childEnv+"=1", "GOPUS_STRICT_LIBOPUS_REF=1")
+	output, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("strict helper-unavailable probe unexpectedly passed: %s", output)
+	}
+	if !strings.Contains(string(output), "libopus strict probe helper unavailable") || strings.Contains(string(output), "--- SKIP") {
+		t.Fatalf("strict helper-unavailable probe did not fail instead of skip: %s", output)
+	}
+}
 
 func TestWriteRepeatedRawFloat32(t *testing.T) {
 	t.Parallel()

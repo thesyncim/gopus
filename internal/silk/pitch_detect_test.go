@@ -8,7 +8,7 @@ import (
 )
 
 func TestDetectPitchVoicedSignal(t *testing.T) {
-	enc := NewEncoder(BandwidthWideband)
+	enc := newTestEncoder(BandwidthWideband)
 	config := GetBandwidthConfig(BandwidthWideband)
 
 	// Generate voiced signal at 200 Hz (pitch period = 80 samples at 16kHz)
@@ -49,7 +49,7 @@ func TestDetectPitchVoicedSignal(t *testing.T) {
 }
 
 func TestDetectPitchNarrowband(t *testing.T) {
-	enc := NewEncoder(BandwidthNarrowband)
+	enc := newTestEncoder(BandwidthNarrowband)
 	config := GetBandwidthConfig(BandwidthNarrowband)
 
 	// Generate voiced signal at 150 Hz (pitch period = ~53 samples at 8kHz)
@@ -82,7 +82,7 @@ func TestDetectPitchNarrowband(t *testing.T) {
 }
 
 func TestDetectPitchUnvoicedZeroLags(t *testing.T) {
-	enc := NewEncoder(BandwidthWideband)
+	enc := newTestEncoder(BandwidthWideband)
 	config := GetBandwidthConfig(BandwidthWideband)
 
 	numSubframes := 4
@@ -257,7 +257,7 @@ func TestQuantizeLTPCoeffsLargeCoeffs(t *testing.T) {
 }
 
 func TestAnalyzeLTP(t *testing.T) {
-	enc := NewEncoder(BandwidthWideband)
+	enc := newTestEncoder(BandwidthWideband)
 	config := GetBandwidthConfig(BandwidthWideband)
 
 	// Generate voiced signal
@@ -289,7 +289,7 @@ func TestAnalyzeLTP(t *testing.T) {
 }
 
 func TestDeterminePeriodicity(t *testing.T) {
-	enc := NewEncoder(BandwidthWideband)
+	enc := newTestEncoder(BandwidthWideband)
 	config := GetBandwidthConfig(BandwidthWideband)
 
 	// Generate highly periodic voiced signal
@@ -384,7 +384,7 @@ func TestPitchMinMax(t *testing.T) {
 // TestPitchDetectionAccuracyLibopusStyle tests pitch detection with various frequencies
 // to validate the libopus-style multi-stage algorithm.
 func TestPitchDetectionAccuracyLibopusStyle(t *testing.T) {
-	enc := NewEncoder(BandwidthWideband)
+	enc := newTestEncoder(BandwidthWideband)
 	config := GetBandwidthConfig(BandwidthWideband)
 	numSubframes := 4
 	fsKHz := config.SampleRate / 1000
@@ -424,13 +424,13 @@ func TestPitchDetectionAccuracyLibopusStyle(t *testing.T) {
 		}
 
 		// Reset encoder for next test
-		enc.Reset()
+		enc.reset()
 	}
 }
 
 // TestPitchDetectionWithSine tests pitch detection with sinusoidal input.
 func TestPitchDetectionWithSine(t *testing.T) {
-	enc := NewEncoder(BandwidthWideband)
+	enc := newTestEncoder(BandwidthWideband)
 	config := GetBandwidthConfig(BandwidthWideband)
 	numSubframes := 4
 	fsKHz := config.SampleRate / 1000
@@ -458,7 +458,7 @@ func TestPitchDetectionWithSine(t *testing.T) {
 
 // TestPitchDetectionMediumband tests pitch detection for medium bandwidth.
 func TestPitchDetectionMediumband(t *testing.T) {
-	enc := NewEncoder(BandwidthMediumband)
+	enc := newTestEncoder(BandwidthMediumband)
 	config := GetBandwidthConfig(BandwidthMediumband)
 	numSubframes := 4
 	fsKHz := config.SampleRate / 1000

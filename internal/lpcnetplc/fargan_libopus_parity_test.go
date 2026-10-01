@@ -9,15 +9,6 @@ import (
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
-const (
-	// Retained recurrent FARGAN state varies slightly across libopus DNN
-	// backends; keep synthesized PCM tight and pin private state to the same
-	// recurrent-state band used by the neighboring predictor/analysis seams.
-	farganPrimeStateLibopusTol = 6e-2
-	farganSynthPCMLibopusTol   = 1e-3
-	farganSynthStateLibopusTol = 6e-2
-)
-
 func TestFARGANPrimeContinuityMatchesLibopusOnRealModel(t *testing.T) {
 	libopustest.RequireOracle(t)
 	modelBlob, err := probeLibopusFARGANModelBlob()
@@ -44,7 +35,7 @@ func TestFARGANPrimeContinuityMatchesLibopusOnRealModel(t *testing.T) {
 	if n := runtime.PrimeContinuity(pcm0[:], contFeatures[:]); n != FARGANContSamples {
 		t.Fatalf("PrimeContinuity()=%d want %d", n, FARGANContSamples)
 	}
-	assertFARGANStateClose(t, runtime.state, want, farganPrimeStateLibopusTol, "prime continuity")
+	assertFARGANStateMatchesLibopus(t, runtime.state, want, "prime continuity")
 }
 
 func TestFARGANSynthesizeMatchesLibopusOnRealModel(t *testing.T) {
@@ -83,8 +74,8 @@ func TestFARGANSynthesizeMatchesLibopusOnRealModel(t *testing.T) {
 	if n := runtime.Synthesize(out[:], frameFeatures[:]); n != FARGANFrameSize {
 		t.Fatalf("Synthesize()=%d want %d", n, FARGANFrameSize)
 	}
-	assertFloat32Close(t, out[:], wantSynth.PCM, farganSynthPCMLibopusTol, "synthesize pcm")
-	assertFARGANStateClose(t, runtime.state, wantSynth, farganSynthStateLibopusTol, "synthesize state")
+	assertFloat32BitsMatch(t, out[:], wantSynth.PCM, "synthesize pcm")
+	assertFARGANStateMatchesLibopus(t, runtime.state, wantSynth, "synthesize state")
 }
 
 func farganStateFromLibopusResult(result libopusFARGANRuntimeResult) FARGANState {
@@ -101,19 +92,19 @@ func farganStateFromLibopusResult(result libopusFARGANRuntimeResult) FARGANState
 	return state
 }
 
-func assertFARGANStateClose(t *testing.T, got FARGANState, want libopusFARGANRuntimeResult, tol float64, label string) {
+func assertFARGANStateMatchesLibopus(t *testing.T, got FARGANState, want libopusFARGANRuntimeResult, label string) {
 	t.Helper()
 	if got.contInitialized != want.ContInitialized {
 		t.Fatalf("%s contInitialized=%v want %v", label, got.contInitialized, want.ContInitialized)
 	}
-	if got.lastPeriod < want.LastPeriod-1 || got.lastPeriod > want.LastPeriod+1 {
-		t.Fatalf("%s lastPeriod=%d want %d (+/-1)", label, got.lastPeriod, want.LastPeriod)
+	if got.lastPeriod != want.LastPeriod {
+		t.Fatalf("%s lastPeriod=%d want %d", label, got.lastPeriod, want.LastPeriod)
 	}
-	assertFloat32Close(t, []float32{got.deemphMem}, []float32{want.DeemphMem}, tol, label+" deemph")
-	assertFloat32Close(t, got.pitchBuf[:], want.PitchBuf, tol, label+" pitch_buf")
-	assertFloat32Close(t, got.condConv1State[:], want.CondConv1State, tol, label+" cond_conv1_state")
-	assertFloat32Close(t, got.fwc0Mem[:], want.FWC0Mem, tol, label+" fwc0_mem")
-	assertFloat32Close(t, got.gru1State[:], want.GRU1State, tol, label+" gru1_state")
-	assertFloat32Close(t, got.gru2State[:], want.GRU2State, tol, label+" gru2_state")
-	assertFloat32Close(t, got.gru3State[:], want.GRU3State, tol, label+" gru3_state")
+	assertFloat32BitsMatch(t, []float32{got.deemphMem}, []float32{want.DeemphMem}, label+" deemph")
+	assertFloat32BitsMatch(t, got.pitchBuf[:], want.PitchBuf, label+" pitch_buf")
+	assertFloat32BitsMatch(t, got.condConv1State[:], want.CondConv1State, label+" cond_conv1_state")
+	assertFloat32BitsMatch(t, got.fwc0Mem[:], want.FWC0Mem, label+" fwc0_mem")
+	assertFloat32BitsMatch(t, got.gru1State[:], want.GRU1State, label+" gru1_state")
+	assertFloat32BitsMatch(t, got.gru2State[:], want.GRU2State, label+" gru2_state")
+	assertFloat32BitsMatch(t, got.gru3State[:], want.GRU3State, label+" gru3_state")
 }

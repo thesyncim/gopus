@@ -71,7 +71,8 @@ func burgLPC(signal []float32, order int) []int16 {
 	return lpcQ12
 }
 
-// energyF32, innerProductF32 are in inner_prod_asm.go (arm64) / inner_prod_default.go (other).
+// energyF32 and innerProductF32 select Go SIMD implementations where available
+// and scalar Go implementations otherwise.
 
 // a2nlsfFLP converts LPC coefficients to NLSF using floating point.
 // This matches libopus silk_A2NLSF_FLP / silk_A2NLSF.
@@ -403,7 +404,7 @@ func (e *Encoder) burgModifiedFLPZeroAllocF32(x []float32, minInvGainVal float32
 	for s := range nbSubfr {
 		xPtr := s * subfrLength
 		for n := 1; n <= order; n++ {
-			CFirstRow[n-1] += innerProductF32Libopus(x[xPtr:], x[xPtr+n:], subfrLength-n)
+			CFirstRow[n-1] += innerProductFLP(x[xPtr:], x[xPtr+n:], subfrLength-n)
 		}
 	}
 	copy(CLastRow[:silkMaxOrderLPC], CFirstRow[:silkMaxOrderLPC])

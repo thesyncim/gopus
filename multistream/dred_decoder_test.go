@@ -280,7 +280,7 @@ func makeCELTMultistreamPacketWithDREDForTest(t *testing.T, channels, targetStre
 	enc.SetBandwidth(types.BandwidthFullband)
 	enc.SetBitrate(256000)
 
-	packet, err := enc.Encode(generateTestSignal(channels, 960, 48000, 997), 960)
+	packet, err := encodePacket(enc, generateTestSignal(channels, 960, 48000, 997), 960)
 	if err != nil {
 		t.Fatalf("Encode error: %v", err)
 	}
@@ -358,7 +358,7 @@ func makeMultistreamPacketWithDREDFrameForTest(t *testing.T, channels, targetStr
 	}
 	enc.SetBitrate(256000)
 
-	packet, err := enc.Encode(generateTestSignal(channels, 960, 48000, 997), 960)
+	packet, err := encodePacket(enc, generateTestSignal(channels, 960, 48000, 997), 960)
 	if err != nil {
 		t.Fatalf("Encode error: %v", err)
 	}
@@ -382,7 +382,7 @@ func makeMultistreamTwoFramePacketWithDREDForTest(t *testing.T, channels, target
 	}
 	enc.SetBitrate(256000)
 
-	packet, err := enc.Encode(generateTestSignal(channels, 960, 48000, 997), 960)
+	packet, err := encodePacket(enc, generateTestSignal(channels, 960, 48000, 997), 960)
 	if err != nil {
 		t.Fatalf("Encode error: %v", err)
 	}

@@ -66,7 +66,7 @@ func TestCELTDecoderPLCOracle(t *testing.T) {
 				}
 			}
 			if len(packet) <= 1 {
-				t.Skip("no non-degenerate prime packet produced")
+				t.Fatal("no non-degenerate prime packet produced")
 			}
 
 			ref, err := libopustest.ProbeCELTFixedPLC(packet, channels, c.frameSize, 0, celtNbEBands, c.numLost)

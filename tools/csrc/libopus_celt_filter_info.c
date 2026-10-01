@@ -14,6 +14,9 @@
 
 #include "arch.h"
 #include "celt.h"
+#ifdef GOPUS_FILTER_SELECT_ARCH
+#include "cpu_support.h"
+#endif
 
 #define GCFI_MAGIC "GCFI"
 #define GCFO_MAGIC "GCFO"
@@ -24,7 +27,9 @@ enum {
   MODE_COMB_FILTER_INPUT = 2
 };
 
+#ifndef GOPUS_FILTER_COMB_ONLY
 void deemphasis(celt_sig *in[], opus_res *pcm, int N, int C, int downsample, const opus_val16 *coef, celt_sig *mem, int accum);
+#endif
 void comb_filter(opus_val32 *y, opus_val32 *x, int T0, int T1, int N, opus_val16 g0, opus_val16 g1, int tapset0, int tapset1, const celt_coef *window, int overlap, int arch);
 
 static int read_exact(void *dst, size_t n) {
@@ -78,6 +83,7 @@ static int set_binary_stdio(void) {
   return 1;
 }
 
+#ifndef GOPUS_FILTER_COMB_ONLY
 static int run_deemphasis(void) {
   uint32_t channels = 0;
   uint32_t n = 0;
@@ -173,6 +179,7 @@ static int run_deemphasis(void) {
   free(pcm);
   return 1;
 }
+#endif
 
 static int run_comb_filter(int separate_input) {
   uint32_t start = 0;
@@ -235,9 +242,18 @@ static int run_comb_filter(int separate_input) {
     buf[i] = (opus_val32)v;
   }
 
+  /* comb_filter_qext copies the destination phase into a temporary buffer
+     before the real comb filter writes it. Give the separate destination the
+     same initialized samples that the Go input/output buffers carry. */
+  if (separate_input) memcpy(y, buf + start, (size_t)n * sizeof(opus_val32));
+
+  int arch = 0;
+#ifdef GOPUS_FILTER_SELECT_ARCH
+  arch = opus_select_arch();
+#endif
   comb_filter(separate_input ? y : buf + start, buf + start, (int)t0, (int)t1, (int)n,
       (opus_val16)g0f, (opus_val16)g1f, (int)tapset0, (int)tapset1,
-      overlap > 0 ? window : NULL, (int)overlap, 0);
+      overlap > 0 ? window : NULL, (int)overlap, arch);
 
   if (!write_u32(n)) {
     free(window);
@@ -281,7 +297,12 @@ int main(void) {
   }
 
   if (mode == MODE_DEEMPHASIS) {
+#ifndef GOPUS_FILTER_COMB_ONLY
     ok = run_deemphasis();
+#else
+    fprintf(stderr, "deemphasis unavailable in comb-only helper\n");
+    return 1;
+#endif
   } else if (mode == MODE_COMB_FILTER) {
     ok = run_comb_filter(0);
   } else if (mode == MODE_COMB_FILTER_INPUT) {

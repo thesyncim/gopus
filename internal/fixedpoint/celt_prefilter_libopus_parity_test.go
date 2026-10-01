@@ -34,6 +34,7 @@ func TestPrefilterAnalysisMatchesLibopusFixed(t *testing.T) {
 
 	type tc struct {
 		name             string
+		n                int
 		cc               int
 		complexity       int
 		lossRate         int
@@ -67,23 +68,31 @@ func TestPrefilterAnalysisMatchesLibopusFixed(t *testing.T) {
 		{name: "mono_hybrid", cc: 1, complexity: 10, nbAvailableBytes: 200, prefilterPeriod: 200, prefilterGain: 0, enabled: true, hybrid: true, totalBits: 8000, lag: 220, amp: 1.5},
 		{name: "stereo_strong_pitch", cc: 2, complexity: 10, nbAvailableBytes: 200, prefilterPeriod: 200, prefilterGain: 12000, tfEstimate: 4000, enabled: true, totalBits: 8000, lag: 220, amp: 5.0},
 		{name: "stereo_low_gain", cc: 2, complexity: 8, nbAvailableBytes: 200, prefilterPeriod: 300, prefilterGain: 3000, enabled: true, totalBits: 8000, lag: 305, amp: 2.0},
+		{name: "mono_tone_threshold_below", cc: 1, complexity: 10, nbAvailableBytes: 200, prefilterPeriod: 100, prefilterGain: 8000, enabled: true, totalBits: 8000, toneFreq: 800, toneishness: 531502207, lag: 100, amp: 5.0},
+		{name: "mono_tone_threshold_equal", cc: 1, complexity: 10, nbAvailableBytes: 200, prefilterPeriod: 100, prefilterGain: 8000, enabled: true, totalBits: 8000, toneFreq: 800, toneishness: 531502208, lag: 100, amp: 5.0},
+		{name: "mono_tone_threshold_above", cc: 1, complexity: 10, nbAvailableBytes: 200, prefilterPeriod: 100, prefilterGain: 8000, enabled: true, totalBits: 8000, toneFreq: 800, toneishness: 531502209, lag: 100, amp: 5.0},
+		{name: "stereo_tone_frame162_threshold", n: 240, cc: 2, complexity: 10, nbAvailableBytes: 79, prefilterPeriod: 48, prefilterGain: 24576, enabled: true, totalBits: 632, toneFreq: 1073, toneishness: 532609235, lag: 48, amp: 5.0},
 	}
 
 	for ci, c := range cases {
 		c := c
 		t.Run(c.name, func(t *testing.T) {
+			frameSize := c.n
+			if frameSize == 0 {
+				frameSize = n
+			}
 			rng := rand.New(rand.NewSource(int64(0x9E3779B9 + ci)))
 			pre := make([][]int32, 2)
-			pre[0] = prefilterSignal(rng, maxPeriod+n, c.lag, c.amp)
+			pre[0] = prefilterSignal(rng, maxPeriod+frameSize, c.lag, c.amp)
 			if c.cc == 2 {
-				pre[1] = prefilterSignal(rng, maxPeriod+n, c.lag+7, c.amp*0.8)
+				pre[1] = prefilterSignal(rng, maxPeriod+frameSize, c.lag+7, c.amp*0.8)
 			} else {
 				pre[1] = nil
 			}
 
 			want, err := libopustest.ProbeCELTPrefilter(pre, libopustest.CELTPrefilterParams{
 				CC:               c.cc,
-				N:                n,
+				N:                frameSize,
 				Complexity:       c.complexity,
 				LossRate:         c.lossRate,
 				NbAvailableBytes: c.nbAvailableBytes,
@@ -104,7 +113,7 @@ func TestPrefilterAnalysisMatchesLibopusFixed(t *testing.T) {
 				libopustest.HelperUnavailable(t, "CELT fixed prefilter", err)
 			}
 
-			got := PrefilterAnalysis(pre, c.cc, n, PrefilterParams{
+			got := PrefilterAnalysis(pre, c.cc, frameSize, PrefilterParams{
 				PrefilterPeriod:         c.prefilterPeriod,
 				PrefilterGain:           c.prefilterGain,
 				PrefilterTapset:         c.prefilterTapset,

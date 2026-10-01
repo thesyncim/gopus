@@ -56,7 +56,7 @@ func encodeFixedCELTSequence(t *testing.T, channels, frameSize, frames int) [][]
 			t.Fatalf("frame %d Encode: %v", f, err)
 		}
 		if toc := ParseTOC(pkt[0]); toc.Mode != ModeCELT {
-			t.Skipf("encoder produced mode %v, want CELT", toc.Mode)
+			t.Fatalf("encoder produced mode %v, want CELT", toc.Mode)
 		}
 		packets = append(packets, append([]byte(nil), pkt...))
 	}
@@ -73,8 +73,8 @@ func encodeFixedCELTSequence(t *testing.T, channels, frameSize, frames int) [][]
 // (B) the first good frame after the burst enters celt_decode_with_ec with
 // loss_duration != 0, exercising the coarse-energy prediction safety block.
 //
-// Bit-exact on every architecture (assertFixedExact): the integer decode has no
-// fused-multiply-add, so there is no per-arch float drift.
+// The tested integer outputs match the selected FIXED_POINT libopus reference;
+// this assertion does not depend on a floating-point drift allowance.
 func TestDecoderFixedPointCELTPLCParity(t *testing.T) {
 	libopustest.RequireOracle(t)
 

@@ -205,6 +205,26 @@ func makeLibopusQEXTMultiFramePacketForTest(t *testing.T, opusDemo string, chann
 	return packet, []qextTestFrame{frameA, frameB}
 }
 
+// qextSingleFramePacketForTest rebuilds one extracted CELT/Hybrid frame as a
+// public packet, optionally attaching its explicit QEXT payload. Using the
+// public decoder for both sides keeps packet-wrapper comparisons in the same
+// coefficient domain under gopus_fixed_point and exercises normal packet
+// framing rather than calling the float-only internal frame helper.
+func qextSingleFramePacketForTest(t *testing.T, tocBase byte, frame, payload []byte) []byte {
+	t.Helper()
+	frames := [][]byte{frame}
+	var extensions []packetExtensionData
+	if len(payload) != 0 {
+		extensions = []packetExtensionData{{ID: qextPacketExtensionID, Frame: 0, Data: payload}}
+	}
+	packet := make([]byte, len(frame)+len(payload)+16)
+	n, err := buildRepacketizedPacketWithOptions(tocBase, frames, packet, 0, false, extensions)
+	if err != nil {
+		t.Fatalf("build explicit QEXT packet: %v", err)
+	}
+	return packet[:n]
+}
+
 func makeHybridQEXTPacketForTest(t *testing.T, opusDemo string, channels int) []byte {
 	t.Helper()
 

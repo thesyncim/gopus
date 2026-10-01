@@ -19,6 +19,10 @@ func (d *Decoder) SetDNNBlob(blob *dnnblob.Blob) {
 	d.pitchDNNLoaded = models.PitchDNN
 	d.plcModelLoaded = models.PLC
 	d.farganModelLoaded = models.FARGAN
+	if !models.PLC {
+		d.clearRawSILKHistory()
+	}
+	d.bindDREDNeuralModels(blob, models)
 	d.setOSCEModelState(models)
 	// Fan the blob out to the child stream decoders so each stream binds its
 	// own OSCE LACE/NoLACE + OSCE BWE runtime models. Test stubs that do not

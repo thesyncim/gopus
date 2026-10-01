@@ -8,18 +8,703 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 )
+
+// LibopusReferenceVariant identifies the native libopus instruction path that
+// matches the current Go build.
+type LibopusReferenceVariant string
+
+const (
+	// LibopusAMD64TargetEnv selects a separately built amd64 float-core
+	// reference at the requested GOAMD64 level. Empty keeps the established
+	// reference tree selection.
+	LibopusAMD64TargetEnv = "GOPUS_LIBOPUS_AMD64_TARGET"
+
+	LibopusReferenceScalar                LibopusReferenceVariant = "scalar"
+	LibopusReferenceSIMD                  LibopusReferenceVariant = "simd"
+	LibopusReferenceFixedScalar           LibopusReferenceVariant = "fixed-scalar"
+	LibopusReferenceFixedSIMD             LibopusReferenceVariant = "fixed-simd"
+	LibopusReferenceFixedQEXTScalar       LibopusReferenceVariant = "fixed-qext-scalar"
+	LibopusReferenceFixedQEXTSIMD         LibopusReferenceVariant = "fixed-qext-simd"
+	LibopusReferenceQEXTScalar            LibopusReferenceVariant = "qext-scalar"
+	LibopusReferenceQEXTSIMD              LibopusReferenceVariant = "qext-simd"
+	LibopusReferenceDREDQEXTScalar        LibopusReferenceVariant = "dred-qext-scalar"
+	LibopusReferenceDREDQEXTSIMD          LibopusReferenceVariant = "dred-qext-simd"
+	LibopusReferenceCustomScalar          LibopusReferenceVariant = "custom-scalar"
+	LibopusReferenceCustomSIMD            LibopusReferenceVariant = "custom-simd"
+	LibopusReferenceCustomQEXTScalar      LibopusReferenceVariant = "custom-qext-scalar"
+	LibopusReferenceCustomQEXTSIMD        LibopusReferenceVariant = "custom-qext-simd"
+	LibopusReferenceCustomFixedScalar     LibopusReferenceVariant = "custom-fixed-scalar"
+	LibopusReferenceCustomFixedSIMD       LibopusReferenceVariant = "custom-fixed-simd"
+	LibopusReferenceCustomFixedQEXTScalar LibopusReferenceVariant = "custom-fixed-qext-scalar"
+	LibopusReferenceCustomFixedQEXTSIMD   LibopusReferenceVariant = "custom-fixed-qext-simd"
+
+	LibopusBaseCFLAGS = "-O3 -DNDEBUG"
+	// Scalar C references retain the compiler's normal FMA contraction while
+	// disabling loop and SLP vectorization to match the scalar Go arithmetic.
+	LibopusScalarCVectorizationFlags = "-fno-tree-vectorize -fno-tree-slp-vectorize"
+	LibopusScalarCFLAGS              = LibopusBaseCFLAGS + " " + LibopusScalarCVectorizationFlags
+)
+
+// LibopusReferenceConfigError reports a paired-reference override or build
+// whose declared configuration does not match the requested Go lane.
+type LibopusReferenceConfigError struct {
+	Err error
+}
+
+func (e *LibopusReferenceConfigError) Error() string { return e.Err.Error() }
+func (e *LibopusReferenceConfigError) Unwrap() error { return e.Err }
+
+func referenceConfigErrorf(format string, args ...any) error {
+	return &LibopusReferenceConfigError{Err: fmt.Errorf(format, args...)}
+}
+
+// ResolveLibopusReferenceVariant maps the current Go build and optional
+// GOPUS_LIBOPUS_REF_SCALAR override to the matching explicit libopus tree.
+// Empty or "auto" follows the build tags; scalar/1 and simd/0 can only confirm
+// the matching lane and fail when they conflict with the Go build.
+func ResolveLibopusReferenceVariant() (LibopusReferenceVariant, error) {
+	if _, err := ResolveLibopusAMD64Target(); err != nil {
+		return "", err
+	}
+	return resolveLibopusReferenceVariantFor(runtime.GOARCH, goLibopusReferenceSIMD, os.Getenv("GOPUS_LIBOPUS_REF_SCALAR"))
+}
+
+// ResolveLibopusAMD64Target validates the optional GOAMD64-matched reference
+// target. It returns an empty target when the opt-in is unset.
+func ResolveLibopusAMD64Target() (string, error) {
+	return resolveLibopusAMD64TargetForBuild(os.Getenv(LibopusAMD64TargetEnv), runtime.GOARCH, goAMD64TargetLevel)
+}
+
+// CompiledGoAMD64Level reports the GOAMD64 level used to compile this binary.
+// It is empty on non-amd64 builds.
+func CompiledGoAMD64Level() string {
+	return goAMD64TargetLevel
+}
+
+func resolveLibopusAMD64TargetForPlatform(value, goarch string) (string, error) {
+	target := strings.ToLower(strings.TrimSpace(value))
+	if target == "" {
+		return "", nil
+	}
+	switch target {
+	case "v1", "v2", "v3":
+	default:
+		return "", referenceConfigErrorf("invalid %s value %q (want v1, v2, or v3)", LibopusAMD64TargetEnv, value)
+	}
+	if goarch != "amd64" {
+		return "", referenceConfigErrorf("%s=%s requires GOARCH=amd64, got %s", LibopusAMD64TargetEnv, target, goarch)
+	}
+	return target, nil
+}
+
+func resolveLibopusAMD64TargetForBuild(value, goarch, compiledLevel string) (string, error) {
+	target, err := resolveLibopusAMD64TargetForPlatform(value, goarch)
+	if err != nil || target == "" {
+		return target, err
+	}
+	if target != compiledLevel {
+		return "", referenceConfigErrorf("%s=%s requires a Go binary compiled with GOAMD64=%s, got GOAMD64=%s", LibopusAMD64TargetEnv, target, target, compiledLevel)
+	}
+	return target, nil
+}
+
+// LibopusAMD64TargetCFlags returns the exact target flags for directly
+// compiled C helpers, or nil when the amd64 target override is unset.
+func LibopusAMD64TargetCFlags() ([]string, error) {
+	target, err := ResolveLibopusAMD64Target()
+	if err != nil || target == "" {
+		return nil, err
+	}
+	return amd64TargetCFlags(target)
+}
+
+func amd64TargetCFlags(target string) ([]string, error) {
+	arch := map[string]string{
+		"v1": "x86-64",
+		"v2": "x86-64-v2",
+		"v3": "x86-64-v3",
+	}[target]
+	if arch == "" {
+		return nil, referenceConfigErrorf("invalid amd64 compiler target %q", target)
+	}
+	return []string{"-march=" + arch, "-mtune=generic"}, nil
+}
+
+// ResolveLibopusQEXTReferenceVariant selects the same instruction lane with
+// ENABLE_QEXT compiled into the pinned reference.
+func ResolveLibopusQEXTReferenceVariant() (LibopusReferenceVariant, error) {
+	variant, err := ResolveLibopusReferenceVariant()
+	if err != nil {
+		return "", err
+	}
+	if variant == LibopusReferenceSIMD {
+		return LibopusReferenceQEXTSIMD, nil
+	}
+	return LibopusReferenceQEXTScalar, nil
+}
+
+// ResolveLibopusFixedReferenceVariant selects FIXED_POINT with the current
+// Go build's scalar or SIMD instruction lane.
+func ResolveLibopusFixedReferenceVariant() (LibopusReferenceVariant, error) {
+	variant, err := ResolveLibopusReferenceVariant()
+	if err != nil {
+		return "", err
+	}
+	if variant == LibopusReferenceSIMD {
+		return LibopusReferenceFixedSIMD, nil
+	}
+	return LibopusReferenceFixedScalar, nil
+}
+
+// ResolveLibopusFixedQEXTReferenceVariant selects FIXED_POINT and ENABLE_QEXT
+// with the current Go build's scalar or SIMD instruction lane.
+func ResolveLibopusFixedQEXTReferenceVariant() (LibopusReferenceVariant, error) {
+	variant, err := ResolveLibopusReferenceVariant()
+	if err != nil {
+		return "", err
+	}
+	if variant == LibopusReferenceSIMD {
+		return LibopusReferenceFixedQEXTSIMD, nil
+	}
+	return LibopusReferenceFixedQEXTScalar, nil
+}
+
+// ResolveLibopusCustomQEXTReferenceVariant selects CUSTOM_MODES and ENABLE_QEXT
+// with the instruction lane paired to the current Go build.
+func ResolveLibopusCustomQEXTReferenceVariant() (LibopusReferenceVariant, error) {
+	variant, err := ResolveLibopusReferenceVariant()
+	if err != nil {
+		return "", err
+	}
+	if variant == LibopusReferenceSIMD {
+		return LibopusReferenceCustomQEXTSIMD, nil
+	}
+	return LibopusReferenceCustomQEXTScalar, nil
+}
+
+// ResolveLibopusCustomFixedReferenceVariant selects CUSTOM_MODES and
+// FIXED_POINT with the instruction lane paired to the current Go build.
+func ResolveLibopusCustomFixedReferenceVariant() (LibopusReferenceVariant, error) {
+	variant, err := ResolveLibopusReferenceVariant()
+	if err != nil {
+		return "", err
+	}
+	if variant == LibopusReferenceSIMD {
+		return LibopusReferenceCustomFixedSIMD, nil
+	}
+	return LibopusReferenceCustomFixedScalar, nil
+}
+
+// ResolveLibopusCustomFixedQEXTReferenceVariant selects CUSTOM_MODES,
+// FIXED_POINT, and ENABLE_QEXT with the current Go instruction lane.
+func ResolveLibopusCustomFixedQEXTReferenceVariant() (LibopusReferenceVariant, error) {
+	variant, err := ResolveLibopusReferenceVariant()
+	if err != nil {
+		return "", err
+	}
+	if variant == LibopusReferenceSIMD {
+		return LibopusReferenceCustomFixedQEXTSIMD, nil
+	}
+	return LibopusReferenceCustomFixedQEXTScalar, nil
+}
+
+// ResolveLibopusDREDQEXTReferenceVariant selects ENABLE_DRED, ENABLE_DEEP_PLC,
+// and ENABLE_QEXT with the instruction lane paired to the current Go build.
+func ResolveLibopusDREDQEXTReferenceVariant() (LibopusReferenceVariant, error) {
+	variant, err := ResolveLibopusReferenceVariant()
+	if err != nil {
+		return "", err
+	}
+	return dredQEXTVariantFor(variant)
+}
+
+func dredQEXTVariantFor(variant LibopusReferenceVariant) (LibopusReferenceVariant, error) {
+	if variant == LibopusReferenceSIMD {
+		return LibopusReferenceDREDQEXTSIMD, nil
+	}
+	if variant == LibopusReferenceScalar {
+		return LibopusReferenceDREDQEXTScalar, nil
+	}
+	return "", referenceConfigErrorf("cannot pair DRED-QEXT with base reference variant %q", variant)
+}
+
+func resolveLibopusReferenceVariantFor(goarch string, goSIMD bool, override string) (LibopusReferenceVariant, error) {
+	want := LibopusReferenceScalar
+	if goSIMD && (goarch == "arm64" || goarch == "amd64") {
+		want = LibopusReferenceSIMD
+	}
+	choice := strings.TrimSpace(strings.ToLower(override))
+	switch choice {
+	case "", "auto":
+		return want, nil
+	case "1", "scalar":
+		if want != LibopusReferenceScalar {
+			return "", referenceConfigErrorf("GOPUS_LIBOPUS_REF_SCALAR selects scalar libopus, but this Go build requires the %s reference; unset the override or use a matching Go build", want)
+		}
+		return LibopusReferenceScalar, nil
+	case "0", "simd":
+		if want != LibopusReferenceSIMD {
+			return "", referenceConfigErrorf("GOPUS_LIBOPUS_REF_SCALAR selects SIMD libopus, but this Go build requires the %s reference; unset the override or use a matching Go build", want)
+		}
+		return LibopusReferenceSIMD, nil
+	default:
+		return "", referenceConfigErrorf("invalid GOPUS_LIBOPUS_REF_SCALAR value %q (want auto, scalar/1, or simd/0)", override)
+	}
+}
+
+// LibopusReferenceSourceSuffix returns the mandatory source-tree suffix for a
+// paired reference. The unsuffixed autotools-default tree is never selected;
+// an AMD64 target opt-in adds its target identity to the default float tree.
+func LibopusReferenceSourceSuffix(variant LibopusReferenceVariant) (string, error) {
+	target, err := ResolveLibopusAMD64Target()
+	if err != nil {
+		return "", err
+	}
+	return libopusReferenceSourceSuffixForTarget(variant, target)
+}
+
+func libopusReferenceSourceSuffixForTarget(variant LibopusReferenceVariant, target string) (string, error) {
+	if target != "" && variant != LibopusReferenceScalar && variant != LibopusReferenceSIMD {
+		return "", referenceConfigErrorf("%s only supports the default float-core scalar or SIMD reference; variant %q is unsupported", LibopusAMD64TargetEnv, variant)
+	}
+	if target != "" {
+		if _, err := amd64TargetCFlags(target); err != nil {
+			return "", err
+		}
+		suffix := "-scalar"
+		if variant == LibopusReferenceSIMD {
+			suffix = "-simd"
+		} else if variant != LibopusReferenceScalar {
+			return "", referenceConfigErrorf("unknown libopus reference variant %q", variant)
+		}
+		return "-amd64-" + target + suffix, nil
+	}
+	switch variant {
+	case LibopusReferenceScalar:
+		return "-scalar", nil
+	case LibopusReferenceSIMD:
+		return "-simd", nil
+	case LibopusReferenceFixedScalar:
+		return "-fixed-scalar", nil
+	case LibopusReferenceFixedSIMD:
+		return "-fixed-simd", nil
+	case LibopusReferenceFixedQEXTScalar:
+		return "-fixed-qext-scalar", nil
+	case LibopusReferenceFixedQEXTSIMD:
+		return "-fixed-qext-simd", nil
+	case LibopusReferenceQEXTScalar:
+		return "-qext-scalar", nil
+	case LibopusReferenceQEXTSIMD:
+		return "-qext-simd", nil
+	case LibopusReferenceDREDQEXTScalar:
+		return "-dred-qext-scalar", nil
+	case LibopusReferenceDREDQEXTSIMD:
+		return "-dred-qext-simd", nil
+	case LibopusReferenceCustomScalar:
+		return "-custom-scalar", nil
+	case LibopusReferenceCustomSIMD:
+		return "-custom", nil
+	case LibopusReferenceCustomQEXTScalar:
+		return "-custom-qext-scalar", nil
+	case LibopusReferenceCustomQEXTSIMD:
+		return "-custom-qext-simd", nil
+	case LibopusReferenceCustomFixedScalar:
+		return "-custom-fixed-scalar", nil
+	case LibopusReferenceCustomFixedSIMD:
+		return "-custom-fixed-simd", nil
+	case LibopusReferenceCustomFixedQEXTScalar:
+		return "-custom-fixed-qext-scalar", nil
+	case LibopusReferenceCustomFixedQEXTSIMD:
+		return "-custom-fixed-qext-simd", nil
+	default:
+		return "", referenceConfigErrorf("unknown libopus reference variant %q", variant)
+	}
+}
+
+// ValidateLibopusReferenceBuild verifies the stamp, host/compiler target,
+// generated config, and static archive for a paired reference tree.
+func ValidateLibopusReferenceBuild(refDir string, variant LibopusReferenceVariant, version string) error {
+	return validateLibopusReferenceBuildForPlatform(refDir, variant, version, runtime.GOOS, runtime.GOARCH)
+}
+
+func validateLibopusReferenceBuildForPlatform(refDir string, variant LibopusReferenceVariant, version, goos, goarch string) error {
+	target, err := resolveLibopusAMD64TargetForBuild(os.Getenv(LibopusAMD64TargetEnv), goarch, goAMD64TargetLevel)
+	if err != nil {
+		return err
+	}
+	return validateLibopusReferenceBuildForPlatformAndTarget(refDir, variant, version, goos, goarch, target)
+}
+
+func validateLibopusReferenceBuildForPlatformAndTarget(refDir string, variant LibopusReferenceVariant, version, goos, goarch, target string) error {
+	if _, err := resolveLibopusAMD64TargetForPlatform(target, goarch); err != nil {
+		return err
+	}
+	if version == "" {
+		version = DefaultVersion
+	}
+	suffix, err := libopusReferenceSourceSuffixForTarget(variant, target)
+	if err != nil {
+		return err
+	}
+	wantConfigure := "--enable-static --disable-shared"
+	wantCustom := "0"
+	wantQEXT := "0"
+	wantFixed := "0"
+	wantCFLAGS := LibopusBaseCFLAGS
+	wantDRED := false
+	var scalarVariant = false
+	var simdVariant = false
+	if variant == LibopusReferenceQEXTScalar || variant == LibopusReferenceQEXTSIMD {
+		wantConfigure += " --enable-qext"
+		wantQEXT = "1"
+	}
+	if variant == LibopusReferenceDREDQEXTScalar || variant == LibopusReferenceDREDQEXTSIMD {
+		wantConfigure += " --enable-qext --enable-dred"
+		wantQEXT = "1"
+		wantDRED = true
+	}
+	if variant == LibopusReferenceFixedScalar || variant == LibopusReferenceFixedSIMD {
+		wantConfigure += " --enable-fixed-point"
+		wantFixed = "1"
+	}
+	if variant == LibopusReferenceFixedQEXTScalar || variant == LibopusReferenceFixedQEXTSIMD {
+		wantConfigure += " --enable-fixed-point --enable-qext"
+		wantQEXT = "1"
+		wantFixed = "1"
+	}
+	if variant == LibopusReferenceCustomScalar || variant == LibopusReferenceCustomSIMD {
+		wantConfigure += " --enable-custom-modes"
+		wantCustom = "1"
+	}
+	if variant == LibopusReferenceCustomQEXTScalar || variant == LibopusReferenceCustomQEXTSIMD {
+		wantConfigure += " --enable-custom-modes --enable-qext"
+		wantCustom = "1"
+		wantQEXT = "1"
+	}
+	if variant == LibopusReferenceCustomFixedScalar || variant == LibopusReferenceCustomFixedSIMD {
+		wantConfigure += " --enable-custom-modes --enable-fixed-point"
+		wantCustom = "1"
+		wantFixed = "1"
+	}
+	if variant == LibopusReferenceCustomFixedQEXTScalar || variant == LibopusReferenceCustomFixedQEXTSIMD {
+		wantConfigure += " --enable-custom-modes --enable-fixed-point --enable-qext"
+		wantCustom = "1"
+		wantFixed = "1"
+		wantQEXT = "1"
+	}
+	switch variant {
+	case LibopusReferenceScalar, LibopusReferenceCustomScalar, LibopusReferenceCustomQEXTScalar, LibopusReferenceCustomFixedScalar, LibopusReferenceCustomFixedQEXTScalar, LibopusReferenceQEXTScalar, LibopusReferenceFixedScalar, LibopusReferenceFixedQEXTScalar, LibopusReferenceDREDQEXTScalar:
+		scalarVariant = true
+	case LibopusReferenceSIMD, LibopusReferenceCustomSIMD, LibopusReferenceCustomQEXTSIMD, LibopusReferenceCustomFixedSIMD, LibopusReferenceCustomFixedQEXTSIMD, LibopusReferenceQEXTSIMD, LibopusReferenceFixedSIMD, LibopusReferenceFixedQEXTSIMD, LibopusReferenceDREDQEXTSIMD:
+		simdVariant = true
+	}
+	if scalarVariant {
+		wantCFLAGS = LibopusScalarCFLAGS
+		if variant == LibopusReferenceDREDQEXTScalar {
+			wantCFLAGS = ScalarDNNBuildCFLAGS
+		}
+		wantConfigure += " --disable-asm --disable-rtcd --disable-intrinsics"
+	} else if simdVariant {
+		wantConfigure += " --enable-rtcd --enable-intrinsics"
+	} else {
+		return referenceConfigErrorf("unsupported libopus reference variant %q", variant)
+	}
+	if target != "" {
+		targetFlags, err := amd64TargetCFlags(target)
+		if err != nil {
+			return err
+		}
+		wantCFLAGS += " " + strings.Join(targetFlags, " ")
+	}
+	data, err := os.ReadFile(filepath.Join(refDir, ".gopus-libopus-build"))
+	if err != nil {
+		return referenceConfigErrorf("read libopus %s build stamp in %s: %v", variant, refDir, err)
+	}
+	fields, ok := parseLibopusBuildStamp(string(data))
+	if !ok {
+		return referenceConfigErrorf("invalid libopus build stamp in %s", refDir)
+	}
+	wantFields := map[string]string{
+		"version": version, "qext": wantQEXT, "fixed": wantFixed, "custom": wantCustom,
+		"configure": wantConfigure, "CFLAGS": wantCFLAGS, "CPPFLAGS": "", "LDFLAGS": "",
+	}
+	if target != "" {
+		wantFields["amd64_target"] = target
+	}
+	if wantDRED {
+		wantFields["dnn_model_sources"] = dredQEXTModelSourcesStamp
+	}
+	for key, want := range wantFields {
+		if got := fields[key]; got != want {
+			return referenceConfigErrorf("libopus reference %s has %s=%q, want %q (%s tree)", variant, key, got, want, suffix)
+		}
+	}
+	if target == "" && fields["amd64_target"] != "" {
+		return referenceConfigErrorf("libopus reference %s in %s was built for amd64 target %q, but the target override is unset", variant, refDir, fields["amd64_target"])
+	}
+	for _, key := range []string{"host_os", "host_arch", "host_bits", "cc", "cc_path", "cc_target", "cc_version"} {
+		if strings.TrimSpace(fields[key]) == "" {
+			return referenceConfigErrorf("libopus reference %s stamp in %s has no %s", variant, refDir, key)
+		}
+	}
+	if !libopusStampMatchesPlatform(fields, goos, goarch) {
+		return referenceConfigErrorf("libopus %s archive in %s was built for a different host/compiler target (host=%s/%s target=%s)", variant, refDir, fields["host_os"], fields["host_arch"], fields["cc_target"])
+	}
+	configPath := filepath.Join(refDir, "config.h")
+	config, err := os.ReadFile(configPath)
+	if err != nil {
+		return referenceConfigErrorf("read libopus config %s: %v", configPath, err)
+	}
+	if err := validateLibopusConfigSIMD(string(config), variant, goarch); err != nil {
+		return referenceConfigErrorf("libopus %s config in %s: %v", variant, refDir, err)
+	}
+	if gotQEXT := configDefinesMacro(string(config), "ENABLE_QEXT"); gotQEXT != (wantQEXT == "1") {
+		return referenceConfigErrorf("libopus %s config in %s: ENABLE_QEXT=%t, want %s", variant, refDir, gotQEXT, wantQEXT)
+	}
+	if gotFixed := configDefinesMacro(string(config), "FIXED_POINT"); gotFixed != (wantFixed == "1") {
+		return referenceConfigErrorf("libopus %s config in %s: FIXED_POINT=%t, want %s", variant, refDir, gotFixed, wantFixed)
+	}
+	if wantFixed == "1" {
+		if !configDefinesMacro(string(config), "ENABLE_RES24") {
+			return referenceConfigErrorf("libopus %s config in %s lacks ENABLE_RES24", variant, refDir)
+		}
+		for _, macro := range []string{"ENABLE_DRED", "ENABLE_DEEP_PLC", "ENABLE_OSCE", "ENABLE_OSCE_BWE", "ENABLE_OSCE_TRAINING_DATA"} {
+			if configDefinesMacro(string(config), macro) {
+				return referenceConfigErrorf("libopus %s config in %s has unexpected %s", variant, refDir, macro)
+			}
+		}
+	}
+	if gotCustom := configDefinesMacro(string(config), "CUSTOM_MODES"); gotCustom != (wantCustom == "1") {
+		return referenceConfigErrorf("libopus %s config in %s: CUSTOM_MODES=%t, want %s", variant, refDir, gotCustom, wantCustom)
+	}
+	if gotDRED := configDefinesMacro(string(config), "ENABLE_DRED"); gotDRED != wantDRED {
+		return referenceConfigErrorf("libopus %s config in %s: ENABLE_DRED=%t, want %t", variant, refDir, gotDRED, wantDRED)
+	}
+	if gotDeepPLC := configDefinesMacro(string(config), "ENABLE_DEEP_PLC"); gotDeepPLC != wantDRED {
+		return referenceConfigErrorf("libopus %s config in %s: ENABLE_DEEP_PLC=%t, want %t", variant, refDir, gotDeepPLC, wantDRED)
+	}
+	for _, macro := range []string{"ENABLE_OSCE", "ENABLE_OSCE_BWE", "ENABLE_OSCE_TRAINING_DATA"} {
+		if configDefinesMacro(string(config), macro) {
+			return referenceConfigErrorf("libopus %s config in %s has unexpected %s", variant, refDir, macro)
+		}
+	}
+	archive := filepath.Join(refDir, ".libs", "libopus.a")
+	st, err := os.Stat(archive)
+	if err != nil {
+		return referenceConfigErrorf("libopus %s archive missing at %s: %v", variant, archive, err)
+	}
+	if st.IsDir() || st.Size() == 0 {
+		return referenceConfigErrorf("libopus %s archive at %s is empty or not a file", variant, archive)
+	}
+	if wantDRED {
+		if err := validateDREDQEXTModelSources(refDir); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateDREDQEXTModelSources(refDir string) error {
+	for _, model := range []struct {
+		name string
+		want string
+	}{
+		{name: "pitchdnn_data.c", want: "921b6157ff7a6200741c8b3e0c6d0183f2c34567297d63b065486be2bbf995ac"},
+		{name: "dred_rdovae_enc_data.c", want: "3bf6d5cbfa3b1fee99a0e65253eeecaa92f861533b9c3926b494e2776c922e5e"},
+	} {
+		path := filepath.Join(refDir, "dnn", model.name)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return referenceConfigErrorf("read pinned libopus DRED model source %s: %v", path, err)
+		}
+		gotBytes := sha256.Sum256(data)
+		got := hex.EncodeToString(gotBytes[:])
+		if got != model.want {
+			return referenceConfigErrorf("libopus DRED model source %s has sha256=%s, want %s", path, got, model.want)
+		}
+	}
+	return nil
+}
+
+// ValidateDREDModelSources verifies the pinned DRED model source identity in a
+// reference source tree before a feature archive is reused or built.
+func ValidateDREDModelSources(sourceDir string) error {
+	return validateDREDQEXTModelSources(sourceDir)
+}
+
+// DREDModelSourcesStamp identifies the pinned DRED model source contents in a
+// feature build stamp.
+func DREDModelSourcesStamp() string {
+	return dredQEXTModelSourcesStamp
+}
+
+func libopusStampMatchesPlatform(fields map[string]string, goos, goarch string) bool {
+	wantArch := normalizeLibopusStampArch(goarch)
+	if wantArch == "" || normalizeLibopusStampArch(fields["host_arch"]) != wantArch || normalizeLibopusStampArch(fields["cc_target"]) != wantArch {
+		return false
+	}
+	wantBits := "64"
+	if goarch == "386" || goarch == "arm" {
+		wantBits = "32"
+	}
+	if fields["host_bits"] != wantBits {
+		return false
+	}
+	hostOS := strings.ToLower(fields["host_os"])
+	target := strings.ToLower(fields["cc_target"])
+	switch goos {
+	case "darwin":
+		return strings.Contains(hostOS, "darwin") && strings.Contains(target, "darwin")
+	case "linux":
+		return strings.Contains(hostOS, "linux") && strings.Contains(target, "linux")
+	case "windows":
+		return (strings.Contains(hostOS, "mingw") || strings.Contains(hostOS, "msys") || strings.Contains(hostOS, "cygwin")) && (strings.Contains(target, "mingw") || strings.Contains(target, "msys") || strings.Contains(target, "cygwin"))
+	default:
+		return strings.Contains(hostOS, goos) && strings.Contains(target, goos)
+	}
+}
+
+func configDefinesMacro(config, macro string) bool {
+	for _, line := range strings.Split(config, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && fields[0] == "#define" && fields[1] == macro {
+			return true
+		}
+	}
+	return false
+}
+
+func validateLibopusConfigSIMD(config string, variant LibopusReferenceVariant, goarch string) error {
+	switch variant {
+	case LibopusReferenceQEXTScalar, LibopusReferenceFixedScalar, LibopusReferenceFixedQEXTScalar, LibopusReferenceDREDQEXTScalar, LibopusReferenceCustomQEXTScalar, LibopusReferenceCustomFixedScalar, LibopusReferenceCustomFixedQEXTScalar:
+		variant = LibopusReferenceScalar
+	case LibopusReferenceQEXTSIMD, LibopusReferenceCustomSIMD, LibopusReferenceFixedSIMD, LibopusReferenceFixedQEXTSIMD, LibopusReferenceDREDQEXTSIMD, LibopusReferenceCustomQEXTSIMD, LibopusReferenceCustomFixedSIMD, LibopusReferenceCustomFixedQEXTSIMD:
+		variant = LibopusReferenceSIMD
+	}
+	defines := make(map[string]bool)
+	for _, line := range strings.Split(config, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "#define ") {
+			name := strings.Fields(strings.TrimPrefix(line, "#define "))
+			if len(name) > 0 {
+				defines[name[0]] = true
+			}
+		}
+	}
+	var simdMacros []string
+	for macro := range defines {
+		if strings.HasPrefix(macro, "OPUS_ARM_") && (strings.Contains(macro, "NEON") || strings.Contains(macro, "DOTPROD")) ||
+			strings.HasPrefix(macro, "OPUS_X86_") && (strings.Contains(macro, "SSE") || strings.Contains(macro, "AVX")) || macro == "OPUS_HAVE_RTCD" {
+			simdMacros = append(simdMacros, macro)
+		}
+	}
+	if variant == LibopusReferenceScalar || variant == LibopusReferenceCustomScalar {
+		if len(simdMacros) != 0 {
+			sort.Strings(simdMacros)
+			return fmt.Errorf("scalar config defines SIMD/RTCD macros %v", simdMacros)
+		}
+		return nil
+	}
+	if variant != LibopusReferenceSIMD {
+		return fmt.Errorf("unsupported variant %q", variant)
+	}
+	switch goarch {
+	case "arm64":
+		if !defines["OPUS_ARM_PRESUME_NEON_INTR"] && !defines["OPUS_ARM_MAY_HAVE_NEON_INTR"] && !defines["OPUS_ARM_PRESUME_NEON"] && !defines["OPUS_ARM_MAY_HAVE_NEON"] {
+			return fmt.Errorf("arm64 SIMD config has no NEON instruction macro")
+		}
+	case "amd64":
+		if !defines["OPUS_X86_PRESUME_SSE"] && !defines["OPUS_X86_PRESUME_SSE2"] && !defines["OPUS_X86_PRESUME_SSE4_1"] && !defines["OPUS_X86_PRESUME_AVX2"] &&
+			!defines["OPUS_X86_MAY_HAVE_SSE"] && !defines["OPUS_X86_MAY_HAVE_SSE2"] && !defines["OPUS_X86_MAY_HAVE_SSE4_1"] && !defines["OPUS_X86_MAY_HAVE_AVX2"] {
+			return fmt.Errorf("amd64 SIMD config has no SSE/AVX instruction macro")
+		}
+	default:
+		return fmt.Errorf("no paired SIMD libopus configuration for GOARCH=%s", goarch)
+	}
+	return nil
+}
+
+// ValidateLibopusInstructionConfig checks the complete SIMD/RTCD macro family
+// in a generated config.h against the selected Go instruction lane.
+func ValidateLibopusInstructionConfig(config string, variant LibopusReferenceVariant, goarch string) error {
+	return validateLibopusConfigSIMD(config, variant, goarch)
+}
+
+// ValidateLibopusReferenceArchive validates the provenance stamped beside an
+// archive path. Paired archives live under <source>/.libs/libopus.a.
+func ValidateLibopusReferenceArchive(archivePath string, variant LibopusReferenceVariant, version string) error {
+	archivePath = filepath.Clean(archivePath)
+	if filepath.Base(archivePath) != "libopus.a" || filepath.Base(filepath.Dir(archivePath)) != ".libs" {
+		return referenceConfigErrorf("libopus archive override %q must be inside a stamped .libs directory", archivePath)
+	}
+	return ValidateLibopusReferenceBuild(filepath.Dir(filepath.Dir(archivePath)), variant, version)
+}
+
+// ValidateLibopusReferenceToolOverride requires an explicit tool executable to
+// resolve to the requested tool in a validated, explicitly named paired tree.
+// It validates the executable target so a symlink cannot escape into another
+// variant while callers can continue returning the user's original path.
+func ValidateLibopusReferenceToolOverride(path, tool string, variant LibopusReferenceVariant, version string) error {
+	return validateLibopusReferenceToolOverrideForPlatform(path, tool, variant, version, runtime.GOOS, runtime.GOARCH)
+}
+
+func validateLibopusReferenceToolOverrideForPlatform(path, tool string, variant LibopusReferenceVariant, version, goos, goarch string) error {
+	if version == "" {
+		version = DefaultVersion
+	}
+	suffix, err := LibopusReferenceSourceSuffix(variant)
+	if err != nil {
+		return err
+	}
+	if tool == "" || filepath.Base(tool) != tool {
+		return referenceConfigErrorf("invalid libopus tool name %q", tool)
+	}
+	if path == "" {
+		return referenceConfigErrorf("libopus %s override is empty", tool)
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return referenceConfigErrorf("resolve libopus %s override %q: %v", tool, path, err)
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return referenceConfigErrorf("stat libopus %s override %q: %v", tool, path, err)
+	}
+	if !libopusToolIsRunnable(info, goos) {
+		return referenceConfigErrorf("libopus %s override %q is not executable", tool, path)
+	}
+	base := filepath.Base(resolved)
+	if base != tool && base != tool+".exe" {
+		return referenceConfigErrorf("libopus %s override %q resolves to unexpected executable %q", tool, path, base)
+	}
+	refDir := filepath.Dir(resolved)
+	wantDir := "opus-" + version + suffix
+	if filepath.Base(refDir) != wantDir {
+		return referenceConfigErrorf("libopus %s override %q resolves outside the selected %s tree", tool, path, variant)
+	}
+	if err := validateLibopusReferenceBuildForPlatform(refDir, variant, version, goos, goarch); err != nil {
+		return err
+	}
+	return nil
+}
 
 const (
 	// DefaultVersion is the pinned libopus reference used by fixture tooling.
 	DefaultVersion = "1.6.1"
 
-	// ScalarDNNBuildCFLAGS keeps x86 libopus helper builds on the generic DNN
-	// path. --disable-intrinsics disables libopus RTCD feature selection, but
-	// x86 compilers still predefine __SSE2__, which makes dnn/vec.h include
-	// vec_avx.h unless the helper build explicitly undefines those macros.
-	ScalarDNNBuildCFLAGS = "-g -O2 -fvisibility=hidden -U__AVX__ -U__AVX2__ -U__FMA__ -U__SSE__ -U__SSE2__ -U__SSE3__ -U__SSSE3__ -U__SSE4_1__ -U__SSE4_2__"
+	dredQEXTModelSourcesStamp = "pitchdnn_data.c=921b6157ff7a6200741c8b3e0c6d0183f2c34567297d63b065486be2bbf995ac;dred_rdovae_enc_data.c=3bf6d5cbfa3b1fee99a0e65253eeecaa92f861533b9c3926b494e2776c922e5e"
+
+	// dnn/vec.h selects its vector implementation from compiler macros even
+	// when libopus RTCD and intrinsics are disabled. Clear those macros so the
+	// scalar DRED reference uses the generic DNN path on every architecture.
+	ScalarDNNBuildCFLAGS = LibopusScalarCFLAGS + " -DDISABLE_NEON -U__ARM_NEON__ -U__ARM_NEON -U__AVX__ -U__AVX2__ -U__FMA__ -U__SSE__ -U__SSE2__ -U__SSE3__ -U__SSSE3__ -U__SSE4_1__ -U__SSE4_2__"
+
+	// The SIMD DRED reference uses the native libopus instruction selection and
+	// optimization level paired with GOEXPERIMENT=simd.
+	DREDSIMDBuildCFLAGS = LibopusBaseCFLAGS
 
 	// OSCEScalarDNNBuildCFLAGS keeps OSCE BWE/LACE reference helpers on the
 	// generic DNN path even on ARM, where dnn/vec.h checks compiler NEON macros
@@ -35,6 +720,7 @@ const (
 	// fixtures exercise the generic DNN path on ARM too. The stamp is different
 	// so a stale plain scalar build cannot be reused as an OSCE build.
 	osceScalarDNNBuildStampFile = ".gopus-scalar-dnn-build-osce"
+	dredSIMDDNNBuildStampFile   = ".gopus-simd-dnn-build-dred"
 )
 
 // LibopusBuildProvenance captures the native helper build that produced a
@@ -123,6 +809,13 @@ func findLibopusToolInSourceForOS(version string, roots []string, sourceSuffix s
 	return "", false
 }
 
+func normalizedRoots(roots []string) []string {
+	if len(roots) == 0 {
+		return DefaultSearchRoots()
+	}
+	return roots
+}
+
 func libopusSourceDir(version string, root string, sourceSuffix string) string {
 	if version == "" {
 		version = DefaultVersion
@@ -147,23 +840,14 @@ func libopusToolIsRunnable(st os.FileInfo, goos string) bool {
 	return (st.Mode() & 0o111) != 0
 }
 
-// OpusToolScalarRequested reports whether the libopus reference tools (opus_demo
-// / opus_compare) must be the scalar (generic-C, no SIMD/RTCD/intrinsics) build.
-// The pure-Go (-tags purego) gopus build and the celt/custom parity gate set
-// GOPUS_LIBOPUS_REF_SCALAR=1 so opus_demo-driven byte/quality comparisons use the
-// bit-reproducible scalar tree instead of the default tree (which autotools-enables
-// SIMD on amd64 and Linux arm64).
-func OpusToolScalarRequested() bool {
-	v := strings.TrimSpace(strings.ToLower(os.Getenv("GOPUS_LIBOPUS_REF_SCALAR")))
-	return v == "1" || v == "true" || v == "yes"
-}
-
-// FindOpusDemo returns the first executable opus_demo found under tmp_check.
-func FindOpusDemo(version string, roots []string) (string, bool) {
-	if OpusToolScalarRequested() {
-		return findLibopusToolInSourceForOS(version, roots, "-scalar", "opus_demo", runtime.GOOS)
+// FindOpusDemo returns a validated opus_demo from the reference tree paired
+// with the current Go build.
+func FindOpusDemo(version string, roots []string) (string, error) {
+	variant, err := ResolveLibopusReferenceVariant()
+	if err != nil {
+		return "", err
 	}
-	return findLibopusTool(version, roots, "opus_demo")
+	return findValidatedReferenceTool(version, roots, "opus_demo", variant, runtime.GOOS, runtime.GOARCH)
 }
 
 // FindQEXTOpusDemo returns the first executable QEXT-enabled opus_demo build
@@ -172,12 +856,42 @@ func FindQEXTOpusDemo(version string, roots []string) (string, bool) {
 	return findQEXTLibopusTool(version, roots, "opus_demo")
 }
 
-// FindOpusCompare returns the first executable opus_compare found under tmp_check.
-func FindOpusCompare(version string, roots []string) (string, bool) {
-	if OpusToolScalarRequested() {
-		return findLibopusToolInSourceForOS(version, roots, "-scalar", "opus_compare", runtime.GOOS)
+// FindOpusCompare returns a validated opus_compare from the reference tree
+// paired with the current Go build.
+func FindOpusCompare(version string, roots []string) (string, error) {
+	variant, err := ResolveLibopusReferenceVariant()
+	if err != nil {
+		return "", err
 	}
-	return findLibopusTool(version, roots, "opus_compare")
+	return findValidatedReferenceTool(version, roots, "opus_compare", variant, runtime.GOOS, runtime.GOARCH)
+}
+
+func findValidatedReferenceTool(version string, roots []string, tool string, variant LibopusReferenceVariant, goos, goarch string) (string, error) {
+	suffix, err := LibopusReferenceSourceSuffix(variant)
+	if err != nil {
+		return "", err
+	}
+	var firstConfigError error
+	treePresent := false
+	for _, root := range normalizedRoots(roots) {
+		refDir := libopusSourceDir(version, root, suffix)
+		if st, err := os.Stat(refDir); err == nil && st.IsDir() {
+			treePresent = true
+		}
+		if err := validateLibopusReferenceBuildForPlatform(refDir, variant, version, goos, goarch); err != nil {
+			if firstConfigError == nil {
+				firstConfigError = err
+			}
+			continue
+		}
+		if path, ok := findLibopusToolInSourceForOS(version, []string{root}, suffix, tool, goos); ok {
+			return path, nil
+		}
+	}
+	if treePresent && firstConfigError != nil {
+		return "", firstConfigError
+	}
+	return "", fmt.Errorf("no validated %s libopus %s found under roots %v", variant, tool, normalizedRoots(roots))
 }
 
 func stampedLibopusBuildPresent(version string, roots []string, qext bool) bool {
@@ -262,9 +976,7 @@ func stampedLibopusSourceDirPresent(srcDir, version, qext, goos, goarch string) 
 		}
 	}
 	hostOS := fields["host_os"]
-	if !(strings.Contains(hostOS, "MINGW") ||
-		strings.Contains(hostOS, "MSYS") ||
-		strings.Contains(hostOS, "CYGWIN")) {
+	if !strings.Contains(hostOS, "MINGW") && !strings.Contains(hostOS, "MSYS") && !strings.Contains(hostOS, "CYGWIN") {
 		return false
 	}
 	return libopusStampArchitectureMatches(goarch, fields["host_arch"], fields["host_bits"], fields["cc_target"])
@@ -374,10 +1086,44 @@ func EnsureLibopusQEXT(version string, roots []string) bool {
 	return ensureLibopus(version, roots, true)
 }
 
-// EnsureLibopusFixed invokes tools/ensure_libopus.sh with ENABLE_FIXED enabled
-// (libopus configured with --enable-fixed-point) from the first matching root.
-func EnsureLibopusFixed(version string, roots []string) bool {
-	return ensureLibopusVariant(version, roots, "fixed")
+// EnsureLibopusQEXTScalar builds the QEXT-enabled generic-C reference.
+func EnsureLibopusQEXTScalar(version string, roots []string) bool {
+	return ensureLibopusVariant(version, roots, "qext-scalar")
+}
+
+// EnsureLibopusQEXTSIMD builds the QEXT-enabled RTCD/intrinsics reference.
+func EnsureLibopusQEXTSIMD(version string, roots []string) bool {
+	return ensureLibopusVariant(version, roots, "qext-simd")
+}
+
+// EnsureLibopusDREDQEXTScalar builds the combined DRED + QEXT generic-C reference.
+func EnsureLibopusDREDQEXTScalar(version string, roots []string) bool {
+	return ensureLibopusVariant(version, roots, "dred-qext-scalar")
+}
+
+// EnsureLibopusDREDQEXTSIMD builds the combined DRED + QEXT RTCD/intrinsics reference.
+func EnsureLibopusDREDQEXTSIMD(version string, roots []string) bool {
+	return ensureLibopusVariant(version, roots, "dred-qext-simd")
+}
+
+// EnsureLibopusFixedScalar builds the FIXED_POINT generic-C reference.
+func EnsureLibopusFixedScalar(version string, roots []string) bool {
+	return ensureLibopusVariant(version, roots, "fixed-scalar")
+}
+
+// EnsureLibopusFixedSIMD builds the FIXED_POINT RTCD/intrinsics reference.
+func EnsureLibopusFixedSIMD(version string, roots []string) bool {
+	return ensureLibopusVariant(version, roots, "fixed-simd")
+}
+
+// EnsureLibopusFixedQEXTScalar builds the FIXED_POINT + ENABLE_QEXT generic-C reference.
+func EnsureLibopusFixedQEXTScalar(version string, roots []string) bool {
+	return ensureLibopusVariant(version, roots, "fixed-qext-scalar")
+}
+
+// EnsureLibopusFixedQEXTSIMD builds the FIXED_POINT + ENABLE_QEXT RTCD/intrinsics reference.
+func EnsureLibopusFixedQEXTSIMD(version string, roots []string) bool {
+	return ensureLibopusVariant(version, roots, "fixed-qext-simd")
 }
 
 // EnsureLibopusCustom invokes tools/ensure_libopus.sh with ENABLE_CUSTOM enabled
@@ -389,27 +1135,56 @@ func EnsureLibopusCustom(version string, roots []string) bool {
 
 // EnsureLibopusSIMD invokes tools/ensure_libopus.sh with ENABLE_SIMD enabled
 // (libopus configured with its native --enable-rtcd --enable-intrinsics, so
-// config.h DEFINES the platform SIMD macros) from the first matching root. This
-// is the PERFORMANCE reference only — it is not bit-reproducible and must not be
-// used as a parity oracle.
+// config.h DEFINES the platform SIMD macros) from the first matching root. It is
+// paired with Go SIMD builds and direct tests of matching SIMD kernels.
 func EnsureLibopusSIMD(version string, roots []string) bool {
 	return ensureLibopusVariant(version, roots, "simd")
 }
 
 // EnsureLibopusScalar invokes tools/ensure_libopus.sh with ENABLE_SCALAR enabled
-// (libopus configured with --disable-asm --disable-rtcd --disable-intrinsics, so
-// config.h leaves the platform SIMD macros undefined) from the first matching
-// root. This is the bit-reproducible parity reference for the pure-Go gopus build.
+// (generic C with assembly, RTCD, intrinsics, loop vectorization, and SLP
+// vectorization disabled) from the first matching root. FMA contraction stays
+// enabled to match scalar Go arithmetic.
 func EnsureLibopusScalar(version string, roots []string) bool {
 	return ensureLibopusVariant(version, roots, "scalar")
 }
 
 // EnsureLibopusCustomScalar invokes tools/ensure_libopus.sh with
 // ENABLE_CUSTOM_SCALAR enabled (--enable-custom-modes on the scalar generic-C
-// kernels) from the first matching root. This is the bit-reproducible Opus Custom
-// oracle for the pure-Go celt/custom parity gate.
+// kernels) from the first matching root with the standard scalar compiler
+// policy.
 func EnsureLibopusCustomScalar(version string, roots []string) bool {
 	return ensureLibopusVariant(version, roots, "custom-scalar")
+}
+
+// EnsureLibopusCustomQEXTScalar builds the paired CUSTOM_MODES + QEXT scalar reference.
+func EnsureLibopusCustomQEXTScalar(version string, roots []string) bool {
+	return ensureLibopusVariant(version, roots, "custom-qext-scalar")
+}
+
+// EnsureLibopusCustomQEXTSIMD builds the paired CUSTOM_MODES + QEXT SIMD reference.
+func EnsureLibopusCustomQEXTSIMD(version string, roots []string) bool {
+	return ensureLibopusVariant(version, roots, "custom-qext-simd")
+}
+
+// EnsureLibopusCustomFixedScalar builds the paired CUSTOM_MODES + FIXED_POINT scalar reference.
+func EnsureLibopusCustomFixedScalar(version string, roots []string) bool {
+	return ensureLibopusVariant(version, roots, "custom-fixed-scalar")
+}
+
+// EnsureLibopusCustomFixedSIMD builds the paired CUSTOM_MODES + FIXED_POINT SIMD reference.
+func EnsureLibopusCustomFixedSIMD(version string, roots []string) bool {
+	return ensureLibopusVariant(version, roots, "custom-fixed-simd")
+}
+
+// EnsureLibopusCustomFixedQEXTScalar builds the paired CUSTOM_MODES + FIXED_POINT + QEXT scalar reference.
+func EnsureLibopusCustomFixedQEXTScalar(version string, roots []string) bool {
+	return ensureLibopusVariant(version, roots, "custom-fixed-qext-scalar")
+}
+
+// EnsureLibopusCustomFixedQEXTSIMD builds the paired CUSTOM_MODES + FIXED_POINT + QEXT SIMD reference.
+func EnsureLibopusCustomFixedQEXTSIMD(version string, roots []string) bool {
+	return ensureLibopusVariant(version, roots, "custom-fixed-qext-simd")
 }
 
 func ensureLibopus(version string, roots []string, qext bool) bool {
@@ -449,16 +1224,48 @@ func ensureLibopusVariant(version string, roots []string, variant string) bool {
 		switch variant {
 		case "qext":
 			env = append(env, "LIBOPUS_ENABLE_QEXT=1")
-		case "fixed":
-			env = append(env, "LIBOPUS_ENABLE_FIXED=1")
+		case "qext-scalar":
+			env = append(env, "LIBOPUS_ENABLE_QEXT_SCALAR=1")
+		case "qext-simd":
+			env = append(env, "LIBOPUS_ENABLE_QEXT_SIMD=1")
+		case "dred-qext-scalar":
+			env = append(env, "LIBOPUS_ENABLE_DRED_QEXT_SCALAR=1", "LIBOPUS_CFLAGS="+ScalarDNNBuildCFLAGS)
+		case "dred-qext-simd":
+			env = append(env, "LIBOPUS_ENABLE_DRED_QEXT_SIMD=1", "LIBOPUS_CFLAGS="+DREDSIMDBuildCFLAGS)
+		case "fixed-scalar":
+			env = append(env, "LIBOPUS_ENABLE_FIXED_SCALAR=1")
+		case "fixed-simd":
+			env = append(env, "LIBOPUS_ENABLE_FIXED_SIMD=1")
+		case "fixed-qext-scalar":
+			env = append(env, "LIBOPUS_ENABLE_FIXED_QEXT_SCALAR=1")
+		case "fixed-qext-simd":
+			env = append(env, "LIBOPUS_ENABLE_FIXED_QEXT_SIMD=1")
 		case "custom":
 			env = append(env, "LIBOPUS_ENABLE_CUSTOM=1")
 		case "custom-scalar":
 			env = append(env, "LIBOPUS_ENABLE_CUSTOM_SCALAR=1")
+		case "custom-qext-scalar":
+			env = append(env, "LIBOPUS_ENABLE_CUSTOM_QEXT_SCALAR=1")
+		case "custom-qext-simd":
+			env = append(env, "LIBOPUS_ENABLE_CUSTOM_QEXT_SIMD=1")
+		case "custom-fixed-scalar":
+			env = append(env, "LIBOPUS_ENABLE_CUSTOM_FIXED_SCALAR=1")
+		case "custom-fixed-simd":
+			env = append(env, "LIBOPUS_ENABLE_CUSTOM_FIXED_SIMD=1")
+		case "custom-fixed-qext-scalar":
+			env = append(env, "LIBOPUS_ENABLE_CUSTOM_FIXED_QEXT_SCALAR=1")
+		case "custom-fixed-qext-simd":
+			env = append(env, "LIBOPUS_ENABLE_CUSTOM_FIXED_QEXT_SIMD=1")
 		case "simd":
 			env = append(env, "LIBOPUS_ENABLE_SIMD=1")
 		case "scalar":
 			env = append(env, "LIBOPUS_ENABLE_SCALAR=1")
+		}
+		switch variant {
+		case "dred-qext-scalar":
+			env = dredQEXTBuildEnvironment(env, version, "LIBOPUS_ENABLE_DRED_QEXT_SCALAR=1", ScalarDNNBuildCFLAGS)
+		case "dred-qext-simd":
+			env = dredQEXTBuildEnvironment(env, version, "LIBOPUS_ENABLE_DRED_QEXT_SIMD=1", DREDSIMDBuildCFLAGS)
 		}
 		cmd.Env = env
 		out, err := cmd.CombinedOutput()
@@ -474,6 +1281,29 @@ func ensureLibopusVariant(version string, roots []string, variant string) bool {
 	return false
 }
 
+func dredQEXTBuildEnvironment(env []string, version, selector, cflags string) []string {
+	filtered := env[:0]
+	for _, item := range env {
+		itemName, _, ok := strings.Cut(item, "=")
+		if !ok {
+			continue
+		}
+		if strings.HasPrefix(itemName, "LIBOPUS_ENABLE_") || itemName == "LIBOPUS_VERSION" ||
+			itemName == "LIBOPUS_CFLAGS" || itemName == "LIBOPUS_CPPFLAGS" ||
+			itemName == "LDFLAGS" || itemName == "CPPFLAGS" || itemName == "CFLAGS" {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	return append(filtered,
+		"LIBOPUS_VERSION="+version,
+		selector,
+		"LIBOPUS_CFLAGS="+cflags,
+		"LIBOPUS_CPPFLAGS=",
+		"LDFLAGS=",
+	)
+}
+
 func tailForLog(s string, max int) string {
 	if max <= 0 || len(s) <= max {
 		return s
@@ -481,48 +1311,74 @@ func tailForLog(s string, max int) string {
 	return "... output truncated ...\n" + s[len(s)-max:]
 }
 
-// FindOrEnsureOpusDemo validates the pinned libopus build, then locates
-// opus_demo. The validation step matters for fixture generation: an existing
-// executable can be from a stale host/compiler build even when it is runnable.
-func FindOrEnsureOpusDemo(version string, roots []string) (string, bool) {
-	if OpusToolScalarRequested() {
-		if !EnsureLibopusScalar(version, roots) {
-			return "", false
-		}
-		return FindOpusDemo(version, roots)
+// FindOrEnsureOpusDemo builds and validates the explicit tree paired with the
+// current Go build before locating opus_demo.
+func FindOrEnsureOpusDemo(version string, roots []string) (string, error) {
+	variant, err := ResolveLibopusReferenceVariant()
+	if err != nil {
+		return "", err
 	}
-	if !EnsureLibopus(version, roots) && !stampedLibopusBuildPresent(version, roots, false) {
-		return "", false
-	}
-	return FindOpusDemo(version, roots)
+	return findOrEnsureReferenceTool(version, roots, "opus_demo", variant, runtime.GOOS, runtime.GOARCH)
 }
 
-// FindOrEnsureQEXTOpusDemo tries to locate a QEXT-enabled opus_demo and
-// validates the separate QEXT build first.
-func FindOrEnsureQEXTOpusDemo(version string, roots []string) (string, bool) {
-	if !EnsureLibopusQEXT(version, roots) && !stampedLibopusBuildPresent(version, roots, true) {
-		return "", false
+func findOrEnsureReferenceTool(version string, roots []string, tool string, variant LibopusReferenceVariant, goos, goarch string) (string, error) {
+	if _, err := LibopusReferenceSourceSuffix(variant); err != nil {
+		return "", err
 	}
-	return FindQEXTOpusDemo(version, roots)
+	if path, err := findValidatedReferenceTool(version, roots, tool, variant, goos, goarch); err == nil {
+		return path, nil
+	}
+	ensure := EnsureLibopusScalar
+	switch variant {
+	case LibopusReferenceSIMD:
+		ensure = EnsureLibopusSIMD
+	case LibopusReferenceQEXTScalar:
+		ensure = EnsureLibopusQEXTScalar
+	case LibopusReferenceQEXTSIMD:
+		ensure = EnsureLibopusQEXTSIMD
+	case LibopusReferenceDREDQEXTScalar:
+		ensure = EnsureLibopusDREDQEXTScalar
+	case LibopusReferenceDREDQEXTSIMD:
+		ensure = EnsureLibopusDREDQEXTSIMD
+	case LibopusReferenceFixedScalar:
+		ensure = EnsureLibopusFixedScalar
+	case LibopusReferenceFixedSIMD:
+		ensure = EnsureLibopusFixedSIMD
+	case LibopusReferenceFixedQEXTScalar:
+		ensure = EnsureLibopusFixedQEXTScalar
+	case LibopusReferenceFixedQEXTSIMD:
+		ensure = EnsureLibopusFixedQEXTSIMD
+	}
+	ensure(version, roots)
+	return findValidatedReferenceTool(version, roots, tool, variant, goos, goarch)
 }
 
-// FindOrEnsureOpusCompare validates the pinned libopus build, then locates
-// opus_compare.
-func FindOrEnsureOpusCompare(version string, roots []string) (string, bool) {
-	return findOrEnsureOpusCompareForPlatform(version, roots, runtime.GOOS, runtime.GOARCH)
+// FindOrEnsureQEXTOpusDemo resolves the QEXT-enabled tool paired with the
+// current Go instruction lane and validates its build before returning it.
+func FindOrEnsureQEXTOpusDemo(version string, roots []string) (string, error) {
+	variant, err := ResolveLibopusQEXTReferenceVariant()
+	if err != nil {
+		return "", err
+	}
+	return findOrEnsureReferenceTool(version, roots, "opus_demo", variant, runtime.GOOS, runtime.GOARCH)
 }
 
-func findOrEnsureOpusCompareForPlatform(version string, roots []string, goos, goarch string) (string, bool) {
-	if OpusToolScalarRequested() {
-		if !EnsureLibopusScalar(version, roots) {
-			return "", false
-		}
-		return findLibopusToolInSourceForOS(version, roots, "-scalar", "opus_compare", goos)
+// FindOrEnsureOpusCompare builds and validates the explicit tree paired with
+// the current Go build before locating opus_compare.
+func FindOrEnsureOpusCompare(version string, roots []string) (string, error) {
+	variant, err := ResolveLibopusReferenceVariant()
+	if err != nil {
+		return "", err
 	}
-	if !EnsureLibopus(version, roots) && !stampedLibopusBuildPresentForPlatform(version, roots, false, goos, goarch) {
-		return "", false
+	return findOrEnsureReferenceTool(version, roots, "opus_compare", variant, runtime.GOOS, runtime.GOARCH)
+}
+
+func findOrEnsureOpusCompareForPlatform(version string, roots []string, goos, goarch string) (string, error) {
+	variant, err := resolveLibopusReferenceVariantFor(goarch, goLibopusReferenceSIMD, os.Getenv("GOPUS_LIBOPUS_REF_SCALAR"))
+	if err != nil {
+		return "", err
 	}
-	return findLibopusToolForOS(version, roots, "opus_compare", goos)
+	return findOrEnsureReferenceTool(version, roots, "opus_compare", variant, goos, goarch)
 }
 
 // FindCCompiler returns a GCC/Clang-style C compiler suitable for helper builds.
@@ -538,6 +1394,11 @@ func FindCCompiler() (string, error) {
 // ScalarDNNBuildEnv returns a controlled environment for libopus helper builds.
 func ScalarDNNBuildEnv() ([]string, error) {
 	return scalarDNNBuildEnv(ScalarDNNBuildCFLAGS)
+}
+
+// DREDSIMDBuildEnv pins the native compiler and flags for the DRED SIMD oracle.
+func DREDSIMDBuildEnv() ([]string, error) {
+	return scalarDNNBuildEnv(DREDSIMDBuildCFLAGS)
 }
 
 func scalarDNNBuildEnv(cflags string) ([]string, error) {
@@ -564,12 +1425,16 @@ func OSCEScalarDNNBuildEnv() ([]string, error) {
 }
 
 func scalarDNNBuildStamp(cflags string) (string, error) {
+	return dnnBuildStamp("gopus scalar libopus DNN helper build v4", cflags)
+}
+
+func dnnBuildStamp(label, cflags string) (string, error) {
 	cc, err := FindCCompiler()
 	if err != nil {
 		return "", err
 	}
 	var b strings.Builder
-	b.WriteString("gopus scalar libopus DNN helper build v4\n")
+	b.WriteString(label + "\n")
 	b.WriteString("GOOS=" + runtime.GOOS + "\n")
 	b.WriteString("GOARCH=" + runtime.GOARCH + "\n")
 	b.WriteString("CC=" + cc + "\n")
@@ -579,6 +1444,42 @@ func scalarDNNBuildStamp(cflags string) (string, error) {
 	b.WriteString("CPPFLAGS=\n")
 	b.WriteString("LDFLAGS=\n")
 	return b.String(), nil
+}
+
+func dredSIMDBuildStamp() (string, error) {
+	return dnnBuildStamp("gopus SIMD libopus DRED helper build v1", DREDSIMDBuildCFLAGS)
+}
+
+// DREDSIMDBuildIsCurrent checks the isolated native-instruction DRED build.
+func DREDSIMDBuildIsCurrent(buildDir string) bool {
+	data, err := os.ReadFile(filepath.Join(buildDir, dredSIMDDNNBuildStampFile))
+	if err != nil {
+		return false
+	}
+	stamp, err := dredSIMDBuildStamp()
+	return err == nil && string(data) == stamp
+}
+
+// ResetDREDSIMDBuildIfStale removes only the stale DRED SIMD build directory.
+func ResetDREDSIMDBuildIfStale(buildDir string) error {
+	if _, err := os.Stat(buildDir); os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	if DREDSIMDBuildIsCurrent(buildDir) {
+		return nil
+	}
+	return os.RemoveAll(buildDir)
+}
+
+// WriteDREDSIMDBuildStamp records the native DRED helper build contract.
+func WriteDREDSIMDBuildStamp(buildDir string) error {
+	stamp, err := dredSIMDBuildStamp()
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(buildDir, dredSIMDDNNBuildStampFile), []byte(stamp), 0o644)
 }
 
 func compilerStampLine(cc string, arg string) string {

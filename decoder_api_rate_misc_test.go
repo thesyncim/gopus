@@ -96,7 +96,7 @@ func TestDecodeSILKAPIRatePCMMatchesLibopus(t *testing.T) {
 					}
 					got = append(got, frame[:n*channels]...)
 				}
-				assertAPIRateQualityFloat32(t, got, want, sampleRate, channels, "SILK api-rate decode")
+				assertSelectedPublicAPIRateFloat32(t, got, want, sampleRate, channels, "SILK api-rate decode")
 			})
 		}
 	}
@@ -140,7 +140,7 @@ func TestDecodeOutputGainFloat32MatchesLibopus(t *testing.T) {
 			}
 			got = append(got, frame[:n*channels]...)
 
-			assertAPIRateQualityFloat32(t, got, want, sampleRate, channels, "high-gain float32 output")
+			assertSelectedPublicAPIRateFloat32(t, got, want, sampleRate, channels, "high-gain float32 output")
 		})
 	}
 }
@@ -250,7 +250,7 @@ func TestDecodePLCDurationAPIRatePCMMatchesLibopus(t *testing.T) {
 						got = append(got, frame[:n*channels]...)
 					}
 
-					assertAPIRateQualityFloat32(t, got, want, sampleRate, channels, tc.name+" api-rate PLC duration decode")
+					assertSelectedPublicAPIRateFloat32(t, got, want, sampleRate, channels, tc.name+" api-rate PLC duration decode")
 				})
 			}
 		}
@@ -308,7 +308,7 @@ func TestDecodeOverlongPLCRequestAPIRatePCMMatchesLibopus(t *testing.T) {
 					}
 					got = append(got, frame[:n*channels]...)
 
-					assertAPIRateQualityFloat32PLC(t, got, want, sampleRate, channels, true, tc.name+" overlong PLC request")
+					assertSelectedPublicAPIRateFloat32PLC(t, got, want, sampleRate, channels, true, tc.name+" overlong PLC request")
 				})
 			}
 		}
@@ -348,7 +348,7 @@ func TestDecodeHybridAPIRatePCMMatchesLibopus(t *testing.T) {
 					}
 					got = append(got, frame[:n*channels]...)
 				}
-				assertAPIRateQualityFloat32(t, got, want, sampleRate, channels, "Hybrid api-rate decode")
+				assertSelectedPublicAPIRateFloat32(t, got, want, sampleRate, channels, "Hybrid api-rate decode")
 			})
 		}
 	}
@@ -444,7 +444,7 @@ func TestDecodeMultiFrameAPIRatePCMMatchesLibopus(t *testing.T) {
 						got = append(got, frame[:n*channels]...)
 					}
 
-					assertAPIRateQualityFloat32(t, got, want, sampleRate, channels, tc.name+" api-rate multi-frame decode")
+					assertSelectedPublicAPIRateFloat32(t, got, want, sampleRate, channels, tc.name+" api-rate multi-frame decode")
 				})
 			}
 		}
@@ -477,7 +477,7 @@ func TestDecodeColdPLCAPIRatePCMMatchesLibopus(t *testing.T) {
 				if dec.LastPacketDuration() != frameSize {
 					t.Fatalf("LastPacketDuration()=%d want %d", dec.LastPacketDuration(), frameSize)
 				}
-				assertAPIRateQualityFloat32(t, got[:n*channels], want, sampleRate, channels, "cold PLC api-rate decode")
+				assertSelectedPublicAPIRateFloat32(t, got[:n*channels], want, sampleRate, channels, "cold PLC api-rate decode")
 
 				dec.Reset()
 				if dec.LastPacketDuration() != 0 {
@@ -491,7 +491,7 @@ func TestDecodeColdPLCAPIRatePCMMatchesLibopus(t *testing.T) {
 				if n != frameSize {
 					t.Fatalf("Decode(nil) after Reset samples=%d want %d", n, frameSize)
 				}
-				assertAPIRateQualityFloat32(t, got[:n*channels], want, sampleRate, channels, "reset cold PLC api-rate decode")
+				assertSelectedPublicAPIRateFloat32(t, got[:n*channels], want, sampleRate, channels, "reset cold PLC api-rate decode")
 			})
 		}
 	}

@@ -17,7 +17,7 @@ func TestDREDModelManifestsMatchLibopusReference(t *testing.T) {
 func assertDREDManifestMatchesLibopus(t *testing.T, label, fileName, arrayName string, got []string) {
 	t.Helper()
 
-	data := libopustest.ReadRefFileOrSkip(t, label+" manifest", "dnn", fileName)
+	data := libopustest.ReadPinnedSourceFileOrSkip(t, label+" manifest", "dnn", fileName)
 
 	want := sortedRecordNames(parseLibopusWeightArrayNames(t, string(data), arrayName))
 	got = sortedRecordNames(got)
