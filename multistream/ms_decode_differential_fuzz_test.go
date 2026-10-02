@@ -351,17 +351,138 @@ func buildDiscreteDecodeFuzzSweep() []msDecodeFuzzSpec {
 	return specs
 }
 
+type msDecodeFuzzResult struct {
+	executed         bool
+	failed           bool
+	transitionFrames int
+	modeTotals       map[string]int
+}
+
+// runMSDecodeFuzzSpec encodes one seeded PCM input through libopus, then
+// decodes those packets through gopus and the libopus decode oracle.
+func runMSDecodeFuzzSpec(t *testing.T, spec msDecodeFuzzSpec, result *msDecodeFuzzResult) {
+	const (
+		application    = 2049  // OPUS_APPLICATION_AUDIO
+		bandwidthAuto  = -1000 // OPUS_AUTO
+		maxPacketBytes = 4000
+		sampleRate     = 48000
+	)
+
+	pcm := seededMultichannelPCM(spec.seed, spec.channels, spec.frameSize, spec.frameCount)
+	ref, err := encodeLibopusSurround(sampleRate, spec.channels, spec.mappingFamily, application,
+		spec.bitrate, spec.vbr, spec.vbrConstraint, 10, bandwidthAuto,
+		spec.frameSize, spec.frameCount, maxPacketBytes, pcm, false)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "multistream surround reference encode", err)
+		return
+	}
+
+	transition, modes := transitionFrameMask(ref.packets, ref.streams)
+	result.modeTotals = modes
+	for _, tf := range transition {
+		if tf {
+			result.transitionFrames++
+		}
+	}
+
+	if spec.int16Path {
+		got, err := decodeSurroundGopusInt16(sampleRate, spec.channels, ref.streams, ref.coupledStreams, spec.frameSize, spec.gainQ8, ref.mapping, ref.packets)
+		if err != nil {
+			t.Fatalf("gopus int16 decode: %v", err)
+		}
+		want, err := decodeWithLibopusReferencePacketsInt16Gain(1, sampleRate, spec.channels, ref.streams, ref.coupledStreams, spec.frameSize, spec.gainQ8, ref.mapping, nil, ref.packets)
+		if err != nil {
+			libopustest.HelperUnavailable(t, "multistream reference decode", err)
+			return
+		}
+		assertMSDecodeInt16FrameAware(t, got, want, spec.channels, spec.frameSize, transition, "int16/"+spec.name)
+		return
+	}
+
+	got, err := decodeSurroundGopusFloat32(sampleRate, spec.channels, ref.streams, ref.coupledStreams, spec.frameSize, spec.gainQ8, ref.mapping, ref.packets)
+	if err != nil {
+		t.Fatalf("gopus float decode: %v", err)
+	}
+	want, err := decodeWithLibopusReferencePacketsGain(1, sampleRate, spec.channels, ref.streams, ref.coupledStreams, spec.frameSize, spec.gainQ8, ref.mapping, nil, ref.packets)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "multistream reference decode", err)
+		return
+	}
+	assertMSDecodeFloatFrameAware(t, got, want, spec.channels, spec.frameSize, transition, "float32/"+spec.name)
+}
+
 // runMSDecodeFuzz drives a multistream (family 1/255) decode sweep: it encodes
 // each seeded multichannel PCM buffer through the libopus surround oracle, then
 // decodes the SAME packets through gopus and the libopus decode oracle, asserting
-// sample-exact PCM, including mode-transition frames.
-func runMSDecodeFuzz(t *testing.T, specs []msDecodeFuzzSpec, label string) {
+// sample-exact PCM, including mode-transition frames. Independent surround
+// cases may run concurrently; the discrete matrix stays serial.
+func runMSDecodeFuzz(t *testing.T, specs []msDecodeFuzzSpec, label string, parallel bool) {
 	libopustest.RequireOracle(t)
 
 	budget := fuzzBudget(len(specs))
 	stride := 1
 	if budget < len(specs) {
 		stride = len(specs) / budget
+	}
+
+	if parallel {
+		if _, err := surroundRefencodeHelper.Path(func() (string, error) {
+			return buildMultistreamReferenceHelper(libopustest.CHelperConfig{
+				Label:       "multistream surround reference encode",
+				OutputBase:  "gopus_libopus_refencode_public_multistream",
+				SourceFile:  "libopus_refencode_multistream.c",
+				CFlags:      []string{"-O3", "-DNDEBUG"},
+				RefIncludes: []string{"celt", "src"},
+				Libs:        []string{"-lm"},
+			})
+		}); err != nil {
+			libopustest.HelperUnavailable(t, "multistream surround reference encode", err)
+			return
+		}
+		if _, err := getLibopusRefdecodePath(); err != nil {
+			libopustest.HelperUnavailable(t, "multistream reference decode", err)
+			return
+		}
+
+		selected := make([]msDecodeFuzzSpec, 0, budget)
+		for idx := 0; idx < len(specs) && len(selected) < budget; idx += stride {
+			selected = append(selected, specs[idx])
+		}
+		results := make([]msDecodeFuzzResult, len(selected))
+		limit := min(4, runtime.GOMAXPROCS(0), len(selected))
+		semaphore := make(chan struct{}, limit)
+		for i, spec := range selected {
+			t.Run(spec.name, func(t *testing.T) {
+				t.Parallel()
+				semaphore <- struct{}{}
+				defer func() {
+					<-semaphore
+					results[i].failed = t.Failed()
+				}()
+				results[i].executed = true
+				runMSDecodeFuzzSpec(t, spec, &results[i])
+			})
+		}
+		t.Cleanup(func() {
+			tested, failedSpecs, transFrames := 0, 0, 0
+			modeTotals := map[string]int{}
+			for _, result := range results {
+				if !result.executed {
+					continue
+				}
+				tested++
+				if result.failed {
+					failedSpecs++
+				}
+				transFrames += result.transitionFrames
+				for mode, count := range result.modeTotals {
+					modeTotals[mode] += count
+				}
+			}
+			t.Logf("%s decode differential sweep: tested=%d/%d specs; failed=%d; arch=%s; modes=%v; transition-frames=%d (all frames strict)",
+				label, tested, len(specs), failedSpecs, runtime.GOARCH, modeTotals, transFrames)
+		})
+		return
 	}
 
 	var (
@@ -371,61 +492,18 @@ func runMSDecodeFuzz(t *testing.T, specs []msDecodeFuzzSpec, label string) {
 		modeTotals  = map[string]int{}
 	)
 
-	const (
-		application    = 2049  // OPUS_APPLICATION_AUDIO
-		bandwidthAuto  = -1000 // OPUS_AUTO
-		maxPacketBytes = 4000
-		sampleRate     = 48000
-	)
-
 	for idx := 0; idx < len(specs) && tested < budget; idx += stride {
 		spec := specs[idx]
 		if !t.Run(spec.name, func(t *testing.T) {
 			tested++
-			pcm := seededMultichannelPCM(spec.seed, spec.channels, spec.frameSize, spec.frameCount)
-
-			ref, err := encodeLibopusSurround(sampleRate, spec.channels, spec.mappingFamily, application,
-				spec.bitrate, spec.vbr, spec.vbrConstraint, 10, bandwidthAuto,
-				spec.frameSize, spec.frameCount, maxPacketBytes, pcm, false)
-			if err != nil {
-				libopustest.HelperUnavailable(t, "multistream surround reference encode", err)
-				return
-			}
-
-			transition, modes := transitionFrameMask(ref.packets, ref.streams)
-			for k, v := range modes {
-				modeTotals[k] += v
-			}
-			for _, tf := range transition {
-				if tf {
-					transFrames++
+			result := msDecodeFuzzResult{}
+			defer func() {
+				transFrames += result.transitionFrames
+				for k, v := range result.modeTotals {
+					modeTotals[k] += v
 				}
-			}
-
-			if spec.int16Path {
-				got, err := decodeSurroundGopusInt16(sampleRate, spec.channels, ref.streams, ref.coupledStreams, spec.frameSize, spec.gainQ8, ref.mapping, ref.packets)
-				if err != nil {
-					t.Fatalf("gopus int16 decode: %v", err)
-				}
-				want, err := decodeWithLibopusReferencePacketsInt16Gain(1, sampleRate, spec.channels, ref.streams, ref.coupledStreams, spec.frameSize, spec.gainQ8, ref.mapping, nil, ref.packets)
-				if err != nil {
-					libopustest.HelperUnavailable(t, "multistream reference decode", err)
-					return
-				}
-				assertMSDecodeInt16FrameAware(t, got, want, spec.channels, spec.frameSize, transition, "int16/"+spec.name)
-				return
-			}
-
-			got, err := decodeSurroundGopusFloat32(sampleRate, spec.channels, ref.streams, ref.coupledStreams, spec.frameSize, spec.gainQ8, ref.mapping, ref.packets)
-			if err != nil {
-				t.Fatalf("gopus float decode: %v", err)
-			}
-			want, err := decodeWithLibopusReferencePacketsGain(1, sampleRate, spec.channels, ref.streams, ref.coupledStreams, spec.frameSize, spec.gainQ8, ref.mapping, nil, ref.packets)
-			if err != nil {
-				libopustest.HelperUnavailable(t, "multistream reference decode", err)
-				return
-			}
-			assertMSDecodeFloatFrameAware(t, got, want, spec.channels, spec.frameSize, transition, "float32/"+spec.name)
+			}()
+			runMSDecodeFuzzSpec(t, spec, &result)
 		}) {
 			failedSpecs++
 		}
@@ -441,7 +519,7 @@ func runMSDecodeFuzz(t *testing.T, specs []msDecodeFuzzSpec, label string) {
 // matrix on CLEAN packets. Every decoded sample, including per-stream mode
 // transitions, must match the paired libopus output exactly.
 func TestMultistreamSurroundDecodeDifferentialFuzz(t *testing.T) {
-	runMSDecodeFuzz(t, buildSurroundDecodeFuzzSweep(), "surround")
+	runMSDecodeFuzz(t, buildSurroundDecodeFuzzSweep(), "surround", true)
 }
 
 // TestMultistreamDiscreteDecodeDifferentialFuzz locks gopus multistream discrete
@@ -450,7 +528,7 @@ func TestMultistreamSurroundDecodeDifferentialFuzz(t *testing.T) {
 // channel-count × frame-size × bitrate × rate-control × sample-format matrix on
 // CLEAN packets.
 func TestMultistreamDiscreteDecodeDifferentialFuzz(t *testing.T) {
-	runMSDecodeFuzz(t, buildDiscreteDecodeFuzzSweep(), "discrete")
+	runMSDecodeFuzz(t, buildDiscreteDecodeFuzzSweep(), "discrete", false)
 }
 
 // projectionDecodeFuzzSpec is one point in the projection (mapping family 3)
