@@ -4,7 +4,6 @@ package silk
 
 import (
 	"simd/archsimd"
-	"unsafe"
 )
 
 var int16ToFloat32UsesAVX2 = archsimd.X86.AVX2()
@@ -21,7 +20,7 @@ func writeInt16AsFloat32Core(dst []float32, src []int16, n int) {
 	const inv32768 = 1.0 / 32768.0
 	i := 0
 	if int16ToFloat32UsesAVX2 {
-		i = writeInt16AsFloat32CoreAVX2(dst, src, n)
+		i = writeInt16AsFloat32CoreAVX2(dst, src)
 	}
 	for ; i < n; i++ {
 		dst[i] = float32(src[i]) * inv32768
@@ -29,19 +28,21 @@ func writeInt16AsFloat32Core(dst []float32, src []int16, n int) {
 }
 
 //go:noinline
-func writeInt16AsFloat32CoreAVX2(dst []float32, src []int16, n int) int {
+func writeInt16AsFloat32CoreAVX2(dst []float32, src []int16) int {
 	const inv32768 = 1.0 / 32768.0
 	scale := archsimd.BroadcastFloat32x4(inv32768)
 	var zero archsimd.Int16x8
 	i := 0
-	for ; i+8 <= n; i += 8 {
-		v := archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Pointer(&src[i])))
+	for ; i <= len(src)-8 && i <= len(dst)-8; i += 8 {
+		srcBlock := (*[8]int16)(src[i:])
+		v := archsimd.LoadInt16x8Array(srcBlock)
+		dstBlock := (*[8]float32)(dst[i:])
 		lo := v.ExtendLo4ToInt32()
 		// The high four samples, sign-extended through the high half of
 		// each lane.
 		hi := zero.InterleaveHi(v).AsInt32x4().ShiftAllRight(16)
-		lo.ConvertToFloat32().Mul(scale).StoreArray((*[4]float32)(unsafe.Pointer(&dst[i])))
-		hi.ConvertToFloat32().Mul(scale).StoreArray((*[4]float32)(unsafe.Pointer(&dst[i+4])))
+		lo.ConvertToFloat32().Mul(scale).StoreArray((*[4]float32)(dstBlock[:4]))
+		hi.ConvertToFloat32().Mul(scale).StoreArray((*[4]float32)(dstBlock[4:]))
 	}
 	return i
 }
