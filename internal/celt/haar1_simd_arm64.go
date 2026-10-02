@@ -2,10 +2,7 @@
 
 package celt
 
-import (
-	"simd/archsimd"
-	"unsafe"
-)
+import "simd/archsimd"
 
 const haarScale = float32(0.7071067811865476)
 
@@ -14,20 +11,21 @@ func haar1Stride1(x []float32, n0 int) {
 		return
 	}
 	_ = x[2*n0-1]
-	p := unsafe.Pointer(unsafe.SliceData(x))
 	scale := archsimd.BroadcastFloat32x4(haarScale)
 	i := 0
 	for ; i+4 <= n0; i += 4 {
-		off := unsafe.Add(p, i*8)
-		a := loadF32x4(off).ToBits()
-		b := loadF32x4(unsafe.Add(off, 16)).ToBits()
+		chunk := (*[8]float32)(x[2*i : 2*i+8])
+		lo := (*[4]float32)(chunk[:4])
+		hi := (*[4]float32)(chunk[4:])
+		a := archsimd.LoadFloat32x4Array(lo).ToBits()
+		b := archsimd.LoadFloat32x4Array(hi).ToBits()
 		even := a.ConcatEven(b).BitsToFloat32()
 		odd := a.ConcatOdd(b).BitsToFloat32()
 		// haar1 scales each input before the butterfly (tmp1 = c*a, tmp2 = c*b).
 		sum := even.Mul(scale).Add(odd.Mul(scale)).ToBits()
 		diff := even.Mul(scale).Sub(odd.Mul(scale)).ToBits()
-		storeF32x4(off, sum.InterleaveLo(diff).BitsToFloat32())
-		storeF32x4(unsafe.Add(off, 16), sum.InterleaveHi(diff).BitsToFloat32())
+		sum.InterleaveLo(diff).BitsToFloat32().StoreArray(lo)
+		sum.InterleaveHi(diff).BitsToFloat32().StoreArray(hi)
 	}
 	for ; i < n0; i++ {
 		a, b := x[2*i], x[2*i+1]
@@ -41,21 +39,22 @@ func haar1Stride2(x []float32, n0 int) {
 		return
 	}
 	_ = x[4*n0-1]
-	p := unsafe.Pointer(unsafe.SliceData(x))
 	scale := archsimd.BroadcastFloat32x4(haarScale)
 	i := 0
 	for ; i+2 <= n0; i += 2 {
-		off := unsafe.Add(p, i*16)
-		a := loadF32x4(off).ToBits().ReshapeToUint64s()
-		b := loadF32x4(unsafe.Add(off, 16)).ToBits().ReshapeToUint64s()
+		chunk := (*[8]float32)(x[4*i : 4*i+8])
+		loView := (*[4]float32)(chunk[:4])
+		hiView := (*[4]float32)(chunk[4:])
+		a := archsimd.LoadFloat32x4Array(loView).ToBits().ReshapeToUint64s()
+		b := archsimd.LoadFloat32x4Array(hiView).ToBits().ReshapeToUint64s()
 		lo := a.InterleaveLo(b).ReshapeToUint32s().BitsToFloat32()
 		hi := a.InterleaveHi(b).ReshapeToUint32s().BitsToFloat32()
 		sum := lo.Mul(scale).Add(hi.Mul(scale)).ToBits()
 		diff := lo.Mul(scale).Sub(hi.Mul(scale)).ToBits()
 		sum64 := sum.ReshapeToUint64s()
 		diff64 := diff.ReshapeToUint64s()
-		storeF32x4(off, sum64.InterleaveLo(diff64).ReshapeToUint32s().BitsToFloat32())
-		storeF32x4(unsafe.Add(off, 16), sum64.InterleaveHi(diff64).ReshapeToUint32s().BitsToFloat32())
+		sum64.InterleaveLo(diff64).ReshapeToUint32s().BitsToFloat32().StoreArray(loView)
+		sum64.InterleaveHi(diff64).ReshapeToUint32s().BitsToFloat32().StoreArray(hiView)
 	}
 	for ; i < n0; i++ {
 		off := 4 * i
@@ -72,31 +71,36 @@ func haar1Stride4(x []float32, n0 int) {
 		return
 	}
 	_ = x[8*n0-1]
-	p := unsafe.Pointer(unsafe.SliceData(x))
 	scale := archsimd.BroadcastFloat32x4(haarScale)
 	i := 0
 	for ; i+2 <= n0; i += 2 {
-		off := unsafe.Add(p, i*32)
-		lo0 := loadF32x4(off)
-		hi0 := loadF32x4(unsafe.Add(off, 16))
-		lo1 := loadF32x4(unsafe.Add(off, 32))
-		hi1 := loadF32x4(unsafe.Add(off, 48))
-		scaledLo0 := lo0.Mul(scale)
-		scaledHi0 := hi0.Mul(scale)
-		scaledLo1 := lo1.Mul(scale)
-		scaledHi1 := hi1.Mul(scale)
-		storeF32x4(off, scaledLo0.Add(scaledHi0))
-		storeF32x4(unsafe.Add(off, 16), scaledLo0.Sub(scaledHi0))
-		storeF32x4(unsafe.Add(off, 32), scaledLo1.Add(scaledHi1))
-		storeF32x4(unsafe.Add(off, 48), scaledLo1.Sub(scaledHi1))
+		chunk := (*[16]float32)(x[8*i : 8*i+16])
+		lo0 := (*[4]float32)(chunk[:4])
+		hi0 := (*[4]float32)(chunk[4:8])
+		lo1 := (*[4]float32)(chunk[8:12])
+		hi1 := (*[4]float32)(chunk[12:])
+		lo0Vec := archsimd.LoadFloat32x4Array(lo0)
+		hi0Vec := archsimd.LoadFloat32x4Array(hi0)
+		lo1Vec := archsimd.LoadFloat32x4Array(lo1)
+		hi1Vec := archsimd.LoadFloat32x4Array(hi1)
+		scaledLo0 := lo0Vec.Mul(scale)
+		scaledHi0 := hi0Vec.Mul(scale)
+		scaledLo1 := lo1Vec.Mul(scale)
+		scaledHi1 := hi1Vec.Mul(scale)
+		scaledLo0.Add(scaledHi0).StoreArray(lo0)
+		scaledLo0.Sub(scaledHi0).StoreArray(hi0)
+		scaledLo1.Add(scaledHi1).StoreArray(lo1)
+		scaledLo1.Sub(scaledHi1).StoreArray(hi1)
 	}
 	if i < n0 {
-		off := unsafe.Add(p, i*32)
-		lo := loadF32x4(off)
-		hi := loadF32x4(unsafe.Add(off, 16))
-		scaledLo := lo.Mul(scale)
-		scaledHi := hi.Mul(scale)
-		storeF32x4(off, scaledLo.Add(scaledHi))
-		storeF32x4(unsafe.Add(off, 16), scaledLo.Sub(scaledHi))
+		chunk := (*[8]float32)(x[8*i : 8*i+8])
+		lo := (*[4]float32)(chunk[:4])
+		hi := (*[4]float32)(chunk[4:])
+		loVec := archsimd.LoadFloat32x4Array(lo)
+		hiVec := archsimd.LoadFloat32x4Array(hi)
+		scaledLo := loVec.Mul(scale)
+		scaledHi := hiVec.Mul(scale)
+		scaledLo.Add(scaledHi).StoreArray(lo)
+		scaledLo.Sub(scaledHi).StoreArray(hi)
 	}
 }

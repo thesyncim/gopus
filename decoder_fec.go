@@ -11,7 +11,13 @@ func (d *Decoder) decodePLCForFEC(pcm []float32, frameSize int) (int, error) {
 	if packetFrameSize <= 0 {
 		packetFrameSize = frameSize
 	}
-	return d.decodePLCForFECWithState(pcm, frameSize, packetFrameSize, d.prevMode, d.lastBandwidth, d.prevPacketStereo)
+	mode := d.prevMode
+	if d.prevRedundancy {
+		// libopus opus_decode_frame selects CELT PLC when the preceding Hybrid
+		// frame ends with CELT redundancy, even though prev_mode remains Hybrid.
+		mode = ModeCELT
+	}
+	return d.decodePLCForFECWithState(pcm, frameSize, packetFrameSize, mode, d.lastBandwidth, d.prevPacketStereo)
 }
 
 func (d *Decoder) decodePLCForFECWithState(

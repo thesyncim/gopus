@@ -355,6 +355,13 @@ boundary regressions (`TestParseOpusHeadDecodedChannelBudget` and
 projection matrix framing and rejection before writer output. These are
 container validation checks, not additional C codec byte-parity evidence.
 
+The EOS timeline checks preserve earlier packet end positions when the final
+packet is trimmed, as specified by RFC 7845 sections 4.4 and 4.5. The first audio
+page establishes its initial granule; later pages use the preceding completed
+audio page. Independent page fixtures cover seek replay, spanning and oversized
+packets, selected-stream gaps, reanchoring and other streams. The original-reader
+overlay fails these witnesses; the full reader suite passes on Go 1.27.1.
+
 ### Findings and verification
 
 Exact equality to a configured libopus build is a stronger requirement than
@@ -1256,6 +1263,89 @@ All samples report zero allocations. Each baseline/candidate kernel phase
 completes successfully. The direct xcorr rows retain their separate shapes;
 the pulse and best-ID helpers differ from the live finite-input PVQ search.
 Sequential kernel phases retain host-load and frequency risks.
+
+### Checked FFT and Haar views
+
+The radix-3/4/5 scalar FFT butterflies use typed `kissCpx` columns. The ARM64
+Haar stride-1/2/4 kernels use checked array views with the SIMD array load/store
+API. Their arithmetic and output order match the independent scalar and
+libopus regressions; the Haar checks also cover unaligned slices, canaries and
+the stride-4 vector tail. Both paths retain zero warm allocations.
+
+These local measurements compare the kernel sources at `867e1cc16` with the
+checked sources at `c5c4b273f` on Apple M4 Max, darwin/arm64. Each pair changes
+only the named kernel file through a source overlay; other public-code changes
+are identical in both binaries. Three alternating 500 ms samples use one CPU,
+one benchmark goroutine and preallocated buffers. Every row reports 0 B/op and
+0 allocs/op. Negative deltas mean less time. Native AMD64 timings are pending;
+ARM64 timings do not establish AMD64 performance.
+
+| Changed routine | Go / lane | Before ns/op | Checked ns/op | Delta |
+|---|---|---:|---:|---:|
+| `kfBfly3InnerFast` | 1.27.0 / nosimd | 163.4 | 163.1 | −0.2% |
+| `kfBfly4InnerFast` | 1.27.0 / nosimd | 142.5 | 144.8 | +1.6% |
+| `kfBfly5InnerFast` | 1.27.0 / nosimd | 212.8 | 213.7 | +0.4% |
+| `haar1Stride1` | 1.27.1 / SIMD | 5.654 | 5.590 | −1.1% |
+| `haar1Stride2` | 1.27.1 / SIMD | 7.084 | 7.283 | +2.8% |
+| `haar1Stride4` | 1.27.1 / SIMD | 8.253 | 8.210 | −0.5% |
+
+The direct FFT cases use actual stages of the 240-point transform: radix 3
+has m=16/N=5/mm=48, radix 4 has m=4/N=15/mm=16, and radix 5 has
+m=48/N=1/mm=1. Both binaries include the same input-copy and dispatch cost.
+The complete transforms copy deterministic bounded, nonzero input before each
+iteration. They are timing workloads; separate live-C tests establish parity.
+
+| Full scalar FFT, Go 1.27.0 | Before ns/op | Checked ns/op | Delta |
+|---|---:|---:|---:|
+| 60 points | 108.1 | 110.9 | +2.6% |
+| 120 points | 241.7 | 243.4 | +0.7% |
+| 240 points | 540.5 | 540.3 | −0.04% |
+| 480 points | 1,202 | 1,201 | −0.08% |
+| 960 points | 2,635 | 2,639 | +0.15% |
+
+| Public benchmark | Isolated change / lane | Before ns/op | Checked ns/op | Delta |
+|---|---|---:|---:|---:|
+| `EncoderEncode_CallerBuffer` | FFT / nosimd, Go 1.27.0 | 55,730 | 55,770 | +0.07% |
+| `DecoderDecode_CELT` | FFT / nosimd, Go 1.27.0 | 8,559 | 8,532 | −0.3% |
+| `DecoderDecode_Stereo` | FFT / nosimd, Go 1.27.0 | 13,925 | 13,899 | −0.2% |
+| `EncoderEncode_LowDelay` | Haar / SIMD, Go 1.27.1 | 44,584 | 44,829 | +0.55% |
+
+The scalar encoder case is 20 ms, 48 kHz mono with `ApplicationAudio`; it is
+not the LowDelay case. The Haar stride-2 microbenchmark costs 0.20 ns more;
+the public LowDelay measurements overlap. Bounds checks guard checked outer
+FFT spans and Haar vector windows. No bounds-failure call enters the FFT inner
+loop; the ARM64 vector bodies retain direct NEON arithmetic and loads/stores.
+
+### Ogg EOS timeline cost
+
+`Reader.nextPacket` retains each packet's TOC prefix so trimmed EOS pages can
+compute its end position even when the packet spans pages or exceeds the caller
+buffer. Its EOS granule helper uses the completed-page anchor and zero-copy
+trailing TOC views. The ordinary backward granule calculation remains the
+fallback when the timeline or duration is unknown.
+
+On Apple M4 Max, darwin/arm64, Go 1.27.0, the baseline reader at `867e1cc16`
+and the reader at `ce07256a4` use the same public `ReadPacketInto` benchmark and
+stream bytes. Each operation seeks to the first audio packet and consumes the
+complete 8- or 64-packet stream. The final page trims the last packet by 120
+samples. Construction and warmup occur outside the timer. The table gives
+three 1 s sample medians from consecutive baseline/candidate sessions; host
+frequency and session order remain timing risks. All rows report 0 B/op and
+0 allocs/op. The baseline returns incorrect earlier EOS packet granules; its
+timings are a cost comparison, not a valid implementation alternative.
+
+| `ReadPacketInto` stream | Before ns/op | Correct ns/op | Delta |
+|---|---:|---:|---:|
+| First-page EOS, 8 packets | 247.4 | 271.1 | +9.6% |
+| Later-page EOS, 8 packets | 244.5 | 274.6 | +12.3% |
+| First-page EOS, 64 packets | 5,522 | 5,006 | −9.3% |
+| Later-page EOS, 64 packets | 5,444 | 4,979 | −8.5% |
+
+The extra 8-packet cost is 24–30 ns per complete stream. These measurements
+include the changed packet iteration, page-history bookkeeping, EOS granule
+calculation and suffix scan; they do not measure codec encode/decode throughput.
+The FEC redundancy-mode correction has exact live-C output/range and warmed
+zero-allocation coverage; no isolated timing ratio is measured for that fix.
 
 ### Validation and performance follow-up
 
