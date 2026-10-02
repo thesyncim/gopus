@@ -106,8 +106,8 @@ func NewReader(r io.Reader) (*Reader, error) {
 			return nil, ErrInvalidPage
 		}
 		lastSequence = page.PageSequence
-		if page.IsContinuation() && len(tagsData) == 0 {
-			return nil, ErrInvalidPage // Can't continue from nothing.
+		if len(page.Segments) > 0 && page.IsContinuation() != (len(tagsData) > 0) {
+			return nil, ErrInvalidPage // The flag must match the pending comment packet.
 		}
 
 		// Stop at the OpusTags packet terminator, not merely the page's final
@@ -562,7 +562,13 @@ func packetDuration48k(packet []byte) (uint64, bool) {
 		return 0, false
 	}
 
-	return uint64(frameSize) * uint64(frameCount), true
+	duration := uint64(frameSize) * uint64(frameCount)
+	// libopus src/opus_decoder.c:opus_packet_get_nb_samples rejects packets
+	// longer than 120 ms. Unknown durations use the page-granule fallback.
+	if duration > 5760 {
+		return 0, false
+	}
+	return duration, true
 }
 
 func (or *Reader) streamOffset() (int64, error) {
