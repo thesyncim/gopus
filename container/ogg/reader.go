@@ -5,14 +5,24 @@ import "io"
 // Reader reads Opus packets from an Ogg stream. It retains parsing state and is
 // not safe for concurrent use.
 type Reader struct {
-	r           io.Reader
-	rs          io.ReadSeeker
-	Header      *OpusHead // Parsed ID header (set after NewReader)
-	Tags        *OpusTags // Parsed comment header (set after NewReader)
-	granulePos  uint64    // Granule position of the last consumed packet
-	eos         bool      // End-of-stream page consumed
-	serial      uint32    // Stream serial number
-	audioOffset int64     // Stream offset of the first audio page for seekable inputs
+	r             io.Reader
+	rs            io.ReadSeeker
+	Header        *OpusHead // Parsed ID header (set after NewReader)
+	Tags          *OpusTags // Parsed comment header (set after NewReader)
+	granulePos    uint64    // Granule position of the last consumed packet
+	eos           bool      // End-of-stream page consumed
+	serial        uint32    // Stream serial number
+	audioOffset   int64     // Stream offset of the first audio page for seekable inputs
+	audioSequence uint32    // Sequence number of the first audio page
+
+	lastAudioPageGranule uint64 // Granule position of the last completed audio page
+	haveAudioPageGranule bool   // lastAudioPageGranule is known
+	seenAudioPacket      bool   // a nonempty audio packet has completed
+	audioHistoryKnown    bool   // audio start has no selected-stream sequence gap or orphan packet
+	pageIsFirstAudio     bool   // no completed audio packet precedes this page
+	pageAudioDuration    uint64 // Duration of completed packets before the current packet
+	pageDurationKnown    bool   // pageAudioDuration includes every completed packet
+	pageHasAudioPacket   bool   // page has a consumed nonempty packet
 
 	pageBuffer   []byte // Read buffer; parsed pages alias it
 	bufferOffset int    // Start of unconsumed bytes in pageBuffer
@@ -129,6 +139,8 @@ func NewReader(r io.Reader) (*Reader, error) {
 		}
 		or.audioOffset = offset
 	}
+	or.audioSequence = lastSequence + 1
+	or.audioHistoryKnown = true
 
 	return or, nil
 }
@@ -193,11 +205,16 @@ func (or *Reader) nextPacket(dst []byte, limit int) ([]byte, uint64, error) {
 		dst = dst[:0]
 		dropped := false
 		tooLarge := false
+		var packetHeader [2]byte
+		packetHeaderLen := 0
 		for {
 			seg := int(or.page.Segments[or.segIdx])
 			or.segIdx++
 			if avail := len(or.page.Payload) - or.payOff; seg > avail {
 				seg = avail // truncated page: take what is present
+			}
+			if packetHeaderLen < len(packetHeader) {
+				packetHeaderLen += copy(packetHeader[packetHeaderLen:], or.page.Payload[or.payOff:or.payOff+seg])
 			}
 			if limit >= 0 && seg > limit-len(dst) {
 				tooLarge = true
@@ -233,8 +250,20 @@ func (or *Reader) nextPacket(dst []byte, limit int) ([]byte, uint64, error) {
 		if dropped || (len(dst) == 0 && !tooLarge) {
 			continue // restart, or skip an empty packet
 		}
-		granule := or.packetGranule()
+		var granule uint64
+		if or.page.IsEOS() {
+			duration, durationKnown := packetDuration48k(packetHeader[:packetHeaderLen])
+			granule = or.eosPacketGranule(duration, durationKnown)
+			if durationKnown && or.pageDurationKnown {
+				or.pageAudioDuration += duration
+			} else {
+				or.pageDurationKnown = false
+			}
+		} else {
+			granule = or.packetGranule()
+		}
 		or.granulePos = granule
+		or.pageHasAudioPacket = true
 		if tooLarge {
 			return dst[:0], 0, ErrPacketTooLarge
 		}
@@ -249,7 +278,19 @@ func (or *Reader) nextPacket(dst []byte, limit int) ([]byte, uint64, error) {
 // terminator; subsequent complete packets on the page remain readable.
 func (or *Reader) advancePage(continuePacket bool) (bool, error) {
 	// Capture this before readPage can replace or.page with another stream's page.
-	expectedSequence := or.page.PageSequence + 1
+	expectedSequence := or.audioSequence
+	if or.havePage {
+		expectedSequence = or.page.PageSequence + 1
+	}
+	if or.havePage && or.pageHasAudioPacket {
+		or.seenAudioPacket = true
+		if or.page.GranulePos != ^uint64(0) {
+			or.lastAudioPageGranule = or.page.GranulePos
+			or.haveAudioPageGranule = true
+		} else {
+			or.haveAudioPageGranule = false
+		}
+	}
 	for {
 		if _, err := or.readPage(); err != nil {
 			if err == io.EOF {
@@ -262,6 +303,17 @@ func (or *Reader) advancePage(continuePacket bool) (bool, error) {
 		}
 		continued := continuePacket && or.havePage &&
 			or.page.PageSequence == expectedSequence && or.page.IsContinuation()
+		sequenceContinuous := or.page.PageSequence == expectedSequence
+		or.pageIsFirstAudio = false
+		or.pageAudioDuration = 0
+		or.pageDurationKnown = true
+		or.pageHasAudioPacket = false
+		if !sequenceContinuous || (or.page.IsContinuation() && !continued) {
+			or.haveAudioPageGranule = false
+			or.audioHistoryKnown = false
+		} else if !or.haveAudioPageGranule && !or.seenAudioPacket && or.audioHistoryKnown {
+			or.pageIsFirstAudio = true
+		}
 		or.segIdx = 0
 		or.payOff = 0
 		or.havePage = true
@@ -282,10 +334,111 @@ func (or *Reader) advancePage(continuePacket bool) (bool, error) {
 	}
 }
 
-// packetGranule returns the granule position of the packet just assembled: the
-// current page granule minus the duration of every packet that completes after
-// it on the same page (RFC 7845 §4). If any trailing packet's duration is
-// unparseable the page granule is used as a safe fallback.
+// eosPacketGranule returns the current packet's end position on an EOS page.
+// The first audio page establishes its initial position from the page granule
+// and decoded duration; later pages continue from the preceding audio page.
+func (or *Reader) eosPacketGranule(duration uint64, durationKnown bool) uint64 {
+	if !durationKnown || !or.pageDurationKnown {
+		return or.packetGranule()
+	}
+
+	suffixDuration, suffixKnown, suffixPackets := or.trailingPacketInfo()
+	pageGranule := or.page.GranulePos
+	if or.haveAudioPageGranule {
+		if !suffixKnown {
+			return or.packetGranule()
+		}
+		end, ok := addGranuleDuration(or.lastAudioPageGranule, or.pageAudioDuration, duration)
+		if !ok {
+			return or.packetGranule()
+		}
+		if suffixPackets == 0 {
+			return pageGranule
+		}
+		if pageGranule != ^uint64(0) && end > pageGranule {
+			return pageGranule
+		}
+		return end
+	}
+	if !or.pageIsFirstAudio || !suffixKnown || pageGranule == ^uint64(0) {
+		return or.packetGranule()
+	}
+
+	total, ok := addGranuleDuration(or.pageAudioDuration, duration, suffixDuration)
+	if !ok {
+		return or.packetGranule()
+	}
+	initialGranule := uint64(0)
+	if pageGranule > total {
+		initialGranule = pageGranule - total
+	}
+	end, ok := addGranuleDuration(initialGranule, or.pageAudioDuration, duration)
+	if !ok {
+		return or.packetGranule()
+	}
+	if suffixPackets == 0 {
+		return pageGranule
+	}
+	if end > pageGranule {
+		return pageGranule
+	}
+	return end
+}
+
+func addGranuleDuration(base, prefix, duration uint64) (uint64, bool) {
+	if prefix > ^uint64(0)-base {
+		return 0, false
+	}
+	base += prefix
+	if duration > ^uint64(0)-base {
+		return 0, false
+	}
+	return base + duration, true
+}
+
+// trailingPacketInfo totals complete packets after the current packet without
+// retaining their payloads. The first two bytes are enough to read Opus packet
+// duration, including code-3 frame counts.
+func (or *Reader) trailingPacketInfo() (uint64, bool, int) {
+	page := &or.page
+	duration := uint64(0)
+	durationsKnown := true
+	packets := 0
+	off := or.payOff
+	for i := or.segIdx; i < len(page.Segments); {
+		start := off
+		terminated := false
+		for i < len(page.Segments) {
+			seg := int(page.Segments[i])
+			i++
+			if avail := len(page.Payload) - off; seg > avail {
+				seg = avail
+			}
+			off += seg
+			if page.Segments[i-1] < 255 {
+				terminated = true
+				break
+			}
+		}
+		if !terminated {
+			break // the trailing packet completes on another page
+		}
+		packets++
+		packetDuration, ok := packetDuration48k(page.Payload[start:off])
+		if !ok {
+			durationsKnown = false
+			continue
+		}
+		duration += packetDuration
+	}
+	return duration, durationsKnown, packets
+}
+
+// packetGranule is the backward fallback for non-EOS pages and EOS pages whose
+// packet durations are unknown. It subtracts the durations of later packets
+// that complete on the same page; known EOS trimming uses eosPacketGranule.
+// If a trailing packet's duration is unparseable, the page granule is the safe
+// fallback.
 func (or *Reader) packetGranule() uint64 {
 	page := &or.page
 	trailing := uint64(0)
@@ -336,6 +489,14 @@ func (or *Reader) SeekGranule(target uint64) error {
 
 	or.granulePos = 0
 	or.eos = false
+	or.lastAudioPageGranule = 0
+	or.haveAudioPageGranule = false
+	or.seenAudioPacket = false
+	or.audioHistoryKnown = true
+	or.pageIsFirstAudio = false
+	or.pageAudioDuration = 0
+	or.pageDurationKnown = false
+	or.pageHasAudioPacket = false
 	or.havePage = false
 	or.hasPush = false
 	or.segIdx = 0
