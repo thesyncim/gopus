@@ -30,15 +30,24 @@ const (
 )
 
 func main() {
-	outPath := flag.String("out", "", "Output Ogg Opus file path (defaults to temp when -play is set)")
-	duration := flag.Float64("duration", 2.0, "Duration in seconds")
-	bitrate := flag.Int("bitrate", 128000, "Target bitrate in bps")
-	channels := flag.Int("channels", 2, "Number of channels (1 or 2)")
-	signal := flag.String("signal", "chord", "Signal type: sine, sweep, noise, chord, speech")
-	frameSize := flag.Int("frame", 960, "Frame size in samples at 48kHz (e.g., 480, 960, 1920)")
-	play := flag.Bool("play", false, "Play the encoded Opus file with ffplay if available")
-	libopus := flag.Bool("libopus", false, "Use external libopus encoder (opusenc/ffmpeg) instead of gopus")
-	flag.Parse()
+	if err := run(os.Args[1:]); err != nil && !errors.Is(err, flag.ErrHelp) {
+		log.Fatal(err)
+	}
+}
+
+func run(args []string) error {
+	flags := flag.NewFlagSet("encode-play", flag.ContinueOnError)
+	outPath := flags.String("out", "", "Output Ogg Opus file path (defaults to temp when -play is set)")
+	duration := flags.Float64("duration", 2.0, "Duration in seconds")
+	bitrate := flags.Int("bitrate", 128000, "Target bitrate in bps")
+	channels := flags.Int("channels", 2, "Number of channels (1 or 2)")
+	signal := flags.String("signal", "chord", "Signal type: sine, sweep, noise, chord, speech")
+	frameSize := flags.Int("frame", 960, "Frame size in samples at 48kHz (e.g., 480, 960, 1920)")
+	play := flags.Bool("play", false, "Play the encoded Opus file with ffplay if available")
+	libopus := flags.Bool("libopus", false, "Use external libopus encoder (opusenc/ffmpeg) instead of gopus")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
 
 	if *channels < 1 {
 		*channels = 1
@@ -56,7 +65,7 @@ func main() {
 		if *play {
 			tmp, err := os.CreateTemp("", "gopus_encode_*.opus")
 			if err != nil {
-				log.Fatalf("Create temp file: %v", err)
+				return fmt.Errorf("create temp output: %w", err)
 			}
 			output = tmp.Name()
 			tempOutput = true
@@ -65,6 +74,13 @@ func main() {
 		} else {
 			output = "encoded.opus"
 		}
+	}
+	if tempOutput {
+		defer func() {
+			if cleanup != nil {
+				cleanup()
+			}
+		}()
 	}
 
 	var (
@@ -77,7 +93,7 @@ func main() {
 		stats, err = encodeToOgg(output, *duration, *bitrate, *channels, *frameSize, app, *signal)
 	}
 	if err != nil {
-		log.Fatalf("Encode failed: %v", err)
+		return fmt.Errorf("Encode failed: %w", err)
 	}
 
 	fmt.Printf("Encoded: %s\n", output)
@@ -98,9 +114,7 @@ func main() {
 		}
 	}
 
-	if tempOutput && cleanup != nil {
-		cleanup()
-	}
+	return nil
 }
 
 type encodeStats struct {

@@ -84,3 +84,23 @@ func TestEncodeWithLibopusRejectsUnsupportedFrameBeforeCreatingOutput(t *testing
 		t.Fatalf("output stat error = %v, want output to remain absent", err)
 	}
 }
+
+func TestRunRemovesTemporaryOutputAfterEncodeFailure(t *testing.T) {
+	tempDir := t.TempDir()
+	for _, key := range []string{"TMPDIR", "TMP", "TEMP", "SystemTemp"} {
+		t.Setenv(key, tempDir)
+	}
+
+	err := run([]string{"-play", "-duration=0"})
+	if err == nil || !strings.Contains(err.Error(), "duration must be a positive finite number") {
+		t.Fatalf("run error = %v, want invalid duration error", err)
+	}
+
+	leftovers, err := filepath.Glob(filepath.Join(os.TempDir(), "gopus_encode_*.opus"))
+	if err != nil {
+		t.Fatalf("Glob temporary output: %v", err)
+	}
+	if len(leftovers) != 0 {
+		t.Fatalf("temporary Opus output remains after encode failure: %v", leftovers)
+	}
+}
