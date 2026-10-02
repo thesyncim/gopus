@@ -76,9 +76,10 @@ func TestDecodeWithFECPreviousCELTRedundancyFallbackMatchesSelectedLibopus(t *te
 						outputLength := frameSize * channels
 						var n int
 						var decodeErr error
-						if step == 3 {
+						switch step {
+						case 3:
 							n, decodeErr = dec.DecodeWithFEC(packets[tc.fecPacketIndex], pcm32[:outputLength], true)
-						} else if step == 4 {
+						case 4:
 							switch format.kind {
 							case libopustest.DecodeDiffFormatFloat32:
 								n, decodeErr = dec.Decode(nil, pcm32[:outputLength])
@@ -87,7 +88,7 @@ func TestDecodeWithFECPreviousCELTRedundancyFallbackMatchesSelectedLibopus(t *te
 							default:
 								n, decodeErr = dec.DecodeInt24(nil, pcm24[:outputLength])
 							}
-						} else {
+						default:
 							packetIndex := step
 							if step == 5 {
 								packetIndex = tc.fecPacketIndex
