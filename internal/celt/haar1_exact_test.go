@@ -48,6 +48,7 @@ func TestHaar1MatchesLibopus(t *testing.T) {
 		{nameHaarCase(8, 2), makeInput(16, 0x1002), 8, 2},
 		{nameHaarCase(6, 2), makeInput(12, 0x1006), 6, 2},
 		{nameHaarCase(16, 4), makeInput(64, 0x1004), 16, 4},
+		{nameHaarCase(6, 4), makeInput(24, 0x4006), 6, 4},
 		{nameHaarCase(48, 6), makeInput(288, 0x1006), 48, 6},
 		{nameHaarCase(120, 8), makeInput(960, 0x1008), 120, 8},
 		{nameHaarCase(120, 12), makeInput(1440, 0x1012), 120, 12},
@@ -189,7 +190,15 @@ func TestHaar1StrideFastPathsMatchGenericExact(t *testing.T) {
 	}
 	for ci, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := append([]float32(nil), tc.x...)
+			const (
+				prefixCanary = float32(123456.75)
+				suffixCanary = float32(-98765.25)
+			)
+			backing := make([]float32, len(tc.x)+2)
+			backing[0] = prefixCanary
+			backing[len(backing)-1] = suffixCanary
+			got := backing[1 : len(backing)-1]
+			copy(got, tc.x)
 			switch tc.stride {
 			case 1:
 				haar1Stride1(got, pairs)
@@ -202,6 +211,12 @@ func TestHaar1StrideFastPathsMatchGenericExact(t *testing.T) {
 				if math.Float32bits(sample) != math.Float32bits(want[ci][i]) {
 					t.Fatalf("x[%d]=%08x want %08x", i, math.Float32bits(sample), math.Float32bits(want[ci][i]))
 				}
+			}
+			if got := math.Float32bits(backing[0]); got != math.Float32bits(prefixCanary) {
+				t.Fatalf("prefix canary changed: got %08x want %08x", got, math.Float32bits(prefixCanary))
+			}
+			if got := math.Float32bits(backing[len(backing)-1]); got != math.Float32bits(suffixCanary) {
+				t.Fatalf("suffix canary changed: got %08x want %08x", got, math.Float32bits(suffixCanary))
 			}
 		})
 	}
