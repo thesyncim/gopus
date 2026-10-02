@@ -667,25 +667,33 @@ func TestHotPathAllocsEncodeLongPacketSILK(t *testing.T) {
 	runLongPacketAllocGuard(t, ApplicationVoIP, EncoderModeSILK, BandwidthWideband, 24000, 1)
 }
 
-func TestHotPathAllocsStreamWriterFloat32(t *testing.T) {
-	writer, err := NewWriter(48000, 2, nopPacketSink{}, FormatFloat32LE, ApplicationAudio)
-	if err != nil {
-		t.Fatalf("NewWriter: %v", err)
-	}
-	pcmBytes := generateFloat32Bytes(48000, 2, 960, 440.0)
-
-	for range 5 {
-		if _, err := writer.Write(pcmBytes); err != nil {
-			t.Fatalf("warmup Write: %v", err)
-		}
-	}
-
-	allocs := testing.AllocsPerRun(200, func() {
-		if _, err := writer.Write(pcmBytes); err != nil {
-			t.Fatalf("Write: %v", err)
-		}
-	})
-	if allocs != 0 {
-		t.Fatalf("stream Writer.Write allocs/op = %.2f, want 0", allocs)
+func TestHotPathAllocsStreamWriter(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		format SampleFormat
+		pcm    []byte
+	}{
+		{"float32", FormatFloat32LE, generateFloat32Bytes(48000, 2, 960, 440.0)},
+		{"int16", FormatInt16LE, generateInt16Bytes(48000, 2, 960, 440.0)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			writer, err := NewWriter(48000, 2, nopPacketSink{}, tc.format, ApplicationAudio)
+			if err != nil {
+				t.Fatalf("NewWriter: %v", err)
+			}
+			for range 5 {
+				if _, err := writer.Write(tc.pcm); err != nil {
+					t.Fatalf("warmup Write: %v", err)
+				}
+			}
+			allocs := testing.AllocsPerRun(200, func() {
+				if _, err := writer.Write(tc.pcm); err != nil {
+					t.Fatalf("Write: %v", err)
+				}
+			})
+			if allocs != 0 {
+				t.Fatalf("stream Writer.Write allocs/op = %.2f, want 0", allocs)
+			}
+		})
 	}
 }

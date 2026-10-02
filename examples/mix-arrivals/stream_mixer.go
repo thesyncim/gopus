@@ -25,6 +25,7 @@ type StreamMixerConfig struct {
 
 // TrackConfig controls runtime track behavior.
 type TrackConfig struct {
+	// Gain is a linear multiplier; zero silences the track.
 	Gain  float32
 	Muted bool
 }
@@ -117,12 +118,8 @@ func (m *StreamMixer) AddTrack(trackID string, cfg TrackConfig) error {
 	if _, ok := m.tracks[trackID]; ok {
 		return ErrTrackAlreadyAdded
 	}
-	gain := cfg.Gain
-	if gain == 0 {
-		gain = 1
-	}
 	m.tracks[trackID] = &streamTrack{
-		gain:  gain,
+		gain:  cfg.Gain,
 		muted: cfg.Muted,
 	}
 	return nil

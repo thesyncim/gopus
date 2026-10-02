@@ -36,6 +36,43 @@ class FullParityComparisonTest(unittest.TestCase):
         log = "    encoder_cbr_byte_parity_test.go:637: CELT-FB-5ms-mono-64k 200 5 ~ (pure-Go CELT float residual)\npass=0 residual=1 fail=0 skip=0\n"
         self.assertEqual(cbr_rows(log), {"CELT-FB-5ms-mono-64k": (200, 5, "RESIDUAL")})
 
+    def test_parses_live_legacy_19_case_summary(self):
+        log = """\
+    encoder_cbr_byte_parity_test.go:1023: SILK-NB-10ms-mono-16k                   100       0     OK
+    encoder_cbr_byte_parity_test.go:1023: SILK-NB-20ms-mono-16k                    50       0     OK
+    encoder_cbr_byte_parity_test.go:1023: SILK-MB-20ms-mono-24k                    50       0     OK
+    encoder_cbr_byte_parity_test.go:1023: SILK-WB-10ms-mono-32k                   100       0     OK
+    encoder_cbr_byte_parity_test.go:1023: SILK-WB-20ms-mono-32k                    50       0     OK
+    encoder_cbr_byte_parity_test.go:1023: SILK-WB-40ms-mono-32k                    25       0     OK
+    encoder_cbr_byte_parity_test.go:1023: SILK-WB-20ms-stereo-48k                  50       0     OK
+    encoder_cbr_byte_parity_test.go:1023: CELT-FB-2p5ms-mono-64k                  400       0     OK
+    encoder_cbr_byte_parity_test.go:1023: CELT-FB-2p5ms-stereo-128k               400       0     OK
+    encoder_cbr_byte_parity_test.go:1023: CELT-FB-5ms-mono-64k                    200       0     OK
+    encoder_cbr_byte_parity_test.go:1023: CELT-FB-5ms-stereo-128k                 200       0     OK
+    encoder_cbr_byte_parity_test.go:1023: CELT-FB-10ms-mono-64k                   100       0     OK
+    encoder_cbr_byte_parity_test.go:1023: CELT-FB-20ms-mono-64k                    50       0     OK
+    encoder_cbr_byte_parity_test.go:1023: CELT-FB-20ms-stereo-128k                 50       0     OK
+    encoder_cbr_byte_parity_test.go:1023: Hybrid-SWB-10ms-mono-48k                100       0     OK
+    encoder_cbr_byte_parity_test.go:1023: Hybrid-SWB-20ms-mono-48k                 50       0     OK
+    encoder_cbr_byte_parity_test.go:1023: Hybrid-FB-10ms-mono-64k                 100       0     OK
+    encoder_cbr_byte_parity_test.go:1023: Hybrid-FB-20ms-mono-64k                  50       0     OK
+    encoder_cbr_byte_parity_test.go:1023: Hybrid-FB-20ms-stereo-96k                50       0     OK
+    encoder_cbr_byte_parity_test.go:1031: pass=19 fail=0 skip=0  arch=linux/amd64
+"""
+        rows = cbr_rows(log)
+        self.assertEqual(len(rows), 19)
+        self.assertEqual(baseline_cbr_errors(0, log), [])
+
+    def test_rejects_cbr_summary_category_mismatch(self):
+        log = "    encoder_cbr_byte_parity_test.go:1: case1 50 0 OK\npass=0 fail=1 skip=0 arch=linux/amd64\n"
+        with self.assertRaisesRegex(ValueError, "row categories"):
+            cbr_rows(log)
+
+    def test_legacy_cbr_summary_cannot_hide_residual_rows(self):
+        log = "    encoder_cbr_byte_parity_test.go:1: case1 50 2 ~ (pure-Go CELT float residual)\npass=1 fail=0 skip=0 arch=linux/amd64\n"
+        with self.assertRaisesRegex(ValueError, "row categories"):
+            cbr_rows(log)
+
     def test_precision_gap_uses_both_mode_matched_q_values(self):
         log = "RealContent gopus Q=31.56\nRealContent libopus Q=31.56\n"
         self.assertEqual(precision_gap(log), 0)

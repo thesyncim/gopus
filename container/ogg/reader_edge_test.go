@@ -607,3 +607,39 @@ func TestReaderDropsPacketsWithMissingContinuationPages(t *testing.T) {
 		})
 	}
 }
+
+func TestSeekGranulePreservesEOSPage(t *testing.T) {
+	const serial = 0x1937
+	first := []byte{0xf8, 0x11}
+	last := []byte{0xf8, 0x22}
+	stream := readerBoundaryPacketPage(serial, 0, PageFlagBOS, 0, DefaultOpusHead(48000, 1).Encode())
+	stream = append(stream, readerBoundaryPacketPage(serial, 1, 0, 0, DefaultOpusTags().Encode())...)
+	stream = append(stream, readerBoundaryPacketPage(serial, 2, PageFlagEOS, 1920, first, last)...)
+	stream = append(stream, []byte("bytes beyond the selected logical stream")...)
+
+	for _, target := range []uint64{0, 1920} {
+		r, err := NewReader(bytes.NewReader(stream))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := r.SeekGranule(target); err != nil {
+			t.Fatalf("SeekGranule(%d): %v", target, err)
+		}
+		if !r.EOF() {
+			t.Errorf("SeekGranule(%d) clears the loaded EOS page", target)
+		}
+		wantPackets := [][]byte{first, last}
+		if target == 1920 {
+			wantPackets = wantPackets[1:]
+		}
+		for _, want := range wantPackets {
+			packet, _, err := r.ReadPacket()
+			if err != nil || !bytes.Equal(packet, want) {
+				t.Fatalf("after seek %d: packet=%x err=%v, want %x", target, packet, err, want)
+			}
+		}
+		if _, _, err := r.ReadPacket(); !errors.Is(err, io.EOF) {
+			t.Errorf("after EOS and seek %d: err=%v, want io.EOF", target, err)
+		}
+	}
+}

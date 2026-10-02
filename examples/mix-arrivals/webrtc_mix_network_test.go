@@ -59,6 +59,35 @@ func TestMixTimedTracksWebRTCWithNetwork_NoLossMatchesOffline(t *testing.T) {
 	assertFloat32Slice(t, got, offline)
 }
 
+func TestMixTimedTracksZeroGainStaysMutedAcrossMixers(t *testing.T) {
+	tracks := []TimedTrack{{
+		Name:        "muted",
+		StartSample: 0,
+		Gain:        0,
+		PCM:         []float32{0.75, -0.5, 0.25, -0.125},
+	}}
+
+	offline, err := MixTimedTracks(tracks, channels)
+	if err != nil {
+		t.Fatalf("offline mix error: %v", err)
+	}
+	streamed, _, err := MixTimedTracksWebRTCStyle(tracks, 2)
+	if err != nil {
+		t.Fatalf("WebRTC-style mix error: %v", err)
+	}
+	network, _, _, err := MixTimedTracksWebRTCWithNetwork(tracks, 2, NetworkSimConfig{
+		MaxNegativeJitterFrames: 0,
+		MaxPositiveJitterFrames: 0,
+	})
+	if err != nil {
+		t.Fatalf("network mix error: %v", err)
+	}
+
+	assertFloat32Slice(t, offline, []float32{0, 0, 0, 0})
+	assertFloat32Slice(t, streamed, offline)
+	assertFloat32Slice(t, network, offline)
+}
+
 func TestMixTimedTracksWebRTCWithNetwork_AllLossNoPLCIsSilence(t *testing.T) {
 	t.Helper()
 

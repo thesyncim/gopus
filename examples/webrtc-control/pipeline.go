@@ -5,20 +5,31 @@ import (
 	"fmt"
 	"log"
 	"math/rand/v2"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/pion/interceptor"
+	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
 	"github.com/pion/webrtc/v4/pkg/media"
 	"github.com/thesyncim/gopus"
+)
+
+const (
+	minOpusRTPPacketSamples = 120
+	maxOpusRTPPacketSamples = 5760
+	maxIncomingGapSamples   = sampleRate
+	maxIncomingGapPackets   = 100
 )
 
 // pipeline manages the audio encode/decode loop for a single WebRTC session.
 type pipeline struct {
 	mu sync.Mutex
 
-	enc *gopus.Encoder
-	dec *gopus.Decoder
+	enc           *gopus.Encoder
+	dec           *gopus.Decoder
+	decoderConfig gopus.DecoderConfig
 
 	gen *signalGenerator
 
@@ -82,6 +93,16 @@ func (q *pcmFIFO) reset() {
 	q.offset = 0
 }
 
+type incomingRTPReader interface {
+	ReadRTP() (*rtp.Packet, interceptor.Attributes, error)
+}
+
+type incomingRTPState struct {
+	expectedSequence  uint16
+	expectedTimestamp uint32
+	initialized       bool
+}
+
 func drainLoopbackQueue(ch <-chan []float32) {
 	for {
 		select {
@@ -115,15 +136,16 @@ func newPipeline(track *webrtc.TrackLocalStaticSample) (*pipeline, error) {
 	}
 
 	return &pipeline{
-		enc:         enc,
-		dec:         dec,
-		gen:         newSignalGenerator("chord", channels),
-		track:       track,
-		channels:    channels,
-		frameSize:   frameSize,
-		application: app,
-		loopbackCh:  make(chan []float32, 50),
-		stopCh:      make(chan struct{}),
+		enc:           enc,
+		dec:           dec,
+		decoderConfig: decCfg,
+		gen:           newSignalGenerator("chord", channels),
+		track:         track,
+		channels:      channels,
+		frameSize:     frameSize,
+		application:   app,
+		loopbackCh:    make(chan []float32, 50),
+		stopCh:        make(chan struct{}),
 	}, nil
 }
 
@@ -274,7 +296,20 @@ func (p *pipeline) encodeLoop() {
 // handleIncomingTrack reads RTP from a remote audio track, decodes Opus, and
 // pushes PCM into the loopback channel.
 func (p *pipeline) handleIncomingTrack(remote *webrtc.TrackRemote) {
-	pcm := make([]float32, 5760*2)
+	codec := remote.Codec()
+	if codec.ClockRate != sampleRate || codec.Channels > 2 {
+		log.Printf("unsupported incoming Opus format: clock rate=%d channels=%d", codec.ClockRate, codec.Channels)
+		return
+	}
+	p.handleIncomingRTP(remote, negotiatedInbandFEC(codec.SDPFmtpLine))
+}
+
+func (p *pipeline) handleIncomingRTP(remote incomingRTPReader, fecEnabled bool) {
+	p.mu.Lock()
+	channels := p.channels
+	p.mu.Unlock()
+	pcm := make([]float32, maxOpusRTPPacketSamples*channels)
+	state := incomingRTPState{}
 
 	for {
 		select {
@@ -288,33 +323,130 @@ func (p *pipeline) handleIncomingTrack(remote *webrtc.TrackRemote) {
 		if err != nil {
 			return
 		}
-		payload := rtpPkt.Payload
-		if len(payload) == 0 {
-			continue
+		p.decodeIncomingRTP(rtpPkt, &state, fecEnabled, pcm)
+	}
+}
+
+func negotiatedInbandFEC(fmtp string) bool {
+	for _, parameter := range strings.Split(fmtp, ";") {
+		key, value, ok := strings.Cut(strings.TrimSpace(parameter), "=")
+		if ok && strings.EqualFold(strings.TrimSpace(key), "useinbandfec") {
+			return strings.TrimSpace(value) == "1"
+		}
+	}
+	return false
+}
+
+func (p *pipeline) decodeIncomingRTP(packet *rtp.Packet, state *incomingRTPState, fecEnabled bool, pcm []float32) {
+	if packet == nil || len(packet.Payload) == 0 {
+		return
+	}
+	packetInfo, err := gopus.ParsePacket(packet.Payload)
+	if err != nil {
+		// Reject malformed framing before concealment can advance the decoder.
+		// The next valid RTP packet then recovers the complete interval once.
+		log.Printf("malformed incoming Opus packet: %v", err)
+		return
+	}
+	decoderConfig := p.decoderConfig
+	if len(packet.Payload) > decoderConfig.MaxPacketBytes {
+		log.Printf("incoming Opus packet has %d bytes, decoder limit is %d", len(packet.Payload), decoderConfig.MaxPacketBytes)
+		return
+	}
+	packetSamples := packetInfo.TOC.FrameSize * packetInfo.FrameCount
+	if packetSamples > decoderConfig.MaxPacketSamples {
+		log.Printf("incoming Opus packet has %d samples, decoder limit is %d", packetSamples, decoderConfig.MaxPacketSamples)
+		return
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	channels := p.channels
+	if channels < 1 || len(pcm) < maxOpusRTPPacketSamples*channels {
+		log.Printf("incoming PCM buffer does not hold one maximum Opus packet")
+		return
+	}
+
+	if state.initialized {
+		missingPackets := uint16(packet.SequenceNumber - state.expectedSequence)
+		if missingPackets >= 0x8000 {
+			// Modular sequence arithmetic classifies reordered and duplicate RTP
+			// packets without confusing a normal sequence-number wrap for loss.
+			return
 		}
 
-		p.mu.Lock()
-		channels := p.channels
-		samples, err := p.dec.Decode(payload, pcm)
+		gapSamples := packet.Timestamp - state.expectedTimestamp
+		if gapSamples > 0 {
+			plausibleGap := gapSamples <= maxIncomingGapSamples && gapSamples%minOpusRTPPacketSamples == 0
+			if missingPackets > 0 {
+				minGap := uint32(missingPackets) * minOpusRTPPacketSamples
+				maxGap := uint32(missingPackets) * maxOpusRTPPacketSamples
+				plausibleGap = plausibleGap && int(missingPackets) <= maxIncomingGapPackets && gapSamples >= minGap && gapSamples <= maxGap
+			}
+			if plausibleGap {
+				p.recoverIncomingGap(packet.Payload, missingPackets, int(gapSamples), fecEnabled, channels, pcm)
+			} else {
+				log.Printf("skip implausible incoming RTP gap: packets=%d samples=%d", missingPackets, gapSamples)
+			}
+		}
+	}
+
+	samples, err := p.dec.Decode(packet.Payload, pcm)
+	if err != nil {
+		log.Printf("decode error: %v", err)
+		return
+	}
+	state.expectedSequence = packet.SequenceNumber + 1
+	state.expectedTimestamp = packet.Timestamp + uint32(samples)
+	state.initialized = true
+	p.enqueueLoopbackPCM(pcm, samples, channels)
+}
+
+func (p *pipeline) recoverIncomingGap(payload []byte, missingPackets uint16, gapSamples int, fecEnabled bool, channels int, pcm []float32) {
+	if gapSamples <= 0 || gapSamples%minOpusRTPPacketSamples != 0 {
+		return
+	}
+	if missingPackets == 1 && fecEnabled && gapSamples <= maxOpusRTPPacketSamples {
+		n, err := p.dec.DecodeWithFEC(payload, pcm[:gapSamples*channels], true)
+		if err == nil && n == gapSamples {
+			p.enqueueLoopbackPCM(pcm, n, channels)
+			return
+		}
 		if err != nil {
-			p.mu.Unlock()
-			log.Printf("decode error: %v", err)
-			continue
+			log.Printf("FEC recovery error: %v; using PLC", err)
+		} else {
+			log.Printf("FEC recovery returned %d samples, want %d; using PLC", n, gapSamples)
 		}
-		if samples == 0 || !p.loopback {
-			p.mu.Unlock()
-			continue
-		}
+	}
 
-		// Non-blocking send to loopback channel.
-		frame := make([]float32, samples*channels)
-		copy(frame, pcm[:samples*channels])
-		select {
-		case p.loopbackCh <- frame:
-		default:
-			// Drop if channel is full.
+	for remaining := gapSamples; remaining > 0; {
+		chunkSamples := min(remaining, maxOpusRTPPacketSamples)
+		// Empty-packet DecodeWithFEC treats the output length as an explicit PLC
+		// duration, including a full MaxPacketSamples buffer.
+		n, err := p.dec.DecodeWithFEC(nil, pcm[:chunkSamples*channels], true)
+		if err != nil {
+			log.Printf("PLC for incoming RTP gap error: %v", err)
+			return
 		}
-		p.mu.Unlock()
+		if n != chunkSamples {
+			log.Printf("PLC returned %d samples for incoming RTP gap, want %d", n, chunkSamples)
+			return
+		}
+		p.enqueueLoopbackPCM(pcm, n, channels)
+		remaining -= n
+	}
+}
+
+func (p *pipeline) enqueueLoopbackPCM(pcm []float32, samples, channels int) {
+	if samples <= 0 || !p.loopback {
+		return
+	}
+	frame := make([]float32, samples*channels)
+	copy(frame, pcm[:samples*channels])
+	select {
+	case p.loopbackCh <- frame:
+	default:
+		// Drop if the loopback queue is full.
 	}
 }
 
