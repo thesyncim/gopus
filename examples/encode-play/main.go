@@ -93,7 +93,7 @@ func run(args []string) error {
 		stats, err = encodeToOgg(output, *duration, *bitrate, *channels, *frameSize, app, *signal)
 	}
 	if err != nil {
-		return fmt.Errorf("Encode failed: %w", err)
+		return fmt.Errorf("encode failed: %w", err)
 	}
 
 	fmt.Printf("Encoded: %s\n", output)
