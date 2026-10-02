@@ -213,7 +213,12 @@ func TestDecodeDifferentialFixedPointPLC(t *testing.T) {
 		stride = len(specs) / budget
 	}
 
-	selected, tested := 0, 0
+	type selectedPLCSpec struct {
+		index int
+		spec  encodeSweepSpec
+	}
+	selectedSpecs := make([]selectedPLCSpec, 0, budget)
+	selected := 0
 	for idx := 0; idx < len(specs) && selected < budget; idx += stride {
 		spec := specs[idx]
 		// DTX produces empty packets which are already a concealment path; layering
@@ -222,9 +227,37 @@ func TestDecodeDifferentialFixedPointPLC(t *testing.T) {
 			continue
 		}
 		selected++
-		t.Run(spec.name, func(t *testing.T) {
-			tested++
-			specRng := rand.New(rand.NewSource(int64(idx)*40503 + 11))
+		selectedSpecs = append(selectedSpecs, selectedPLCSpec{index: idx, spec: spec})
+	}
+
+	type plcCaseResult struct {
+		executed bool
+	}
+	results := make([]plcCaseResult, len(selectedSpecs))
+	workerLimit := min(4, runtime.GOMAXPROCS(0), len(selectedSpecs))
+	workers := make(chan struct{}, workerLimit)
+	t.Cleanup(func() {
+		tested := 0
+		for _, result := range results {
+			if result.executed {
+				tested++
+			}
+		}
+		t.Logf("fixed PLC sweep (CELT-only + SILK + Hybrid): %d specs × %d frames (float32+int16+int24)", tested, framesPerSpec)
+	})
+
+	for resultIndex, selected := range selectedSpecs {
+		resultIndex, selected := resultIndex, selected
+		t.Run(selected.spec.name, func(t *testing.T) {
+			t.Parallel()
+			workers <- struct{}{}
+			defer func() { <-workers }()
+
+			result := plcCaseResult{executed: true}
+			defer func() { results[resultIndex] = result }()
+
+			spec := selected.spec
+			specRng := rand.New(rand.NewSource(int64(selected.index)*40503 + 11))
 			encoded, ok := encodePackets(t, spec, specRng, framesPerSpec)
 			if !ok {
 				t.Fatalf("encoder rejected valid config %s", spec.name)
@@ -246,7 +279,6 @@ func TestDecodeDifferentialFixedPointPLC(t *testing.T) {
 			assertFixedDecodeSequence(t, sampleRate, spec.channels, frameSamples, steps)
 		})
 	}
-	t.Logf("fixed PLC sweep (CELT-only + SILK + Hybrid): %d specs × %d frames (float32+int16+int24)", tested, framesPerSpec)
 }
 
 // TestDecodeDifferentialFixedPointMultiSampleRate checks received packets at
