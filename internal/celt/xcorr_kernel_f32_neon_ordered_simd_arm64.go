@@ -2,10 +2,7 @@
 
 package celt
 
-import (
-	"simd/archsimd"
-	"unsafe"
-)
+import "simd/archsimd"
 
 // pitchXcorrUsesNeonFMA selects libopus' fused NEON pitch xcorr on arm64.
 const pitchXcorrUsesNeonFMA = true
@@ -20,9 +17,9 @@ func xcorrKernel4Float32NeonOrdered(x, y []float32, sum *[4]float32, length int)
 	}
 	_ = x[length-1]
 	_ = y[length+2]
-	acc := loadF32x4(unsafe.Pointer(sum))
+	acc := archsimd.LoadFloat32x4Array(sum)
 	for i := 0; i < length; i++ {
-		acc = loadF32x4(unsafe.Pointer(&y[i])).MulAdd(archsimd.BroadcastFloat32x4(x[i]), acc)
+		acc = archsimd.LoadFloat32x4Array((*[4]float32)(y[i:])).MulAdd(archsimd.BroadcastFloat32x4(x[i]), acc)
 	}
-	storeF32x4(unsafe.Pointer(sum), acc)
+	acc.StoreArray(sum)
 }

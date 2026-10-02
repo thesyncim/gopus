@@ -102,7 +102,7 @@ func TestPublicEncodeAPIErrorFinalRangeAndRecoveryMatchesLibopus(t *testing.T) {
 					{name: "recovery after invalid expert frame", duration: ExpertFrameDurationArg, budget: 4000},
 					{name: "zero output budget", duration: ExpertFrameDurationArg, budget: 0, wantErr: ErrBufferTooSmall},
 					{name: "recovery after zero budget", duration: ExpertFrameDurationArg, budget: 4000},
-					{name: "invalid frame and zero budget", duration: ExpertFrameDuration120Ms, budget: 0, wantErr: ErrBufferTooSmall},
+					{name: "invalid frame and zero budget", duration: ExpertFrameDuration120Ms, budget: 0, wantErr: ErrInvalidFrameSize},
 					{name: "recovery after both errors", duration: ExpertFrameDurationArg, budget: 4000},
 				}
 				for i, step := range steps {

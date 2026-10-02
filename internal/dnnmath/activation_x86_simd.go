@@ -3,8 +3,8 @@
 package dnnmath
 
 import (
+	"math"
 	"simd/archsimd"
-	"unsafe"
 )
 
 // X86VectorKernels reports whether the SIMD lane selects libopus's AVX2/FMA
@@ -94,10 +94,10 @@ func expVectorX86AVX2(out, in []float32, n int) {
 	archsimd.ClearAVXUpperBits()
 }
 
-// storeLane0X86 stores lane 0 of v through an integer register: a scalar
-// float store would be a legacy SSE instruction inside the 256-bit region.
+// storeLane0X86 bit-casts lane 0 before assignment, which stores the scalar
+// result without introducing a legacy SSE operation inside the 256-bit region.
 func storeLane0X86(dst *float32, v archsimd.Float32x8) {
-	*(*int32)(unsafe.Pointer(dst)) = v.GetLo().AsInt32x4().GetElem(0)
+	*dst = math.Float32frombits(uint32(v.GetLo().AsInt32x4().GetElem(0)))
 }
 
 // minPS returns _mm256_min_ps(a, b): MINPS yields its second operand when

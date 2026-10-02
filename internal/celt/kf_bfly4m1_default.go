@@ -1,19 +1,15 @@
 package celt
 
-import "unsafe"
-
 // kfBfly4M1CoreScalar is the kf_bfly4 m == 1 stage: n twiddle-free radix-4
-// butterflies over consecutive groups of four values. Each group is addressed
-// through a four-element array pointer at a byte offset, so its loads and
-// stores use constant displacements from one base.
+// butterflies over consecutive groups of four values, using a fixed-size array
+// view for each group.
 func kfBfly4M1CoreScalar(fout []kissCpx, n int) {
 	if n <= 0 {
 		return
 	}
-	// Group i sits at byte offset 32*i of the checked fout[:4*n].
-	base := unsafe.Pointer(unsafe.SliceData(fout[:4*n]))
-	for off := uintptr(0); off < uintptr(n)*32; off += 32 {
-		g := (*[4]kissCpx)(unsafe.Add(base, off))
+	groups := fout[:4*n]
+	for i := 0; i < len(groups); i += 4 {
+		g := (*[4]kissCpx)(groups[i : i+4])
 		a0r, a0i := g[0].r, g[0].i
 		a1r, a1i := g[1].r, g[1].i
 		a2r, a2i := g[2].r, g[2].i

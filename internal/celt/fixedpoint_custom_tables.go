@@ -46,7 +46,7 @@ func (t *FixedCustomTables) MaxPulsesBits(band, lm int) int {
 	if !ok {
 		return -1
 	}
-	return int(cache[cache[0]])
+	return int(cache.bits[cache.bits[0]])
 }
 
 func (t *FixedCustomTables) ComputeAllocationWithEncoderStartInto(sc *AllocEncodeScratch, re *rangecoding.Encoder,

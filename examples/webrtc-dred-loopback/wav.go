@@ -5,8 +5,13 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"path/filepath"
 	"time"
+)
+
+const (
+	wavHeaderSize     = 44
+	wavRIFFFixedSize  = 36
+	wavBytesPerSample = 2
 )
 
 type wavRecorder struct {
@@ -24,14 +29,15 @@ func newWAVRecorder(dir string, channels, sampleRate int) (*wavRecorder, error) 
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
-	path := filepath.Join(dir, "loopback-"+time.Now().Format("20060102-150405")+".wav")
-	f, err := os.Create(path)
+	pattern := "loopback-" + time.Now().Format("20060102-150405") + "-*.wav"
+	f, err := os.CreateTemp(dir, pattern)
 	if err != nil {
 		return nil, err
 	}
-	w := &wavRecorder{file: f, path: path, channels: channels, sampleRate: sampleRate}
+	w := &wavRecorder{file: f, path: f.Name(), channels: channels, sampleRate: sampleRate}
 	if err := w.writeHeader(); err != nil {
 		_ = f.Close()
+		_ = os.Remove(f.Name())
 		return nil, err
 	}
 	return w, nil
@@ -44,13 +50,27 @@ func (w *wavRecorder) Path() string {
 	return w.path
 }
 
+// WriteFloat32 appends interleaved PCM while its classic RIFF sizes remain representable.
 func (w *wavRecorder) WriteFloat32(pcm []float32) error {
 	if w == nil || w.file == nil || len(pcm) == 0 {
 		return nil
 	}
+	if w.channels <= 0 {
+		return fmt.Errorf("invalid WAV channel count %d", w.channels)
+	}
+	if len(pcm)%w.channels != 0 {
+		return fmt.Errorf("WAV samples are not aligned to %d channels", w.channels)
+	}
+
+	maxDataBytes := uint64(maxWAVDataBytes(w.channels))
+	currentBytes := uint64(w.dataBytes)
+	if currentBytes > maxDataBytes || uint64(len(pcm)) > (maxDataBytes-currentBytes)/wavBytesPerSample {
+		return fmt.Errorf("WAV recording exceeds the classic RIFF data limit of %d bytes", maxDataBytes)
+	}
+
 	var scratch [4096]byte
 	for len(pcm) > 0 {
-		n := len(scratch) / 2
+		n := len(scratch) / wavBytesPerSample
 		if n > len(pcm) {
 			n = len(pcm)
 		}
@@ -64,13 +84,23 @@ func (w *wavRecorder) WriteFloat32(pcm []float32) error {
 			v := int16(math.Round(s * 32767))
 			binary.LittleEndian.PutUint16(scratch[i*2:], uint16(v))
 		}
-		if _, err := w.file.Write(scratch[:n*2]); err != nil {
+		if _, err := w.file.Write(scratch[:n*wavBytesPerSample]); err != nil {
 			return err
 		}
-		w.dataBytes += uint32(n * 2)
+		w.dataBytes += uint32(n * wavBytesPerSample)
 		pcm = pcm[n:]
 	}
 	return nil
+}
+
+// maxWAVDataBytes returns the largest frame-aligned PCM chunk that fits a classic RIFF file.
+func maxWAVDataBytes(channels int) uint32 {
+	if channels <= 0 {
+		return 0
+	}
+	blockAlign := uint64(channels) * wavBytesPerSample
+	maxDataBytes := uint64(^uint32(0)) - wavRIFFFixedSize
+	return uint32(maxDataBytes - maxDataBytes%blockAlign)
 }
 
 func (w *wavRecorder) Close() error {
@@ -87,7 +117,7 @@ func (w *wavRecorder) Close() error {
 }
 
 func (w *wavRecorder) writeHeader() error {
-	header := make([]byte, 44)
+	header := make([]byte, wavHeaderSize)
 	copy(header[0:], "RIFF")
 	copy(header[8:], "WAVE")
 	copy(header[12:], "fmt ")
@@ -105,6 +135,9 @@ func (w *wavRecorder) writeHeader() error {
 }
 
 func (w *wavRecorder) patchHeader() error {
+	if uint64(w.dataBytes) > uint64(^uint32(0))-wavRIFFFixedSize {
+		return fmt.Errorf("WAV recording exceeds the classic RIFF size limit")
+	}
 	if _, err := w.file.Seek(4, 0); err != nil {
 		return err
 	}

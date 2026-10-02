@@ -2146,33 +2146,33 @@ func (ctx *bandCtx) modeLogN(band int) int {
 	return 0
 }
 
-func pulseCacheForBandTables(band, lm int, cacheIndex []int16, cacheBits []uint8, bands int) ([]uint8, bool) {
+func pulseCacheForBandTables(band, lm int, cacheIndex []int16, cacheBits []uint8, bands int) (pulseCacheView, bool) {
 	if band < 0 || band >= bands {
-		return nil, false
+		return pulseCacheView{}, false
 	}
 	if lm < -1 {
-		return nil, false
+		return pulseCacheView{}, false
 	}
 	idx := (lm + 1) * bands
 	if idx < 0 || idx+band >= len(cacheIndex) {
-		return nil, false
+		return pulseCacheView{}, false
 	}
 	start := int(cacheIndex[idx+band])
 	if start < 0 || start >= len(cacheBits) {
-		return nil, false
+		return pulseCacheView{}, false
 	}
 	cache := cacheBits[start:]
 	if len(cache) == 0 {
-		return nil, false
+		return pulseCacheView{}, false
 	}
 	maxPseudo := int(cache[0])
 	if maxPseudo <= 0 || maxPseudo >= len(cache) {
-		return nil, false
+		return pulseCacheView{}, false
 	}
-	return cache, true
+	return pulseCacheView{bits: cache, staticOffset: pulseCacheTableOffset(cacheBits, start)}, true
 }
 
-func (ctx *bandCtx) pulseCacheForBand(lm int) ([]uint8, bool) {
+func (ctx *bandCtx) pulseCacheForBand(lm int) (pulseCacheView, bool) {
 	if len(ctx.cacheIndex) != 0 && len(ctx.cacheBits) != 0 {
 		return pulseCacheForBandTables(ctx.band, lm, ctx.cacheIndex, ctx.cacheBits, ctx.modeBandCount())
 	}
@@ -2887,7 +2887,7 @@ func quantPartitionDecodeNoExt(ctx *bandCtx, x []celtNorm, b, B int, lowband []c
 	// cache = m->cache.bits + m->cache.index[(LM+1)*nbEBands+i]; the standard
 	// mode reads its precomputed maximum and bits-to-pulses tables.
 	cacheStart := -1
-	var cache []uint8
+	var cache pulseCacheView
 	maxBits := 0
 	if ctx.stdCache {
 		cacheStart = int(cacheIndex50[(lm+1)*MaxBands+ctx.band])
@@ -2976,7 +2976,7 @@ func quantPartitionDecodeNoExt(ctx *bandCtx, x []celtNorm, b, B int, lowband []c
 				ctx.remainingBits -= currBits
 			}
 		}
-	} else if cache != nil {
+	} else if len(cache.bits) > 0 {
 		if b > 0 {
 			q = bitsToPulsesCached(cache, b)
 			currBits := pulsesToBitsCached(cache, q)

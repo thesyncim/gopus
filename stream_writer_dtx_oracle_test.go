@@ -73,7 +73,8 @@ func TestWriter_DTX(t *testing.T) {
 		PredictionDisabled: w.enc.PredictionDisabled(),
 		PhaseInvDisabled:   w.enc.PhaseInversionDisabled(),
 		FrameSize:          frameSize,
-		FrameCount:         frameCount, PCM: pcm,
+		FrameCount:         frameCount,
+		PCM:                pcm,
 	})
 	if err != nil {
 		libopustest.HelperUnavailable(t, "encode diff oracle", err)

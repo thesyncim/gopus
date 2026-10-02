@@ -26,11 +26,11 @@ func (e *Encoder) tryEncodeNative96k(pcm []float32, data []byte, input encoder.E
 	}
 	frameSize, err := selectExpertFrameSize(frameSize, e.expertFrameDuration, e.application, 96000)
 	e.enc.BeginEncodeCall(input, frameSize)
-	if len(data) == 0 {
-		return 0, true, ErrBufferTooSmall
-	}
 	if err != nil {
 		return 0, true, err
+	}
+	if len(data) == 0 {
+		return 0, true, ErrBufferTooSmall
 	}
 	encodePCM := pcm[:frameSize*int(e.channels)]
 	packet, err := e.enc.EncodeFloat32WithAnalysisMaxBytes(encodePCM, frameSize, encodePCM, len(data))

@@ -32,6 +32,7 @@ import (
 	"bytes"
 	"fmt"
 	"runtime"
+	"sync"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -346,193 +347,244 @@ func runEncodeStatefulTransitionSweep(
 		frameSize int
 		channels  int
 	}
-	// All subtests run synchronously. Reuse each immutable input stream across
-	// specs with the same frame shape; oracle serialization and encoding read
-	// the slice, and the encoder copies it into its own input buffer.
-	transitionPCM := make(map[transitionPCMKey][]float32)
-
-	var (
-		selected          int
-		executed          int
+	type transitionPCMEntry struct {
+		once sync.Once
+		pcm  []float32
+		err  error
+	}
+	type transitionCaseResult struct {
+		executed          bool
 		tocFlips          int
 		cadenceMismatch   int
 		byteFails         int
 		framingFails      int
 		rangeFails        int
-		transitionsSeen   int // total per-frame mode-class or bandwidth changes observed (libopus side)
-		dtxRunsSeen       int // frames where libopus emitted nothing (DTX no-output)
-		modeFlipsInStream int // streams that crossed >1 distinct TOC mode class
-	)
+		transitionsSeen   int
+		dtxRunsSeen       int
+		modeFlipsInStream int
+	}
 
-	for idx := 0; idx < len(specs) && selected < budget; idx += stride {
-		spec := specs[idx]
-		selected++
+	selectedSpecs := make([]encXfrSpec, 0, budget)
+	for idx := 0; idx < len(specs) && len(selectedSpecs) < budget; idx += stride {
+		selectedSpecs = append(selectedSpecs, specs[idx])
+	}
+	selected := len(selectedSpecs)
+
+	// Cache entries are set up before parallel subtests begin. Each matching
+	// subtest builds its shape once; the resulting PCM stays immutable while
+	// oracle serialization and encoding read it.
+	transitionPCM := make(map[transitionPCMKey]*transitionPCMEntry)
+	for _, spec := range selectedSpecs {
+		fs := encFrameSamples48k(spec.frameMs)
+		key := transitionPCMKey{frameSize: fs, channels: spec.channels}
+		if transitionPCM[key] == nil {
+			transitionPCM[key] = &transitionPCMEntry{}
+		}
+	}
+
+	runCase := func(t *testing.T, spec encXfrSpec, result *transitionCaseResult) {
+		fs := encFrameSamples48k(spec.frameMs)
+		entry := transitionPCM[transitionPCMKey{frameSize: fs, channels: spec.channels}]
+		entry.once.Do(func() {
+			entry.pcm, entry.err = buildPCM(fs, spec.channels, framesPerSpec, segFrames)
+		})
+		if entry.err != nil {
+			t.Fatalf("build transition PCM (%s): %v", spec.name, entry.err)
+		}
+		pcm := entry.pcm
+
+		vbr, constraint := vbrFlags(spec.vbr)
+		fecCfg := 0
+		pl := 0
+		if spec.fec {
+			fecCfg = 1
+			pl = 20
+		}
+		recs, err := libopustest.ProbeEncodeDiff(libopustest.EncodeDiffParams{
+			SampleRate:    sampleRate,
+			Channels:      spec.channels,
+			Application:   libopustest.EncodeDiffApplicationAudio,
+			ForceMode:     spec.forceMode,
+			Bandwidth:     spec.bwCode,
+			MaxBandwidth:  spec.bwCode,
+			Bitrate:       spec.bitrate,
+			Complexity:    spec.complexity,
+			Signal:        spec.signal,
+			VBR:           vbr,
+			VBRConstraint: constraint,
+			ForceChannels: spec.channels,
+			InbandFEC:     fecCfg,
+			PacketLoss:    pl,
+			DTX:           spec.dtx,
+			FrameSize:     fs,
+			FrameCount:    framesPerSpec,
+			PCM:           pcm,
+		})
+		if err != nil {
+			libopustest.HelperUnavailable(t, "encode diff oracle", err)
+			return
+		}
+
+		enc, ok := configureEncXfr(spec)
+		if !ok {
+			t.Fatalf("gopus rejected stateful encode config %s", spec.name)
+		}
+
+		gotRecs := make([]libopustest.EncodeDiffRecord, framesPerSpec)
+		for f := range framesPerSpec {
+			frame := pcm[f*fs*spec.channels : (f+1)*fs*spec.channels]
+			pkt, eerr := encDiffEncodeOneFrame(enc, frame)
+			if eerr != nil {
+				t.Fatalf("%s frame %d: gopus encode error: %v", spec.name, f, eerr)
+			}
+			gotRecs[f] = libopustest.EncodeDiffRecord{
+				Ret:        len(pkt),
+				FinalRange: enc.FinalRange(),
+				Packet:     pkt,
+			}
+		}
+
+		// Track the libopus-side mode and bandwidth sequentially within this
+		// configuration; concurrency never changes a stream's frame order.
+		prevClass := -2
+		prevToc := byte(0xff)
+		distinctClasses := map[int]bool{}
+		for f := range framesPerSpec {
+			g := gotRecs[f]
+			o := recs[f]
+			label := fmt.Sprintf("%s/frame%d", spec.name, f)
+			if o.Ret < 0 || len(o.Packet) != o.Ret {
+				t.Fatalf("%s: invalid libopus oracle record ret=%d packet len=%d", label, o.Ret, len(o.Packet))
+			}
+
+			gHas := len(g.Packet) > 0
+			oHas := o.Ret > 0
+
+			gClass := tocModeClass(byte0(g.Packet), gHas)
+			oClass := tocModeClass(byte0(o.Packet), oHas)
+
+			// Coverage accounting (libopus reference side).
+			if !oHas {
+				result.dtxRunsSeen++
+			} else {
+				distinctClasses[oClass] = true
+				if prevClass >= 0 && (oClass != prevClass || byte0(o.Packet) != prevToc) {
+					result.transitionsSeen++
+				}
+				prevClass = oClass
+				prevToc = byte0(o.Packet)
+			}
+
+			if g.FinalRange != o.FinalRange {
+				result.rangeFails++
+				t.Errorf("%s: final_range differs gopus=%08x libopus=%08x", label, g.FinalRange, o.FinalRange)
+			}
+			if g.Ret != o.Ret || gHas != oHas {
+				result.cadenceMismatch++
+				t.Errorf("%s: output length/cadence mismatch gopus(ret=%d,len=%d) libopus(ret=%d,len=%d) firstByte=%d dtx=%t vbr=%d br=%d",
+					label, g.Ret, len(g.Packet), o.Ret, len(o.Packet), firstByteDiff(g.Packet, o.Packet), spec.dtx, spec.vbr, spec.bitrate)
+				if gHas != oHas {
+					continue
+				}
+			}
+			if !gHas {
+				continue // both emitted nothing; final ranges are checked above
+			}
+
+			if bytes.Equal(g.Packet, o.Packet) {
+				continue
+			}
+
+			// TOC mode-class flip: deterministic mode-DECISION divergence, the
+			// primary cross-frame-state target. HARD FAIL on every arch.
+			if gClass != oClass {
+				result.tocFlips++
+				t.Errorf("%s: TOC MODE-CLASS FLIP gopus=%s(toc=%02x) libopus=%s(toc=%02x) "+
+					"br=%d vbr=%d fec=%t dtx=%t ch=%d cx=%d — cross-frame mode-decision divergence",
+					label, modeClassName(gClass), byte0(g.Packet), modeClassName(oClass), byte0(o.Packet),
+					spec.bitrate, spec.vbr, spec.fec, spec.dtx, spec.channels, spec.complexity)
+				continue
+			}
+
+			fb := firstByteDiff(g.Packet, o.Packet)
+			if byte0(g.Packet) != byte0(o.Packet) {
+				result.framingFails++
+				t.Errorf("%s: PACKET FRAMING divergence at byte %d gopus toc=%02x(len=%d) libopus toc=%02x(len=%d) br=%d vbr=%d",
+					label, fb, byte0(g.Packet), len(g.Packet), byte0(o.Packet), len(o.Packet), spec.bitrate, spec.vbr)
+				continue
+			}
+
+			result.byteFails++
+			t.Errorf("%s: %s payload BYTE MISMATCH at byte %d (len g=%d o=%d, range g=%08x o=%08x) br=%d vbr=%d fec=%t dtx=%t cx=%d",
+				label, modeClassName(gClass), fb, len(g.Packet), len(o.Packet), g.FinalRange, o.FinalRange,
+				spec.bitrate, spec.vbr, spec.fec, spec.dtx, spec.complexity)
+		}
+
+		if len(distinctClasses) > 1 {
+			result.modeFlipsInStream++
+		}
+	}
+
+	results := make([]transitionCaseResult, selected)
+	workers := min(4, runtime.GOMAXPROCS(0), selected)
+	semaphore := make(chan struct{}, workers)
+	for idx, spec := range selectedSpecs {
+		idx, spec := idx, spec
 		t.Run(spec.name, func(t *testing.T) {
-			executed++
-			fs := encFrameSamples48k(spec.frameMs)
-			key := transitionPCMKey{frameSize: fs, channels: spec.channels}
-			pcm, ok := transitionPCM[key]
-			if !ok {
-				var err error
-				pcm, err = buildPCM(fs, spec.channels, framesPerSpec, segFrames)
-				if err != nil {
-					t.Fatalf("build transition PCM (%s): %v", spec.name, err)
-				}
-				transitionPCM[key] = pcm
-			}
+			t.Parallel()
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
 
-			vbr, constraint := vbrFlags(spec.vbr)
-			fecCfg := 0
-			pl := 0
-			if spec.fec {
-				fecCfg = 1
-				pl = 20
-			}
-			recs, err := libopustest.ProbeEncodeDiff(libopustest.EncodeDiffParams{
-				SampleRate:    sampleRate,
-				Channels:      spec.channels,
-				Application:   libopustest.EncodeDiffApplicationAudio,
-				ForceMode:     spec.forceMode,
-				Bandwidth:     spec.bwCode,
-				MaxBandwidth:  spec.bwCode,
-				Bitrate:       spec.bitrate,
-				Complexity:    spec.complexity,
-				Signal:        spec.signal,
-				VBR:           vbr,
-				VBRConstraint: constraint,
-				ForceChannels: spec.channels,
-				InbandFEC:     fecCfg,
-				PacketLoss:    pl,
-				DTX:           spec.dtx,
-				FrameSize:     fs,
-				FrameCount:    framesPerSpec,
-				PCM:           pcm,
-			})
-			if err != nil {
-				libopustest.HelperUnavailable(t, "encode diff oracle", err)
-				return
-			}
-
-			enc, ok := configureEncXfr(spec)
-			if !ok {
-				t.Fatalf("gopus rejected stateful encode config %s", spec.name)
-			}
-
-			gotRecs := make([]libopustest.EncodeDiffRecord, framesPerSpec)
-			for f := range framesPerSpec {
-				frame := pcm[f*fs*spec.channels : (f+1)*fs*spec.channels]
-				pkt, eerr := encDiffEncodeOneFrame(enc, frame)
-				if eerr != nil {
-					t.Fatalf("%s frame %d: gopus encode error: %v", spec.name, f, eerr)
-				}
-				gotRecs[f] = libopustest.EncodeDiffRecord{
-					Ret:        len(pkt),
-					FinalRange: enc.FinalRange(),
-					Packet:     pkt,
-				}
-			}
-
-			// Track the libopus-side per-frame mode class / bandwidth so the sweep
-			// can PROVE it actually exercised transitions (a stream that never moved
-			// would silently weaken the gate).
-			prevClass := -2
-			prevToc := byte(0xff)
-			distinctClasses := map[int]bool{}
-
-			for f := range framesPerSpec {
-				g := gotRecs[f]
-				o := recs[f]
-				label := fmt.Sprintf("%s/frame%d", spec.name, f)
-				if o.Ret < 0 || len(o.Packet) != o.Ret {
-					t.Fatalf("%s: invalid libopus oracle record ret=%d packet len=%d", label, o.Ret, len(o.Packet))
-				}
-
-				gHas := len(g.Packet) > 0
-				oHas := o.Ret > 0
-
-				gClass := tocModeClass(byte0(g.Packet), gHas)
-				oClass := tocModeClass(byte0(o.Packet), oHas)
-
-				// Coverage accounting (libopus reference side).
-				if !oHas {
-					dtxRunsSeen++
-				} else {
-					distinctClasses[oClass] = true
-					if prevClass >= 0 && (oClass != prevClass || byte0(o.Packet) != prevToc) {
-						transitionsSeen++
-					}
-					prevClass = oClass
-					prevToc = byte0(o.Packet)
-				}
-
-				if g.FinalRange != o.FinalRange {
-					rangeFails++
-					t.Errorf("%s: final_range differs gopus=%08x libopus=%08x", label, g.FinalRange, o.FinalRange)
-				}
-				if g.Ret != o.Ret || gHas != oHas {
-					cadenceMismatch++
-					t.Errorf("%s: output length/cadence mismatch gopus(ret=%d,len=%d) libopus(ret=%d,len=%d) firstByte=%d dtx=%t vbr=%d br=%d",
-						label, g.Ret, len(g.Packet), o.Ret, len(o.Packet), firstByteDiff(g.Packet, o.Packet), spec.dtx, spec.vbr, spec.bitrate)
-					if gHas != oHas {
-						continue
-					}
-				}
-				if !gHas {
-					continue // both emitted nothing; final ranges are checked above
-				}
-
-				if bytes.Equal(g.Packet, o.Packet) {
-					continue
-				}
-
-				// TOC mode-class flip: deterministic mode-DECISION divergence, the
-				// primary cross-frame-state target. HARD FAIL on every arch.
-				if gClass != oClass {
-					tocFlips++
-					t.Errorf("%s: TOC MODE-CLASS FLIP gopus=%s(toc=%02x) libopus=%s(toc=%02x) "+
-						"br=%d vbr=%d fec=%t dtx=%t ch=%d cx=%d — cross-frame mode-decision divergence",
-						label, modeClassName(gClass), byte0(g.Packet), modeClassName(oClass), byte0(o.Packet),
-						spec.bitrate, spec.vbr, spec.fec, spec.dtx, spec.channels, spec.complexity)
-					continue
-				}
-
-				fb := firstByteDiff(g.Packet, o.Packet)
-
-				if byte0(g.Packet) != byte0(o.Packet) {
-					framingFails++
-					t.Errorf("%s: PACKET FRAMING divergence at byte %d gopus toc=%02x(len=%d) libopus toc=%02x(len=%d) br=%d vbr=%d",
-						label, fb, byte0(g.Packet), len(g.Packet), byte0(o.Packet), len(o.Packet), spec.bitrate, spec.vbr)
-					continue
-				}
-
-				byteFails++
-				t.Errorf("%s: %s payload BYTE MISMATCH at byte %d (len g=%d o=%d, range g=%08x o=%08x) br=%d vbr=%d fec=%t dtx=%t cx=%d",
-					label, modeClassName(gClass), fb, len(g.Packet), len(o.Packet), g.FinalRange, o.FinalRange,
-					spec.bitrate, spec.vbr, spec.fec, spec.dtx, spec.complexity)
-			}
-
-			if len(distinctClasses) > 1 {
-				modeFlipsInStream++
-			}
+			result := &results[idx]
+			result.executed = true
+			runCase(t, spec, result)
 		})
 	}
 
-	t.Logf("encode stateful-transition sweep: selected=%d/%d specs executed=%d x %d frames "+
-		"(seg=%d frames, %d segments); arch=%s; "+
-		"coverage[ libopus-side transitions=%d dtx-no-output-frames=%d multi-mode-streams=%d ]; "+
-		"TOC-mode-flips=%d cadence-mismatch=%d byte-fails=%d framing-fails=%d range-fails=%d",
-		selected, len(specs), executed, framesPerSpec, segFrames, len(encXfrSegmentPlan), runtime.GOARCH,
-		transitionsSeen, dtxRunsSeen, modeFlipsInStream,
-		tocFlips, cadenceMismatch, byteFails, framingFails, rangeFails)
+	t.Cleanup(func() {
+		var (
+			executed          int
+			tocFlips          int
+			cadenceMismatch   int
+			byteFails         int
+			framingFails      int
+			rangeFails        int
+			transitionsSeen   int // total per-frame mode-class or bandwidth changes observed (libopus side)
+			dtxRunsSeen       int // frames where libopus emitted nothing (DTX no-output)
+			modeFlipsInStream int // streams that crossed >1 distinct TOC mode class
+		)
+		for _, result := range results {
+			if !result.executed {
+				continue
+			}
+			executed++
+			tocFlips += result.tocFlips
+			cadenceMismatch += result.cadenceMismatch
+			byteFails += result.byteFails
+			framingFails += result.framingFails
+			rangeFails += result.rangeFails
+			transitionsSeen += result.transitionsSeen
+			dtxRunsSeen += result.dtxRunsSeen
+			modeFlipsInStream += result.modeFlipsInStream
+		}
 
-	// Coverage guard: the harness must actually have crossed transitions, else a
-	// future signal/plan change could silently turn it into a single-mode sweep
-	// and hide the very cross-frame bugs it targets. Only enforced on the full
-	// (non-short) sweep where every mode family is reached.
-	if !testing.Short() && executed > 0 && executed == selected && transitionsSeen == 0 {
-		t.Errorf("stateful-transition sweep observed NO cross-frame transitions across %d executed specs — "+
-			"the transition plan is not exercising mode/bandwidth changes", executed)
-	}
+		t.Logf("encode stateful-transition sweep: selected=%d/%d specs executed=%d x %d frames "+
+			"(seg=%d frames, %d segments); arch=%s; "+
+			"coverage[ libopus-side transitions=%d dtx-no-output-frames=%d multi-mode-streams=%d ]; "+
+			"TOC-mode-flips=%d cadence-mismatch=%d byte-fails=%d framing-fails=%d range-fails=%d",
+			selected, len(specs), executed, framesPerSpec, segFrames, len(encXfrSegmentPlan), runtime.GOARCH,
+			transitionsSeen, dtxRunsSeen, modeFlipsInStream,
+			tocFlips, cadenceMismatch, byteFails, framingFails, rangeFails)
+
+		// Coverage guard: the harness must actually have crossed transitions, else a
+		// future signal/plan change could silently turn it into a single-mode sweep
+		// and hide the very cross-frame bugs it targets. Only enforced on the full
+		// (non-short) sweep where every mode family is reached.
+		if !testing.Short() && executed > 0 && executed == selected && transitionsSeen == 0 {
+			t.Errorf("stateful-transition sweep observed NO cross-frame transitions across %d executed specs — "+
+				"the transition plan is not exercising mode/bandwidth changes", executed)
+		}
+	})
 }
 
 // encXfrDTXRunPCM builds a speech -> long-silence -> speech stream that drives

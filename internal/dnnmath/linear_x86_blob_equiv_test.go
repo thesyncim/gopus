@@ -276,6 +276,37 @@ func TestX86DNNBlobKernelsMatchViewGather(t *testing.T) {
 	}
 }
 
+func TestX86SGEMVAcceptsMisalignedBlobPayload(t *testing.T) {
+	if !X86VectorKernels {
+		t.Skip("AVX2/FMA DNN kernels require AVX2 and FMA")
+	}
+
+	const rows, cols, colStride = 29, 3, 32
+	r := rand.New(rand.NewPCG(13, 3))
+	backing := make([]byte, 1+4*cols*colStride)
+	raw := backing[1:]
+	for i := range cols * colStride {
+		binary.LittleEndian.PutUint32(raw[4*i:], math.Float32bits(equivFloat(r)))
+	}
+	weights, err := dnnblob.Float32ViewFromBytes(raw, int32(len(raw)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	x := make([]float32, cols)
+	for i := range x {
+		x[i] = equivFloat(r)
+	}
+	got, want := make([]float32, rows), make([]float32, rows)
+	SGEMVX86(got, weights, rows, cols, colStride, x)
+	refSGEMVX86(want, weights, rows, cols, colStride, x)
+	equalBits(t, "SGEMVX86 misaligned payload", got, want)
+	if allocs := testing.AllocsPerRun(100, func() {
+		SGEMVX86(got, weights, rows, cols, colStride, x)
+	}); allocs != 0 {
+		t.Fatalf("SGEMVX86 allocations = %g", allocs)
+	}
+}
+
 func TestX86DNNActivationTailsMatchVectorLanes(t *testing.T) {
 	if !X86VectorKernels {
 		t.Skip("AVX2/FMA DNN kernels require AVX2 and FMA")

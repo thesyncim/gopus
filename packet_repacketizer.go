@@ -537,6 +537,8 @@ func buildCode3Packet(tocBase byte, frames [][]byte, data []byte, targetLen int,
 			return 0, ErrBufferTooSmall
 		}
 		maxLen = targetLen
+	} else if len(data) < baseLen {
+		return 0, ErrBufferTooSmall
 	}
 
 	if len(extensions) > 0 {

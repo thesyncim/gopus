@@ -521,13 +521,20 @@ func (d *Decoder) decodeHybridFEC(pcm []float32, frameSize int) (int, error) {
 	d.hybridDecoder.RecordPLCLoss()
 	// libopus conceals at most a 20 ms CELT frame and accumulates it onto the
 	// SILK LBRR output (celt_decode_with_ec(NULL, celt_accum=1)); samples past
-	// 20 ms keep the SILK output alone.
+	// 20 ms keep the SILK output alone. libopus src/opus_decoder.c:304,601 uses
+	// F20=Fs/50 and passes the active CELT rate to PLC, so native 96 kHz CELT
+	// receives a 96 kHz frame size. The fixed-point bridge below continues to
+	// receive the equivalent 48 kHz frame size.
 	celtFrameSize := min(d.frameSize48FromAPI(frameSize), 48000/50)
 	celtAPIFrames := min(frameSize, celtFrameSize*int(d.sampleRate)/48000)
 	if !d.fixedDecodeHybridFEC(pcm[:needed], frameSize, celtFrameSize, celtBW) {
 		d.markFixedUnhandled()
 	}
-	if err := d.celtDecoder.DecodeHybridFECPLC(celtFrameSize, pcm[:min(needed, celtAPIFrames*channels)]); err != nil {
+	celtPLCFrameSize := celtFrameSize
+	if d.is96kHz() {
+		celtPLCFrameSize = celtAPIFrames
+	}
+	if err := d.celtDecoder.DecodeHybridFECPLC(celtPLCFrameSize, pcm[:min(needed, celtAPIFrames*channels)]); err != nil {
 		return 0, err
 	}
 	d.mainDecodeRng = d.celtDecoder.FinalRange()
