@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"runtime"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -271,15 +272,43 @@ func TestDecodeDifferentialFixedPointMultiSampleRate(t *testing.T) {
 		stride = len(specs) / budget
 	}
 
-	selected, tested, testedRates := 0, 0, 0
-	for idx := 0; idx < len(specs) && selected < budget; idx += stride {
-		spec := specs[idx]
-		selected++
-		t.Run(spec.name, func(t *testing.T) {
-			tested++
+	type selectedSpec struct {
+		index int
+		spec  encodeSweepSpec
+	}
+	type sweepResult struct {
+		configs int
+		rates   int
+	}
+	selectedSpecs := make([]selectedSpec, 0, budget)
+	for idx := 0; idx < len(specs) && len(selectedSpecs) < budget; idx += stride {
+		selectedSpecs = append(selectedSpecs, selectedSpec{index: idx, spec: specs[idx]})
+	}
+	results := make([]sweepResult, len(selectedSpecs))
+	workerLimit := min(4, runtime.GOMAXPROCS(0), len(selectedSpecs))
+	workers := make(chan struct{}, workerLimit)
+	t.Cleanup(func() {
+		tested, testedRates := 0, 0
+		for _, result := range results {
+			tested += result.configs
+			testedRates += result.rates
+		}
+		t.Logf("fixed multi-rate sweep: %d specs / %d executed rate cases × %d frames (float32+int16+int24)", tested, testedRates, framesPerSpec)
+	})
+
+	for resultIdx, selected := range selectedSpecs {
+		resultIdx, selected := resultIdx, selected
+		t.Run(selected.spec.name, func(t *testing.T) {
+			t.Parallel()
+			workers <- struct{}{}
+			defer func() { <-workers }()
+
+			result := &results[resultIdx]
+			result.configs++
+			spec := selected.spec
 			// Encode once at 48 kHz (the encoder always runs at 48 kHz here); the
 			// resulting packets are decoded at every API rate.
-			specRng := rand.New(rand.NewSource(int64(idx)*982451653 + 13))
+			specRng := rand.New(rand.NewSource(int64(selected.index)*982451653 + 13))
 			packets, ok := encodePackets(t, spec, specRng, framesPerSpec)
 			if !ok {
 				t.Fatalf("encoder rejected valid config %s", spec.name)
@@ -290,13 +319,12 @@ func TestDecodeDifferentialFixedPointMultiSampleRate(t *testing.T) {
 					t.Fatal("invalid output frame size")
 				}
 				t.Run(fmt.Sprintf("%dHz", sr), func(t *testing.T) {
-					testedRates++
+					result.rates++
 					assertFixedDecodeSequence(t, sr, spec.channels, frameSamples, packets)
 				})
 			}
 		})
 	}
-	t.Logf("fixed multi-rate sweep: %d specs / %d executed rate cases × %d frames (float32+int16+int24)", tested, testedRates, framesPerSpec)
 }
 
 // TestDecodeDifferentialFixedPointLossSampleRates exercises periodic PLC,
