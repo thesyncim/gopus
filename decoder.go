@@ -23,7 +23,8 @@ type DecoderConfig struct {
 	// Channels must be 1 (mono) or 2 (stereo).
 	Channels int
 	// MaxPacketSamples caps the maximum decoded samples per channel per packet.
-	// Zero selects 5,760 samples, or 120 ms at 48 kHz.
+	// Zero selects 5,760 samples, or 120 ms at 48 kHz. The limit must fit
+	// the decoder work buffers; [NewDecoder] rejects overflowing sizes.
 	MaxPacketSamples int
 	// MaxPacketBytes caps the maximum Opus packet size in bytes.
 	// Zero selects 1,500 bytes.
@@ -133,6 +134,16 @@ func NewDecoder(cfg DecoderConfig) (*Decoder, error) {
 		return nil, ErrInvalidMaxPacketBytes
 	}
 
+	// The contiguous float32 arena holds three packet-sized buffers and two
+	// transition buffers. Bound its element count by the largest length whose
+	// byte size fits in int before multiplying or constructing decoder state.
+	transitionSamples := max(48000, cfg.SampleRate) / 200 // 5 ms in the largest configured CELT geometry.
+	transLen := transitionSamples * cfg.Channels
+	maxFloatElements := int(^uint(0)>>1) / 4
+	if maxPacketSamples > (maxFloatElements-2*transLen)/(3*cfg.Channels) {
+		return nil, ErrInvalidMaxPacketSamples
+	}
+
 	// Under gopus_qext, 96 kHz requests route through the 48 kHz internal
 	// pipeline with 2x upsampling at the output boundary.
 	// C ref: opus_decoder.c opus_decoder_init() ENABLE_QEXT (Fs != 96000) gate.
@@ -150,8 +161,6 @@ func NewDecoder(cfg DecoderConfig) (*Decoder, error) {
 	hybridDec := hybrid.NewDecoderWithSharedDecoders(cfg.Channels, silkDec, celtDec)
 	hybridDec.SetAPISampleRate(internalRate)
 
-	transitionSamples := max(48000, cfg.SampleRate) / 200 // 5 ms in the largest configured CELT geometry.
-
 	d := &Decoder{
 		silkDecoder:      silkDec,
 		celtDecoder:      celtDec,
@@ -168,7 +177,6 @@ func NewDecoder(cfg DecoderConfig) (*Decoder, error) {
 	}
 	// Back the five fixed float32 decode work buffers with one contiguous arena.
 	pcmLen := maxPacketSamples * cfg.Channels
-	transLen := transitionSamples * cfg.Channels
 	d.scratchF32.Ensure(3*pcmLen + 2*transLen)
 	d.scratchPCM = d.scratchF32.AllocN(pcmLen)
 	d.scratchTransition = d.scratchF32.AllocN(transLen)

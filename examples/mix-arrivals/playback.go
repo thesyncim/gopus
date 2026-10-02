@@ -1,11 +1,9 @@
 package main
 
 import (
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"os/exec"
 	"runtime"
@@ -14,6 +12,7 @@ import (
 	"github.com/thesyncim/gopus"
 	"github.com/thesyncim/gopus/container/ogg"
 	examplecleanup "github.com/thesyncim/gopus/examples/internal/cleanup"
+	"github.com/thesyncim/gopus/examples/internal/wav"
 )
 
 func playEncodedOutput(path string) error {
@@ -64,7 +63,7 @@ func decodeOpusToWav(opusPath, wavPath string) error {
 	pcmOut := make([]float32, decCfg.MaxPacketSamples*decChannels)
 	preSkip := int(oggReader.PreSkip())
 
-	writer, err := newWavWriter(wavPath, sampleRate, decChannels)
+	writer, err := wav.NewWriter(wavPath, sampleRate, decChannels)
 	if err != nil {
 		return fmt.Errorf("create wav writer: %w", err)
 	}
@@ -103,90 +102,10 @@ func decodeOpusToWav(opusPath, wavPath string) error {
 		}
 	}
 
+	if err := writer.Close(); err != nil {
+		return fmt.Errorf("finalize WAV: %w", err)
+	}
 	return nil
-}
-
-type wavWriter struct {
-	f          *os.File
-	dataSize   uint32
-	sampleRate int
-	channels   int
-}
-
-func newWavWriter(path string, sampleRateHz, ch int) (*wavWriter, error) {
-	f, err := os.Create(path)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := f.Write(make([]byte, 44)); err != nil {
-		_ = f.Close()
-		return nil, err
-	}
-	return &wavWriter{
-		f:          f,
-		sampleRate: sampleRateHz,
-		channels:   ch,
-	}, nil
-}
-
-func (w *wavWriter) WriteSamples(samples []float32) error {
-	if len(samples) == 0 {
-		return nil
-	}
-
-	buf := make([]byte, len(samples)*2)
-	for i, s := range samples {
-		scaled := float64(s) * 32768
-		if scaled > 32767 {
-			scaled = 32767
-		} else if scaled < -32768 {
-			scaled = -32768
-		}
-		v := int16(math.RoundToEven(scaled))
-		binary.LittleEndian.PutUint16(buf[i*2:], uint16(v))
-	}
-	n, err := w.f.Write(buf)
-	if err != nil {
-		return err
-	}
-	w.dataSize += uint32(n)
-	return nil
-}
-
-func (w *wavWriter) Close() error {
-	f := w.f
-	if f == nil {
-		return nil
-	}
-	w.f = nil
-
-	header := make([]byte, 44)
-	writeWavHeader(header, w.dataSize, w.sampleRate, w.channels)
-	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		_ = f.Close()
-		return err
-	}
-	if _, err := f.Write(header); err != nil {
-		_ = f.Close()
-		return err
-	}
-	return f.Close()
-}
-
-func writeWavHeader(dst []byte, dataSize uint32, sampleRateHz, ch int) {
-	copy(dst[0:4], "RIFF")
-	binary.LittleEndian.PutUint32(dst[4:8], 36+dataSize)
-	copy(dst[8:12], "WAVE")
-	copy(dst[12:16], "fmt ")
-	binary.LittleEndian.PutUint32(dst[16:20], 16)
-	binary.LittleEndian.PutUint16(dst[20:22], 1)
-	binary.LittleEndian.PutUint16(dst[22:24], uint16(ch))
-	binary.LittleEndian.PutUint32(dst[24:28], uint32(sampleRateHz))
-	binary.LittleEndian.PutUint32(dst[28:32], uint32(sampleRateHz*ch*2))
-	binary.LittleEndian.PutUint16(dst[32:34], uint16(ch*2))
-	binary.LittleEndian.PutUint16(dst[34:36], 16)
-	copy(dst[36:40], "data")
-	binary.LittleEndian.PutUint32(dst[40:44], dataSize)
 }
 
 func playWav(path string) error {

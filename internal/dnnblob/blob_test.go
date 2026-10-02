@@ -2,6 +2,7 @@ package dnnblob
 
 import (
 	"encoding/binary"
+	"math"
 	"testing"
 )
 
@@ -189,6 +190,90 @@ func TestRequiredRecordNameAccessorsDoNotAllocate(t *testing.T) {
 	if allocs != 0 {
 		t.Fatalf("AllocsPerRun=%v want 0", allocs)
 	}
+}
+
+func TestTypedViewAtBounds(t *testing.T) {
+	fv, err := Float32ViewFromBytes([]byte{
+		0x00, 0x00, 0xe8, 0x40, // 7.25
+		0x00, 0x00, 0x20, 0xc0, // -2.5
+	}, 8)
+	if err != nil {
+		t.Fatalf("Float32ViewFromBytes: %v", err)
+	}
+	iv, err := Int32ViewFromBytes([]byte{
+		0xef, 0xcd, 0xab, 0x89,
+		0x78, 0x56, 0x34, 0x12,
+	}, 8)
+	if err != nil {
+		t.Fatalf("Int32ViewFromBytes: %v", err)
+	}
+	if got := math.Float32bits(fv.At(0)); got != 0x40e80000 {
+		t.Fatalf("Float32View.At(0) bits=%08x want=%08x", got, uint32(0x40e80000))
+	}
+	if got := math.Float32bits(fv.At(1)); got != 0xc0200000 {
+		t.Fatalf("Float32View.At(1) bits=%08x want=%08x", got, uint32(0xc0200000))
+	}
+	if got := uint32(iv.At(0)); got != 0x89abcdef {
+		t.Fatalf("Int32View.At(0) bits=%08x want=%08x", got, uint32(0x89abcdef))
+	}
+	if got := uint32(iv.At(1)); got != 0x12345678 {
+		t.Fatalf("Int32View.At(1) bits=%08x want=%08x", got, uint32(0x12345678))
+	}
+
+	maxInt := int(^uint(0) >> 1)
+	invalid := []struct {
+		name  string
+		index int
+	}{
+		{name: "negative", index: -1},
+		{name: "length", index: fv.Len()},
+		{name: "max-int", index: maxInt},
+		{name: "byte-offset-overflow", index: maxInt/2 + 1},
+	}
+	for _, tc := range invalid {
+		t.Run("Float32/"+tc.name, func(t *testing.T) {
+			if !viewAtPanics(func() { fv.At(tc.index) }) {
+				t.Fatalf("At(%d) did not panic", tc.index)
+			}
+		})
+		t.Run("Int32/"+tc.name, func(t *testing.T) {
+			if !viewAtPanics(func() { iv.At(tc.index) }) {
+				t.Fatalf("At(%d) did not panic", tc.index)
+			}
+		})
+	}
+
+	emptyFloat, err := Float32ViewFromBytes([]byte{}, 0)
+	if err != nil {
+		t.Fatalf("empty Float32ViewFromBytes: %v", err)
+	}
+	emptyInt, err := Int32ViewFromBytes([]byte{}, 0)
+	if err != nil {
+		t.Fatalf("empty Int32ViewFromBytes: %v", err)
+	}
+	var zeroFloat Float32View
+	var zeroInt Int32View
+	for _, tc := range []struct {
+		name string
+		call func()
+	}{
+		{name: "empty Float32", call: func() { emptyFloat.At(0) }},
+		{name: "zero Float32", call: func() { zeroFloat.At(0) }},
+		{name: "empty Int32", call: func() { emptyInt.At(0) }},
+		{name: "zero Int32", call: func() { zeroInt.At(0) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if !viewAtPanics(tc.call) {
+				t.Fatal("At(0) did not panic")
+			}
+		})
+	}
+}
+
+func viewAtPanics(f func()) (panicked bool) {
+	defer func() { panicked = recover() != nil }()
+	f()
+	return false
 }
 
 func TestRecordViewsDoNotAllocate(t *testing.T) {

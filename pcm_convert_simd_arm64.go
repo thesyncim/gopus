@@ -2,10 +2,7 @@
 
 package gopus
 
-import (
-	"simd/archsimd"
-	"unsafe"
-)
+import "simd/archsimd"
 
 func convertFloat32ToInt16Unit(dst []int16, src []float32, n int) bool {
 	if n <= 0 {
@@ -48,15 +45,15 @@ func convertFloat32ToInt16UnitBlocks(dst []int16, src []float32, n int) bool {
 	}
 	_ = dst[n-1]
 	_ = src[n-1]
-	sp := unsafe.Pointer(unsafe.SliceData(src))
-	dp := unsafe.Pointer(unsafe.SliceData(dst))
 	one := archsimd.BroadcastFloat32x4(1)
 	scale := archsimd.BroadcastFloat32x4(32768)
 	for i := 0; i < n; i += 16 {
-		v0 := archsimd.LoadFloat32x4Array((*[4]float32)(unsafe.Add(sp, i*4)))
-		v1 := archsimd.LoadFloat32x4Array((*[4]float32)(unsafe.Add(sp, i*4+16)))
-		v2 := archsimd.LoadFloat32x4Array((*[4]float32)(unsafe.Add(sp, i*4+32)))
-		v3 := archsimd.LoadFloat32x4Array((*[4]float32)(unsafe.Add(sp, i*4+48)))
+		srcBlock := (*[16]float32)(src[i:])
+		dstBlock := (*[16]int16)(dst[i:])
+		v0 := archsimd.LoadFloat32x4Array((*[4]float32)(srcBlock[0:4]))
+		v1 := archsimd.LoadFloat32x4Array((*[4]float32)(srcBlock[4:8]))
+		v2 := archsimd.LoadFloat32x4Array((*[4]float32)(srcBlock[8:12]))
+		v3 := archsimd.LoadFloat32x4Array((*[4]float32)(srcBlock[12:16]))
 		valid := v0.Abs().LessEqual(one).
 			And(v1.Abs().LessEqual(one)).
 			And(v2.Abs().LessEqual(one)).
@@ -69,8 +66,8 @@ func convertFloat32ToInt16UnitBlocks(dst []int16, src []float32, n int) bool {
 		q1 := roundFloat32x4AwayLikeCELT(v1.Mul(scale))
 		q2 := roundFloat32x4AwayLikeCELT(v2.Mul(scale))
 		q3 := roundFloat32x4AwayLikeCELT(v3.Mul(scale))
-		storeInt16x8((*[8]int16)(unsafe.Add(dp, i*2)), q0, q1)
-		storeInt16x8((*[8]int16)(unsafe.Add(dp, i*2+16)), q2, q3)
+		storeInt16x8((*[8]int16)(dstBlock[0:8]), q0, q1)
+		storeInt16x8((*[8]int16)(dstBlock[8:16]), q2, q3)
 	}
 	return true
 }
@@ -81,23 +78,23 @@ func convertFloat32ToInt16SaturatingBlocks(dst []int16, src []float32, n int) {
 	}
 	_ = dst[n-1]
 	_ = src[n-1]
-	sp := unsafe.Pointer(unsafe.SliceData(src))
-	dp := unsafe.Pointer(unsafe.SliceData(dst))
 	scale := archsimd.BroadcastFloat32x4(32768)
 	for i := 0; i < n; i += 16 {
-		v0 := archsimd.LoadFloat32x4Array((*[4]float32)(unsafe.Add(sp, i*4)))
+		srcBlock := (*[16]float32)(src[i:])
+		dstBlock := (*[16]int16)(dst[i:])
+		v0 := archsimd.LoadFloat32x4Array((*[4]float32)(srcBlock[0:4]))
 		q0 := roundFloat32x4AwayLikeCELT(v0.Mul(scale))
 
-		v1 := archsimd.LoadFloat32x4Array((*[4]float32)(unsafe.Add(sp, i*4+16)))
+		v1 := archsimd.LoadFloat32x4Array((*[4]float32)(srcBlock[4:8]))
 		q1 := roundFloat32x4AwayLikeCELT(v1.Mul(scale))
-		storeInt16x8((*[8]int16)(unsafe.Add(dp, i*2)), q0, q1)
+		storeInt16x8((*[8]int16)(dstBlock[0:8]), q0, q1)
 
-		v2 := archsimd.LoadFloat32x4Array((*[4]float32)(unsafe.Add(sp, i*4+32)))
+		v2 := archsimd.LoadFloat32x4Array((*[4]float32)(srcBlock[8:12]))
 		q2 := roundFloat32x4AwayLikeCELT(v2.Mul(scale))
 
-		v3 := archsimd.LoadFloat32x4Array((*[4]float32)(unsafe.Add(sp, i*4+48)))
+		v3 := archsimd.LoadFloat32x4Array((*[4]float32)(srcBlock[12:16]))
 		q3 := roundFloat32x4AwayLikeCELT(v3.Mul(scale))
-		storeInt16x8((*[8]int16)(unsafe.Add(dp, i*2+16)), q2, q3)
+		storeInt16x8((*[8]int16)(dstBlock[8:16]), q2, q3)
 	}
 }
 

@@ -2,14 +2,11 @@
 
 package celt
 
-import "unsafe"
-
 // The scalar haar1 butterflies below round both products before the sum and
 // difference, as haar1PairValues does without FMA; on the AMD64 v3 target
 // (haar1UsesFMA) they call haar1PairValues for its contracted shape. The
-// non-FMA arithmetic is written out rather than calling the helper so the hot
-// loops carry no inlining marks. Each loop steps a byte offset through
-// fixed-size array views of x, so no element access needs a bounds check.
+// non-FMA arithmetic is written out in each group. The group loops use
+// checked fixed-size array views of x.
 
 // haar1Scale holds the haar1 butterfly scale as a variable, so the loops load
 // it once into a register instead of rereading the constant every group.
@@ -20,9 +17,8 @@ var haar1Scale = [1]float32{0.7071067811865476}
 func haar1Stride1(x []float32, n0 int) {
 	s := haar1Scale[0]
 	n := len(x) &^ 3
-	base := unsafe.Pointer(unsafe.SliceData(x))
-	for off := uintptr(0); off < uintptr(n)*4; off += 16 {
-		p := (*[4]float32)(unsafe.Add(base, off))
+	for i := 0; i < n; i += 4 {
+		p := (*[4]float32)(x[i : i+4])
 		if haar1UsesFMA {
 			p[0], p[1] = haar1PairValues(s, p[0], p[1])
 			p[2], p[3] = haar1PairValues(s, p[2], p[3])
@@ -49,9 +45,8 @@ func haar1Stride1(x []float32, n0 int) {
 func haar1Stride2(x []float32, n0 int) {
 	s := haar1Scale[0]
 	n := len(x) &^ 3
-	base := unsafe.Pointer(unsafe.SliceData(x))
-	for off := uintptr(0); off < uintptr(n)*4; off += 16 {
-		p := (*[4]float32)(unsafe.Add(base, off))
+	for i := 0; i < n; i += 4 {
+		p := (*[4]float32)(x[i : i+4])
 		if haar1UsesFMA {
 			p[0], p[2] = haar1PairValues(s, p[0], p[2])
 			p[1], p[3] = haar1PairValues(s, p[1], p[3])
@@ -69,9 +64,8 @@ func haar1Stride2(x []float32, n0 int) {
 func haar1Stride4(x []float32, n0 int) {
 	s := haar1Scale[0]
 	n := len(x) &^ 7
-	base := unsafe.Pointer(unsafe.SliceData(x))
-	for off := uintptr(0); off < uintptr(n)*4; off += 32 {
-		p := (*[8]float32)(unsafe.Add(base, off))
+	for i := 0; i < n; i += 8 {
+		p := (*[8]float32)(x[i : i+8])
 		if haar1UsesFMA {
 			p[0], p[4] = haar1PairValues(s, p[0], p[4])
 			p[1], p[5] = haar1PairValues(s, p[1], p[5])

@@ -128,8 +128,17 @@ func NewReader(cfg DecoderConfig, source PacketReader, format SampleFormat) (*Re
 // Read implements io.Reader and returns decoded PCM bytes in the format passed
 // to NewReader. Each call decodes at most one packet, so a short read at a packet
 // boundary is normal. It returns io.EOF after the source ends and buffered PCM
-// has been consumed.
+// has been consumed. An empty destination does not advance the source or
+// buffered PCM; it returns io.EOF only when EOF is already known and no PCM
+// remains.
 func (r *Reader) Read(p []byte) (int, error) {
+	if len(p) == 0 {
+		if r.eof && r.offset >= len(r.byteBuf) {
+			return 0, io.EOF
+		}
+		return 0, nil
+	}
+
 	// If buffer is exhausted, try to get more data
 	if r.offset >= len(r.byteBuf) {
 		if r.eof {

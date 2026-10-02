@@ -8,7 +8,6 @@
 package main
 
 import (
-	"encoding/binary"
 	"errors"
 	"flag"
 	"fmt"
@@ -23,6 +22,7 @@ import (
 	"github.com/thesyncim/gopus"
 	"github.com/thesyncim/gopus/container/ogg"
 	examplecleanup "github.com/thesyncim/gopus/examples/internal/cleanup"
+	"github.com/thesyncim/gopus/examples/internal/wav"
 )
 
 const (
@@ -30,15 +30,24 @@ const (
 )
 
 func main() {
-	outPath := flag.String("out", "", "Output Ogg Opus file path (defaults to temp when -play is set)")
-	duration := flag.Float64("duration", 2.0, "Duration in seconds")
-	bitrate := flag.Int("bitrate", 128000, "Target bitrate in bps")
-	channels := flag.Int("channels", 2, "Number of channels (1 or 2)")
-	signal := flag.String("signal", "chord", "Signal type: sine, sweep, noise, chord, speech")
-	frameSize := flag.Int("frame", 960, "Frame size in samples at 48kHz (e.g., 480, 960, 1920)")
-	play := flag.Bool("play", false, "Play the encoded Opus file with ffplay if available")
-	libopus := flag.Bool("libopus", false, "Use external libopus encoder (opusenc/ffmpeg) instead of gopus")
-	flag.Parse()
+	if err := run(os.Args[1:]); err != nil && !errors.Is(err, flag.ErrHelp) {
+		log.Fatal(err)
+	}
+}
+
+func run(args []string) error {
+	flags := flag.NewFlagSet("encode-play", flag.ContinueOnError)
+	outPath := flags.String("out", "", "Output Ogg Opus file path (defaults to temp when -play is set)")
+	duration := flags.Float64("duration", 2.0, "Duration in seconds")
+	bitrate := flags.Int("bitrate", 128000, "Target bitrate in bps")
+	channels := flags.Int("channels", 2, "Number of channels (1 or 2)")
+	signal := flags.String("signal", "chord", "Signal type: sine, sweep, noise, chord, speech")
+	frameSize := flags.Int("frame", 960, "Frame size in samples at 48kHz (e.g., 480, 960, 1920)")
+	play := flags.Bool("play", false, "Play the encoded Opus file with ffplay if available")
+	libopus := flags.Bool("libopus", false, "Use external libopus encoder (opusenc/ffmpeg) instead of gopus")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
 
 	if *channels < 1 {
 		*channels = 1
@@ -56,7 +65,7 @@ func main() {
 		if *play {
 			tmp, err := os.CreateTemp("", "gopus_encode_*.opus")
 			if err != nil {
-				log.Fatalf("Create temp file: %v", err)
+				return fmt.Errorf("create temp output: %w", err)
 			}
 			output = tmp.Name()
 			tempOutput = true
@@ -65,6 +74,13 @@ func main() {
 		} else {
 			output = "encoded.opus"
 		}
+	}
+	if tempOutput {
+		defer func() {
+			if cleanup != nil {
+				cleanup()
+			}
+		}()
 	}
 
 	var (
@@ -77,7 +93,7 @@ func main() {
 		stats, err = encodeToOgg(output, *duration, *bitrate, *channels, *frameSize, app, *signal)
 	}
 	if err != nil {
-		log.Fatalf("Encode failed: %v", err)
+		return fmt.Errorf("encode failed: %w", err)
 	}
 
 	fmt.Printf("Encoded: %s\n", output)
@@ -98,9 +114,7 @@ func main() {
 		}
 	}
 
-	if tempOutput && cleanup != nil {
-		cleanup()
-	}
+	return nil
 }
 
 type encodeStats struct {
@@ -241,7 +255,7 @@ func encodeWithLibopus(path string, duration float64, bitrate int, channels int,
 	_ = tmp.Close()
 	defer examplecleanup.OnReturn("remove temporary WAV input", func() error { return os.Remove(tmpPath) })
 
-	writer, err := newWavWriter(tmpPath, sampleRate, channels)
+	writer, err := wav.NewWriter(tmpPath, sampleRate, channels)
 	if err != nil {
 		return stats, fmt.Errorf("create wav: %w", err)
 	}
@@ -630,7 +644,7 @@ func decodeOpusToWav(opusPath, wavPath string) error {
 	pcmOut := make([]float32, decCfg.MaxPacketSamples*channels)
 	preSkip := int(oggReader.PreSkip())
 
-	writer, err := newWavWriter(wavPath, sampleRate, channels)
+	writer, err := wav.NewWriter(wavPath, sampleRate, channels)
 	if err != nil {
 		return fmt.Errorf("create wav: %w", err)
 	}
@@ -671,85 +685,6 @@ func decodeOpusToWav(opusPath, wavPath string) error {
 	}
 
 	return writer.Close()
-}
-
-type wavWriter struct {
-	f          *os.File
-	dataSize   uint32
-	sampleRate int
-	channels   int
-}
-
-func newWavWriter(path string, sampleRate, channels int) (*wavWriter, error) {
-	f, err := os.Create(path)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := f.Write(make([]byte, 44)); err != nil {
-		_ = f.Close()
-		return nil, err
-	}
-	return &wavWriter{f: f, sampleRate: sampleRate, channels: channels}, nil
-}
-
-func (w *wavWriter) WriteSamples(samples []float32) error {
-	if len(samples) == 0 {
-		return nil
-	}
-
-	buf := make([]byte, len(samples)*2)
-	for i, s := range samples {
-		scaled := float64(s) * 32768.0
-		if scaled > 32767.0 {
-			scaled = 32767.0
-		} else if scaled < -32768.0 {
-			scaled = -32768.0
-		}
-		val := int16(math.RoundToEven(scaled))
-		binary.LittleEndian.PutUint16(buf[i*2:], uint16(val))
-	}
-
-	written, err := w.f.Write(buf)
-	if err != nil {
-		return err
-	}
-	w.dataSize += uint32(written)
-	return nil
-}
-
-func (w *wavWriter) Close() error {
-	if w.f == nil {
-		return nil
-	}
-
-	header := make([]byte, 44)
-	writeWavHeader(header, w.dataSize, w.sampleRate, w.channels)
-
-	if _, err := w.f.Seek(0, io.SeekStart); err != nil {
-		_ = w.f.Close()
-		return err
-	}
-	if _, err := w.f.Write(header); err != nil {
-		_ = w.f.Close()
-		return err
-	}
-	return w.f.Close()
-}
-
-func writeWavHeader(dst []byte, dataSize uint32, sampleRate, channels int) {
-	copy(dst[0:4], "RIFF")
-	binary.LittleEndian.PutUint32(dst[4:8], 36+dataSize)
-	copy(dst[8:12], "WAVE")
-	copy(dst[12:16], "fmt ")
-	binary.LittleEndian.PutUint32(dst[16:20], 16)
-	binary.LittleEndian.PutUint16(dst[20:22], 1)
-	binary.LittleEndian.PutUint16(dst[22:24], uint16(channels))
-	binary.LittleEndian.PutUint32(dst[24:28], uint32(sampleRate))
-	binary.LittleEndian.PutUint32(dst[28:32], uint32(sampleRate*channels*2))
-	binary.LittleEndian.PutUint16(dst[32:34], uint16(channels*2))
-	binary.LittleEndian.PutUint16(dst[34:36], 16)
-	copy(dst[36:40], "data")
-	binary.LittleEndian.PutUint32(dst[40:44], dataSize)
 }
 
 func playWav(path string) error {

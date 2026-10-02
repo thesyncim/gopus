@@ -31,6 +31,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"runtime"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -479,22 +480,34 @@ func TestDecodeDifferentialEncodeThenDecode(t *testing.T) {
 		stride = len(specs) / budget
 	}
 
+	type decodeSweepResult struct {
+		selected         bool
+		generatedPackets int
+		matchedDecodes   int
+	}
+	results := make([]decodeSweepResult, len(specs))
+	parallelism := min(4, runtime.GOMAXPROCS(0), budget)
+	semaphore := make(chan struct{}, parallelism)
+
 	tested := 0
-	selected := 0
-	generatedPackets := 0
-	matchedDecodes := 0
 	for idx := 0; idx < len(specs) && tested < budget; idx += stride {
-		spec := specs[idx]
+		configIndex := idx
+		spec := specs[configIndex]
 		tested++
+		slot := &results[configIndex]
 		t.Run(spec.name, func(t *testing.T) {
-			selected++
-			specRng := rand.New(rand.NewSource(int64(idx)*1000003 + 1))
+			t.Parallel()
+			slot.selected = true
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+
+			specRng := rand.New(rand.NewSource(int64(configIndex)*1000003 + 1))
 			packets, ok := encodePackets(t, spec, specRng, framesPerSpec)
 			if !ok {
 				t.Errorf("encoder did not produce packets for selected config %s", spec.name)
 				return
 			}
-			generatedPackets += len(packets)
+			slot.generatedPackets = len(packets)
 			for _, format := range formats {
 				cases := make([]libopustest.DecodeDiffCase, len(packets))
 				for i, p := range packets {
@@ -514,7 +527,7 @@ func TestDecodeDifferentialEncodeThenDecode(t *testing.T) {
 					}
 					if format == libopustest.DecodeDiffFormatInt24 {
 						if assertFreshDecodeInt24MatchesOracle(t, label, 48000, spec.channels, cases[i], or) {
-							matchedDecodes++
+							slot.matchedDecodes++
 						}
 						continue
 					}
@@ -533,18 +546,31 @@ func TestDecodeDifferentialEncodeThenDecode(t *testing.T) {
 						t.Logf("%s: diverging packet=% x", label, p)
 						continue
 					}
-					matchedDecodes++
+					slot.matchedDecodes++
 				}
 			}
 		})
 	}
-	if generatedPackets != selected*framesPerSpec {
-		t.Errorf("encode-then-decode generated %d packets, want %d", generatedPackets, selected*framesPerSpec)
-	}
-	if matchedDecodes != selected*framesPerSpec*len(formats) {
-		t.Errorf("encode-then-decode matched %d decoded packets, want %d across %d formats",
-			matchedDecodes, selected*framesPerSpec*len(formats), len(formats))
-	}
-	t.Logf("encode-then-decode exact sweep: %d selected of %d/%d visited specs, %d packets, %d decoded formats",
-		selected, tested, len(specs), generatedPackets, matchedDecodes)
+	t.Cleanup(func() {
+		selected := 0
+		generatedPackets := 0
+		matchedDecodes := 0
+		for _, result := range results {
+			if !result.selected {
+				continue
+			}
+			selected++
+			generatedPackets += result.generatedPackets
+			matchedDecodes += result.matchedDecodes
+		}
+		if generatedPackets != selected*framesPerSpec {
+			t.Errorf("encode-then-decode generated %d packets, want %d", generatedPackets, selected*framesPerSpec)
+		}
+		if matchedDecodes != selected*framesPerSpec*len(formats) {
+			t.Errorf("encode-then-decode matched %d decoded packets, want %d across %d formats",
+				matchedDecodes, selected*framesPerSpec*len(formats), len(formats))
+		}
+		t.Logf("encode-then-decode exact sweep: %d selected of %d/%d visited specs, %d packets, %d decoded formats",
+			selected, tested, len(specs), generatedPackets, matchedDecodes)
+	})
 }

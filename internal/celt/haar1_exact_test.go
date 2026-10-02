@@ -3,7 +3,6 @@ package celt
 import (
 	"fmt"
 	"math"
-	"reflect"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -160,52 +159,49 @@ func TestHaar1SpecializedMatchesGeneric(t *testing.T) {
 }
 
 func TestHaar1StrideFastPathsMatchGenericExact(t *testing.T) {
-	testCases := []struct {
-		name   string
-		n0     int
-		stride int
-	}{
-		{name: "stride1", n0: 64, stride: 1},
-		{name: "stride2", n0: 64, stride: 2},
-		{name: "stride4", n0: 64, stride: 4},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			n := tc.n0 * tc.stride * 2
-			input := make([]float64, n)
-			for i := range input {
-				switch i % 5 {
-				case 0:
-					input[i] = float64((i%31)-15) * 0.125
-				case 1:
-					input[i] = float64((i%29)-14) * -0.0625
-				case 2:
-					input[i] = float64(i%17) * 1e-6
-				case 3:
-					input[i] = -float64(i%19) * 0.375
-				default:
-					input[i] = float64((i%23)-11) * 0.03125
-				}
+	libopustest.RequireOracle(t)
+	requirePairedCELTOracleMode(t)
+	const pairs = 64
+	cases := make([]haar1OracleCase, 0, 3)
+	for _, stride := range []int{1, 2, 4} {
+		input := make([]float32, 2*pairs*stride)
+		for i := range input {
+			switch i % 5 {
+			case 0:
+				input[i] = float32((i%31)-15) * 0.125
+			case 1:
+				input[i] = float32((i%29)-14) * -0.0625
+			case 2:
+				input[i] = float32(i%17) * 1e-6
+			case 3:
+				input[i] = -float32(i%19) * 0.375
+			default:
+				input[i] = float32((i%23)-11) * 0.03125
 			}
-
-			got := append([]float64(nil), input...)
-			want := append([]float64(nil), input...)
-
+		}
+		// libopus halves N0 to get the number of butterfly pairs; the
+		// specialized Go helpers take that pair count directly.
+		cases = append(cases, haar1OracleCase{fmt.Sprintf("stride%d", stride), input, 2 * pairs, stride})
+	}
+	want, err := probeLibopusHaar1(cases)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "celt vq", err)
+	}
+	for ci, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := append([]float32(nil), tc.x...)
 			switch tc.stride {
 			case 1:
-				haar1Stride1Asm(got, tc.n0)
-				haar1Stride1Generic(want, tc.n0)
+				haar1Stride1(got, pairs)
 			case 2:
-				haar1Stride2Asm(got, tc.n0)
-				haar1Stride2Generic(want, tc.n0)
+				haar1Stride2(got, pairs)
 			case 4:
-				haar1Stride4Asm(got, tc.n0)
-				haar1Stride4Generic(want, tc.n0)
+				haar1Stride4(got, pairs)
 			}
-
-			if !reflect.DeepEqual(got, want) {
-				t.Fatalf("exact mismatch: got %v want %v", got, want)
+			for i, sample := range got {
+				if math.Float32bits(sample) != math.Float32bits(want[ci][i]) {
+					t.Fatalf("x[%d]=%08x want %08x", i, math.Float32bits(sample), math.Float32bits(want[ci][i]))
+				}
 			}
 		})
 	}

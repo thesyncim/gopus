@@ -63,7 +63,7 @@ func main() {
 
 // createOggFile creates an Ogg Opus file with a test audio signal.
 func createOggFile(filename string, duration float64, bitrate int) error {
-	totalFrames, err := fullFrameCountForDuration(duration)
+	totalSamples, err := sampleCountForDuration(duration)
 	if err != nil {
 		return err
 	}
@@ -76,6 +76,19 @@ func createOggFile(filename string, duration float64, bitrate int) error {
 	if err := enc.SetBitrate(bitrate); err != nil {
 		return fmt.Errorf("set bitrate: %w", err)
 	}
+	lookahead := enc.Lookahead()
+	if lookahead < 0 || lookahead > int(^uint16(0)) {
+		return fmt.Errorf("encoder lookahead %d cannot be represented in OpusHead", lookahead)
+	}
+	maxInt := int(^uint(0) >> 1)
+	if totalSamples > maxInt-lookahead {
+		return fmt.Errorf("duration exceeds the supported encoded sample count")
+	}
+	encodedSamples := totalSamples + lookahead
+	totalFrames := encodedSamples / frameSize
+	if encodedSamples%frameSize != 0 {
+		totalFrames++
+	}
 
 	// Create file
 	f, err := os.Create(filename)
@@ -84,24 +97,34 @@ func createOggFile(filename string, duration float64, bitrate int) error {
 	}
 	defer examplecleanup.OnReturn("close output file", f.Close)
 
-	// Create Ogg writer
-	oggWriter, err := ogg.NewWriter(f, uint32(sampleRate), uint8(channels))
+	writerConfig := ogg.WriterConfig{
+		SampleRate:    uint32(sampleRate),
+		Channels:      uint8(channels),
+		PreSkip:       uint16(lookahead),
+		MappingFamily: ogg.MappingFamilyRTP,
+		StreamCount:   1,
+	}
+	if channels == 2 {
+		writerConfig.CoupledCount = 1
+	}
+	oggWriter, err := ogg.NewWriterWithConfig(f, writerConfig)
 	if err != nil {
 		return fmt.Errorf("create ogg writer: %w", err)
 	}
 
 	// Generate and encode audio
-	encodedSamples := totalFrames * frameSize
 	encodedBytes := 0
 	progressInterval := max(1, totalFrames/10)
 
-	fmt.Printf("  Duration: %.1f seconds\n", duration)
+	playableDuration := float64(totalSamples) / sampleRate
+	fmt.Printf("  Requested duration: %.6f seconds\n", duration)
+	fmt.Printf("  Playable duration: %.6f seconds (%d samples)\n", playableDuration, totalSamples)
 	fmt.Printf("  Bitrate: %d kbps\n", bitrate/1000)
-	fmt.Printf("  Frames: %d\n", totalFrames)
+	fmt.Printf("  Encoded frames (including lookahead): %d\n", totalFrames)
 
 	for frame := range totalFrames {
 		// Generate a pleasant test tone that varies over time
-		pcm := generateFrame(frame, totalFrames)
+		pcm := generateFrame(frame, totalSamples)
 
 		// Encode
 		packet, err := enc.EncodeFloat32(pcm)
@@ -109,8 +132,14 @@ func createOggFile(filename string, duration float64, bitrate int) error {
 			return fmt.Errorf("encode frame %d: %w", frame, err)
 		}
 
-		// Write to Ogg
-		if err := oggWriter.WritePacket(packet, frameSize); err != nil {
+		// The final granule retains the requested input and encoder lookahead,
+		// while excluding the zero padding after the final input sample.
+		if frame == totalFrames-1 {
+			finalSamples := encodedSamples - frame*frameSize
+			if err := oggWriter.WriteFinalPacket(packet, finalSamples); err != nil {
+				return fmt.Errorf("write final packet %d: %w", frame, err)
+			}
+		} else if err := oggWriter.WritePacket(packet, frameSize); err != nil {
 			return fmt.Errorf("write packet %d: %w", frame, err)
 		}
 
@@ -134,47 +163,46 @@ func createOggFile(filename string, duration float64, bitrate int) error {
 	}
 	fileSize := stat.Size()
 
-	fmt.Printf("  Total samples: %d\n", encodedSamples)
+	fmt.Printf("  Input samples: %d\n", totalSamples)
 	fmt.Printf("  Encoded size: %d bytes\n", encodedBytes)
 	fmt.Printf("  File size: %d bytes\n", fileSize)
 	fmt.Printf("  Compression: %.1f:1\n",
-		float64(encodedSamples*channels*2)/float64(fileSize)) // 2 bytes per int16 sample
+		float64(totalSamples)*float64(channels)*2/float64(fileSize)) // 2 bytes per int16 sample
 	fmt.Printf("  Effective bitrate: %.1f kbps\n",
-		float64(fileSize*8)/(float64(encodedSamples)/sampleRate)/1000)
+		float64(fileSize)*8/playableDuration/1000)
 
 	return nil
 }
 
-func fullFrameCountForDuration(duration float64) (int, error) {
+func sampleCountForDuration(duration float64) (int, error) {
 	if duration <= 0 || math.IsNaN(duration) || math.IsInf(duration, 0) {
 		return 0, fmt.Errorf("duration must be a positive finite number")
 	}
 
-	sampleCount := duration * float64(sampleRate)
+	sampleCount := math.Round(duration * float64(sampleRate))
 	if math.IsInf(sampleCount, 0) || sampleCount >= float64(int(^uint(0)>>1)) {
 		return 0, fmt.Errorf("duration exceeds the supported sample count")
 	}
-	totalSamples := int(sampleCount)
-	totalFrames := totalSamples / frameSize
-	if totalFrames == 0 {
-		return 0, fmt.Errorf("duration %.3f seconds is shorter than one %d ms frame", duration, frameSize*1000/sampleRate)
+	if sampleCount < 1 {
+		return 0, fmt.Errorf("duration is shorter than one sample at %d Hz", sampleRate)
 	}
-	return totalFrames, nil
+	return int(sampleCount), nil
 }
 
-// generateFrame creates an audio frame with pleasant test tones.
-func generateFrame(frameNum, totalFrames int) []float32 {
+// generateFrame creates an audio frame with pleasant test tones and pads after the input ends.
+func generateFrame(frameNum, totalSamples int) []float32 {
 	pcm := make([]float32, frameSize*channels)
-
-	// Create a chord that evolves over time
-	progress := float64(frameNum) / float64(totalFrames)
 
 	// Base frequencies for a C major chord (C, E, G)
 	freqs := []float64{261.63, 329.63, 392.00} // C4, E4, G4
 
 	for i := range frameSize {
 		sampleNum := frameNum*frameSize + i
+		if sampleNum >= totalSamples {
+			continue
+		}
 		t := float64(sampleNum) / float64(sampleRate)
+		progress := float64(sampleNum) / float64(totalSamples)
 
 		// Mix chord tones with decreasing amplitude over time
 		var sample float64

@@ -20,8 +20,11 @@ func (v Float32View) Empty() bool {
 	return len(v.data) == 0
 }
 
-// At returns the i-th float32 value.
+// At returns the i-th float32 value. It panics if i is outside [0, Len()).
 func (v Float32View) At(i int) float32 {
+	if uint(i) >= uint(v.Len()) {
+		panic("dnnblob: Float32View.At index out of range")
+	}
 	offset := 4 * i
 	return math.Float32frombits(binary.LittleEndian.Uint32(v.data[offset : offset+4]))
 }
@@ -55,8 +58,11 @@ func (v Int32View) Empty() bool {
 	return len(v.data) == 0
 }
 
-// At returns the i-th int32 value.
+// At returns the i-th int32 value. It panics if i is outside [0, Len()).
 func (v Int32View) At(i int) int32 {
+	if uint(i) >= uint(v.Len()) {
+		panic("dnnblob: Int32View.At index out of range")
+	}
 	offset := 4 * i
 	return int32(binary.LittleEndian.Uint32(v.data[offset : offset+4]))
 }
@@ -113,8 +119,8 @@ func (r Record) Float32View() (Float32View, error) {
 }
 
 // Float32ViewFromBytes returns a zero-copy float32 view over raw record bytes,
-// validating only the byte size and alignment. This matches libopus's
-// size-driven layer binding behavior.
+// validating that the byte count matches size and contains whole elements.
+// This matches libopus's size-driven layer binding behavior.
 func Float32ViewFromBytes(data []byte, size int32) (Float32View, error) {
 	if size < 0 || len(data) != int(size) || len(data)%4 != 0 {
 		return Float32View{}, errInvalidBlob
@@ -131,7 +137,7 @@ func (r Record) Int32View() (Int32View, error) {
 }
 
 // Int32ViewFromBytes returns a zero-copy int32 view over raw record bytes,
-// validating only the byte size and alignment.
+// validating that the byte count matches size and contains whole elements.
 func Int32ViewFromBytes(data []byte, size int32) (Int32View, error) {
 	if size < 0 || len(data) != int(size) || len(data)%4 != 0 {
 		return Int32View{}, errInvalidBlob

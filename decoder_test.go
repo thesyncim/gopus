@@ -81,6 +81,29 @@ func TestNewDecoder_InvalidChannels(t *testing.T) {
 	}
 }
 
+func TestNewDecoderRejectsUnrepresentableMaxPacketSamples(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	sampleRates := []int{48000}
+	if extsupport.QEXT {
+		sampleRates = append(sampleRates, 96000)
+	}
+	for _, sampleRate := range sampleRates {
+		t.Run(fmt.Sprintf("%dHz", sampleRate), func(t *testing.T) {
+			dec, err := NewDecoder(DecoderConfig{
+				SampleRate:       sampleRate,
+				Channels:         2,
+				MaxPacketSamples: maxInt,
+			})
+			if dec != nil {
+				t.Fatal("NewDecoder returned a decoder for an unrepresentable sample cap")
+			}
+			if err != ErrInvalidMaxPacketSamples {
+				t.Fatalf("NewDecoder error=%v, want %v", err, ErrInvalidMaxPacketSamples)
+			}
+		})
+	}
+}
+
 func TestNewDecoder_DefaultMaxPacketLimits(t *testing.T) {
 	dec, err := NewDecoder(DecoderConfig{
 		SampleRate: 48000,

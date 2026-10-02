@@ -43,7 +43,9 @@ func main() {
 	flag.Parse()
 
 	if *runAll {
-		runAllTests(*duration)
+		if err := runAllTests(*duration); err != nil {
+			log.Fatalf("Roundtrip failed: %v", err)
+		}
 		return
 	}
 
@@ -58,7 +60,10 @@ func main() {
 	fmt.Printf("=== Roundtrip Test: %s signal, %d kbps, %d ch ===\n",
 		*signal, *bitrate/1000, *channels)
 
-	original := generateSignal(*signal, *duration, *channels)
+	original, err := generateSignal(*signal, *duration, *channels)
+	if err != nil {
+		log.Fatalf("Invalid roundtrip input: %v", err)
+	}
 	decoded, delay, err := roundtrip(original, config)
 	if err != nil {
 		log.Fatalf("Roundtrip failed: %v", err)
@@ -73,7 +78,11 @@ func main() {
 const corrThreshold = 0.9
 
 // runAllTests runs a matrix of test configurations.
-func runAllTests(duration float64) {
+func runAllTests(duration float64) error {
+	if _, err := sampleCountForDuration(duration, 2); err != nil {
+		return err
+	}
+
 	configs := []TestConfig{
 		{"VoIP 32kbps mono", gopus.ApplicationVoIP, 32000, 1},
 		{"VoIP 32kbps stereo", gopus.ApplicationVoIP, 32000, 2},
@@ -97,7 +106,10 @@ func runAllTests(duration float64) {
 
 	for _, config := range configs {
 		for _, sig := range signals {
-			original := generateSignal(sig, duration, config.Channels)
+			original, err := generateSignal(sig, duration, config.Channels)
+			if err != nil {
+				return fmt.Errorf("generate %s signal for %s: %w", sig, config.Name, err)
+			}
 			decoded, delay, err := roundtrip(original, config)
 			if err != nil {
 				fmt.Printf("%-25s %-8s %9s %8s %10s %6s\n",
@@ -133,6 +145,7 @@ func runAllTests(duration float64) {
 		fmt.Println("sweep's loudness (EnergyR ~1.0) but not its waveform. Use an Audio or")
 		fmt.Println("low-delay profile for music and full-range content.")
 	}
+	return nil
 }
 
 // signalRoundtripOK applies a perceptually honest pass criterion. Tonal signals
@@ -147,8 +160,17 @@ func signalRoundtripOK(sig string, corr, energyRatio float64) bool {
 }
 
 // generateSignal creates a test signal.
-func generateSignal(signalType string, duration float64, channels int) []float32 {
-	samples := int(duration * sampleRate)
+func generateSignal(signalType string, duration float64, channels int) ([]float32, error) {
+	switch signalType {
+	case "sine", "sweep", "noise", "speech":
+	default:
+		return nil, fmt.Errorf("unknown signal type %q (valid: sine, sweep, noise, speech)", signalType)
+	}
+	samples, err := sampleCountForDuration(duration, channels)
+	if err != nil {
+		return nil, err
+	}
+
 	pcm := make([]float32, samples*channels)
 
 	switch signalType {
@@ -203,11 +225,33 @@ func generateSignal(signalType string, duration float64, channels int) []float32
 			}
 		}
 
-	default:
-		log.Fatalf("Unknown signal type: %s", signalType)
 	}
 
-	return pcm
+	return pcm, nil
+}
+
+func sampleCountForDuration(duration float64, channels int) (int, error) {
+	if channels < 1 || channels > 2 {
+		return 0, fmt.Errorf("channels must be 1 or 2, got %d", channels)
+	}
+	if duration <= 0 || math.IsNaN(duration) || math.IsInf(duration, 0) {
+		return 0, fmt.Errorf("duration must be a positive finite number")
+	}
+
+	sampleCount := duration * float64(sampleRate)
+	maxInt := int(^uint(0) >> 1)
+	maxSamples := maxInt / 4 / channels // one float32 per channel sample
+	if math.IsInf(sampleCount, 0) || sampleCount > float64(maxSamples) {
+		return 0, fmt.Errorf("duration exceeds the representable PCM sample count")
+	}
+	samples := int(sampleCount) // Preserve the example's truncation policy.
+	if samples > maxSamples {
+		return 0, fmt.Errorf("duration exceeds the representable PCM sample count")
+	}
+	if samples < 1 {
+		return 0, fmt.Errorf("duration is shorter than one sample at %d Hz", sampleRate)
+	}
+	return samples, nil
 }
 
 // roundtrip encodes and decodes audio, returning the decoded PCM and the

@@ -280,7 +280,7 @@ for mode in simd nosimd; do
 
   run_phase "candidate-$mode-lpc-ltp-oracles" \
     "${run_env[@]}" "$artifact_root/candidate-$mode-silk.test" \
-    -test.run '^Test(SILKCorrelationMatrixVectorMatchesLibopusOracle|SILKAutocorrelationF32MatchesLibopusOracle|SILKBurgModifiedFLPMatchesLibopusOracle|SILKLPCAnalysisFilterFLPMatchesLibopusOracle|SILKInnerProductFLPMatchesLibopusOracle|SILKFindLPCFLPMatchesLibopusOracle|SILKFindLTPFLPMatchesLibopusOracle)$' \
+    -test.run '^Test(SILKCorrelationMatrixVectorMatchesLibopusOracle|SILKAutocorrelationF32MatchesLibopusOracle|SILKBurgModifiedFLPMatchesLibopusOracle|SILKLPCAnalysisFilterFLPMatchesLibopusOracle|SILKInnerProductFLPMatchesLibopusOracle|SILKFindLPCFLPMatchesLibopusOracle|SILKFindLTPFLPMatchesLibopusOracle|WriteInt16AsFloat32MatchesScalar|WriteInt16AsFloat32CoreCanaries|WriteInt16AsFloat32CoreZeroAlloc)$' \
     -test.count=1 -test.timeout=10m -test.v
 
   # Feature helpers select the same scalar/SIMD reference as the Go build.
