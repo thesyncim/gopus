@@ -16,9 +16,9 @@ var (
 	// ErrInvalidSampleFormat indicates an invalid streaming PCM format.
 	ErrInvalidSampleFormat = errors.New("gopus: invalid sample format")
 
-	// ErrInvalidMaxPacketSamples indicates a nonpositive max packet sample cap or
+	// ErrInvalidMaxPacketSamples indicates a negative max packet sample cap or
 	// one whose decoder scratch length cannot fit in int-sized storage.
-	ErrInvalidMaxPacketSamples = errors.New("gopus: invalid max packet samples (must be positive and fit decoder scratch)")
+	ErrInvalidMaxPacketSamples = errors.New("gopus: invalid max packet samples (must be nonnegative and fit decoder scratch)")
 
 	// ErrInvalidMaxPacketBytes indicates an invalid max packet size cap.
 	ErrInvalidMaxPacketBytes = errors.New("gopus: invalid max packet bytes (must be > 0)")
