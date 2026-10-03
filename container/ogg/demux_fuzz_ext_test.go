@@ -632,6 +632,11 @@ func FuzzOggExt_MultiSegmentLacing(f *testing.F) {
 	if s := extBuildContinuationBitStream(); len(s) > 0 {
 		f.Add(s)
 	}
+	// Empty pages preserve the pending packet's fragments.
+	for _, flags := range []byte{0, PageFlagContinuation} {
+		stream, _, _ := emptyPageContinuationStream(flags, false)
+		f.Add(stream)
+	}
 	// Garbage.
 	f.Add([]byte("OggS\x00\x01"))
 	f.Add(make([]byte, 100))
