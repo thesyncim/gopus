@@ -503,7 +503,7 @@ func buildCHelperWithCache(outPath string, cacheable bool, build func() error) e
 	if err != nil {
 		return fmt.Errorf("lock helper build %s: %w", outPath, err)
 	}
-	defer lock.Close()
+	defer func() { _ = lock.Close() }()
 	if cacheable && usableCHelperBinary(outPath) {
 		return nil
 	}
