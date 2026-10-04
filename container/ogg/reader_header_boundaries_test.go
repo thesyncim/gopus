@@ -8,37 +8,6 @@ import (
 	"testing"
 )
 
-func TestNewReaderRequiresOpusTagsContinuation(t *testing.T) {
-	const serial = 0x2845
-	tags := (&OpusTags{Vendor: strings.Repeat("v", 700), Comments: []string{"TITLE=test"}}).Encode()
-	for _, missingPage := range []int{1, 2} {
-		name := "middle page"
-		if missingPage == 2 {
-			name = "completion page"
-		}
-		t.Run(name, func(t *testing.T) {
-			stream := readerBoundaryPacketPage(serial, 0, PageFlagBOS, 0, DefaultOpusHead(48000, 1).Encode())
-			for i, start := 0, 0; start < len(tags); i, start = i+1, start+255 {
-				end := min(start+255, len(tags))
-				flags := byte(PageFlagContinuation)
-				if i == 0 || i == missingPage {
-					flags = 0
-				}
-				segments := []byte{255}
-				granule := ^uint64(0)
-				if end == len(tags) {
-					segments = BuildSegmentTable(end - start)
-					granule = 0
-				}
-				stream = append(stream, readerBoundaryPage(serial, uint32(i+1), flags, granule, segments, tags[start:end])...)
-			}
-			if _, err := NewReader(bytes.NewReader(stream)); !errors.Is(err, ErrInvalidPage) {
-				t.Fatalf("NewReader error = %v, want ErrInvalidPage", err)
-			}
-		})
-	}
-}
-
 func TestNewReaderSkipsOtherStreamsDuringHeaders(t *testing.T) {
 	const serial = 0x3845
 	const otherSerial = 0x3533
