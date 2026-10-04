@@ -401,6 +401,13 @@ Use `make test-fast` for iteration, `make test` for the live C-oracle suite,
 and `make test-build-contract` for build boundaries. See
 [CONTRIBUTING.md](CONTRIBUTING.md) for the verification and release checklist.
 
+Independent composite encode cases run concurrently, capped at four active cases
+and `GOMAXPROCS`, with fresh codec state and every selected frame. Use
+`-parallel=1` to serialize their subtests. C oracle helper binaries reuse a digest
+of compiler identity, effective flags, preprocessed sources, and linked archive
+contents; each input still executes the live C helper. Builds with custom linker
+outputs bypass reuse.
+
 ## Trust And Verification
 
 Released version: `v0.1.2`. The API is pre-v1.

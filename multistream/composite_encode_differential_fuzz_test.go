@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"runtime"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -143,42 +144,59 @@ func TestSurroundEncodeDifferentialFuzz(t *testing.T) {
 	if budget < len(specs) {
 		stride = len(specs) / budget
 	}
+	limit := min(4, runtime.GOMAXPROCS(0))
+	semaphore := make(chan struct{}, limit)
 	for idx, tested := 0, 0; idx < len(specs) && tested < budget; idx, tested = idx+stride, tested+1 {
 		spec := specs[idx]
 		t.Run(spec.name, func(t *testing.T) {
-			pcm := seededMultichannelPCM(spec.seed, spec.channels, spec.frameSize, spec.frameCount)
-			ref, err := encodeLibopusSurround(compositeSampleRate, spec.channels, 1, compositeApplication,
-				spec.bitrate, spec.vbr, spec.vbrConstraint, spec.complexity, compositeBandwidthAuto,
-				spec.frameSize, spec.frameCount, compositeMaxPacketBytes, pcm, false)
-			if err != nil {
-				t.Fatalf("live C surround encode: %v", err)
-			}
-			enc, err := NewEncoderDefault(compositeSampleRate, spec.channels)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if enc.Streams() != ref.streams || enc.CoupledStreams() != ref.coupledStreams {
-				t.Fatalf("layout Go=%d/%d C=%d/%d", enc.Streams(), enc.CoupledStreams(), ref.streams, ref.coupledStreams)
-			}
-			enc.SetBitrate(spec.bitrate)
-			enc.SetVBR(spec.vbr)
-			enc.SetVBRConstraint(spec.vbrConstraint)
-			enc.SetComplexity(spec.complexity)
-			enc.SetBandwidthAuto()
-			for frame := range spec.frameCount {
-				start := frame * spec.frameSize * spec.channels
-				input := pcm[start : start+spec.frameSize*spec.channels]
-				got, err := encodePacketMax(enc, input, spec.frameSize, input, compositeMaxPacketBytes)
-				if err != nil {
-					t.Fatalf("frame %d Go encode: %v", frame, err)
-				}
-				if !bytes.Equal(got, ref.packets[frame]) || enc.GetFinalRange() != ref.ranges[frame] {
-					t.Errorf("frame %d: firstByte=%d len Go/C=%d/%d range Go/C=%08x/%08x configs Go/C=%v/%v", frame,
-						firstByteMismatch(got, ref.packets[frame]), len(got), len(ref.packets[frame]),
-						enc.GetFinalRange(), ref.ranges[frame], perStreamConfigs(got, enc.Streams()), perStreamConfigs(ref.packets[frame], ref.streams))
-				}
-			}
+			t.Parallel()
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+			runSurroundFuzzSpecParity(t, spec, false)
 		})
+	}
+}
+
+func runSurroundFuzzSpecParity(t *testing.T, spec surroundFuzzSpec, failFast bool) {
+	t.Helper()
+	pcm := seededMultichannelPCM(spec.seed, spec.channels, spec.frameSize, spec.frameCount)
+	ref, err := encodeLibopusSurround(compositeSampleRate, spec.channels, 1, compositeApplication,
+		spec.bitrate, spec.vbr, spec.vbrConstraint, spec.complexity, compositeBandwidthAuto,
+		spec.frameSize, spec.frameCount, compositeMaxPacketBytes, pcm, false)
+	if err != nil {
+		t.Fatalf("live C surround encode: %v", err)
+	}
+	if len(ref.packets) != spec.frameCount || len(ref.ranges) != spec.frameCount {
+		t.Fatalf("live C records: packets=%d ranges=%d want=%d", len(ref.packets), len(ref.ranges), spec.frameCount)
+	}
+	enc, err := NewEncoderDefault(compositeSampleRate, spec.channels)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if enc.Streams() != ref.streams || enc.CoupledStreams() != ref.coupledStreams {
+		t.Fatalf("layout Go=%d/%d C=%d/%d", enc.Streams(), enc.CoupledStreams(), ref.streams, ref.coupledStreams)
+	}
+	enc.SetBitrate(spec.bitrate)
+	enc.SetVBR(spec.vbr)
+	enc.SetVBRConstraint(spec.vbrConstraint)
+	enc.SetComplexity(spec.complexity)
+	enc.SetBandwidthAuto()
+	for frame := range spec.frameCount {
+		start := frame * spec.frameSize * spec.channels
+		input := pcm[start : start+spec.frameSize*spec.channels]
+		got, err := encodePacketMax(enc, input, spec.frameSize, input, compositeMaxPacketBytes)
+		if err != nil {
+			t.Fatalf("frame %d Go encode: %v", frame, err)
+		}
+		if !bytes.Equal(got, ref.packets[frame]) || enc.GetFinalRange() != ref.ranges[frame] {
+			message := fmt.Sprintf("frame %d: firstByte=%d len Go/C=%d/%d range Go/C=%08x/%08x configs Go/C=%v/%v", frame,
+				firstByteMismatch(got, ref.packets[frame]), len(got), len(ref.packets[frame]),
+				enc.GetFinalRange(), ref.ranges[frame], perStreamConfigs(got, enc.Streams()), perStreamConfigs(ref.packets[frame], ref.streams))
+			if failFast {
+				t.Fatal(message)
+			}
+			t.Error(message)
+		}
 	}
 }
 
@@ -258,60 +276,76 @@ func TestProjectionEncodeDifferentialFuzz(t *testing.T) {
 	if budget < len(specs) {
 		stride = len(specs) / budget
 	}
+	limit := min(4, runtime.GOMAXPROCS(0))
+	semaphore := make(chan struct{}, limit)
 	for idx, tested := 0, 0; idx < len(specs) && tested < budget; idx, tested = idx+stride, tested+1 {
 		spec := specs[idx]
 		t.Run(spec.name, func(t *testing.T) {
-			pcm := seededMultichannelPCM(spec.seed, spec.channels, spec.frameSize, spec.frameCount)
-			var pcm16 []int16
-			if spec.sampleFormat == 1 {
-				pcm16 = floatToInt16(pcm)
-			}
-			ref, err := encodeLibopusProjection(compositeSampleRate, spec.channels, compositeApplication,
-				spec.bitrate, spec.vbr, spec.vbrConstraint, spec.complexity, compositeBandwidthAuto,
-				spec.frameSize, spec.frameCount, compositeMaxPacketBytes, spec.sampleFormat, pcm, pcm16)
-			if err != nil {
-				t.Fatalf("live C projection encode: %v", err)
-			}
-			enc, err := NewProjectionEncoder(compositeSampleRate, spec.channels)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if enc.Streams() != ref.streams || enc.CoupledStreams() != ref.coupledStreams {
-				t.Fatalf("layout Go=%d/%d C=%d/%d", enc.Streams(), enc.CoupledStreams(), ref.streams, ref.coupledStreams)
-			}
-			if !bytes.Equal(enc.GetDemixingMatrix(), ref.demixing) || enc.DemixingMatrixGain() != ref.demixingGain {
-				t.Fatal("demixing matrix or gain differs from C")
-			}
-			enc.SetBitrate(spec.bitrate)
-			enc.SetVBR(spec.vbr)
-			enc.SetVBRConstraint(spec.vbrConstraint)
-			enc.SetComplexity(spec.complexity)
-			enc.SetBandwidthAuto()
-			out := make([]byte, compositeMaxPacketBytes)
-			for frame := range spec.frameCount {
-				start := frame * spec.frameSize * spec.channels
-				var got []byte
-				if spec.sampleFormat == 1 {
-					input := pcm16[start : start+spec.frameSize*spec.channels]
-					n, err := enc.EncodeInt16WithAnalysis(input, spec.frameSize, input, out)
-					if err != nil {
-						t.Fatalf("frame %d Go short encode: %v", frame, err)
-					}
-					got = out[:n]
-				} else {
-					input := pcm[start : start+spec.frameSize*spec.channels]
-					var err error
-					got, err = encodePacketMax(enc, input, spec.frameSize, input, compositeMaxPacketBytes)
-					if err != nil {
-						t.Fatalf("frame %d Go float encode: %v", frame, err)
-					}
-				}
-				if !bytes.Equal(got, ref.packets[frame]) || enc.GetFinalRange() != ref.ranges[frame] {
-					t.Errorf("frame %d: firstByte=%d len Go/C=%d/%d range Go/C=%08x/%08x configs Go/C=%v/%v", frame,
-						firstByteMismatch(got, ref.packets[frame]), len(got), len(ref.packets[frame]),
-						enc.GetFinalRange(), ref.ranges[frame], perStreamConfigs(got, enc.Streams()), perStreamConfigs(ref.packets[frame], ref.streams))
-				}
-			}
+			t.Parallel()
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+			runProjectionFuzzSpecParity(t, spec, false)
 		})
+	}
+}
+
+func runProjectionFuzzSpecParity(t *testing.T, spec projectionFuzzSpec, failFast bool) {
+	t.Helper()
+	pcm := seededMultichannelPCM(spec.seed, spec.channels, spec.frameSize, spec.frameCount)
+	var pcm16 []int16
+	if spec.sampleFormat == 1 {
+		pcm16 = floatToInt16(pcm)
+	}
+	ref, err := encodeLibopusProjection(compositeSampleRate, spec.channels, compositeApplication,
+		spec.bitrate, spec.vbr, spec.vbrConstraint, spec.complexity, compositeBandwidthAuto,
+		spec.frameSize, spec.frameCount, compositeMaxPacketBytes, spec.sampleFormat, pcm, pcm16)
+	if err != nil {
+		t.Fatalf("live C projection encode: %v", err)
+	}
+	if len(ref.packets) != spec.frameCount || len(ref.ranges) != spec.frameCount {
+		t.Fatalf("live C records: packets=%d ranges=%d want=%d", len(ref.packets), len(ref.ranges), spec.frameCount)
+	}
+	enc, err := NewProjectionEncoder(compositeSampleRate, spec.channels)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if enc.Streams() != ref.streams || enc.CoupledStreams() != ref.coupledStreams {
+		t.Fatalf("layout Go=%d/%d C=%d/%d", enc.Streams(), enc.CoupledStreams(), ref.streams, ref.coupledStreams)
+	}
+	if !bytes.Equal(enc.GetDemixingMatrix(), ref.demixing) || enc.DemixingMatrixGain() != ref.demixingGain {
+		t.Fatal("demixing matrix or gain differs from C")
+	}
+	enc.SetBitrate(spec.bitrate)
+	enc.SetVBR(spec.vbr)
+	enc.SetVBRConstraint(spec.vbrConstraint)
+	enc.SetComplexity(spec.complexity)
+	enc.SetBandwidthAuto()
+	out := make([]byte, compositeMaxPacketBytes)
+	for frame := range spec.frameCount {
+		start := frame * spec.frameSize * spec.channels
+		var got []byte
+		if spec.sampleFormat == 1 {
+			input := pcm16[start : start+spec.frameSize*spec.channels]
+			n, err := enc.EncodeInt16WithAnalysis(input, spec.frameSize, input, out)
+			if err != nil {
+				t.Fatalf("frame %d Go short encode: %v", frame, err)
+			}
+			got = out[:n]
+		} else {
+			input := pcm[start : start+spec.frameSize*spec.channels]
+			got, err = encodePacketMax(enc, input, spec.frameSize, input, compositeMaxPacketBytes)
+			if err != nil {
+				t.Fatalf("frame %d Go float encode: %v", frame, err)
+			}
+		}
+		if !bytes.Equal(got, ref.packets[frame]) || enc.GetFinalRange() != ref.ranges[frame] {
+			message := fmt.Sprintf("frame %d: firstByte=%d len Go/C=%d/%d range Go/C=%08x/%08x configs Go/C=%v/%v", frame,
+				firstByteMismatch(got, ref.packets[frame]), len(got), len(ref.packets[frame]),
+				enc.GetFinalRange(), ref.ranges[frame], perStreamConfigs(got, enc.Streams()), perStreamConfigs(ref.packets[frame], ref.streams))
+			if failFast {
+				t.Fatal(message)
+			}
+			t.Error(message)
+		}
 	}
 }
