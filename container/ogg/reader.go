@@ -45,9 +45,11 @@ const readerBufferSize = 64 * 1024 // 64KB
 
 // NewReader returns a Reader for r after parsing the OpusHead and OpusTags
 // headers from the initial logical bitstream. It requires a BOS page containing
-// OpusHead followed by OpusTags pages with the same serial number. Page lengths
-// and CRCs are checked while reading, and nonzero Ogg page versions return
-// ErrInvalidPage. It returns ErrNilReader for a nil reader, ErrInvalidPage or
+// OpusHead followed by OpusTags pages with the same serial number; pages from
+// other logical bitstreams are skipped. Split OpusTags pages must carry the
+// continuation flag and consecutive sequence numbers. Page lengths and CRCs
+// are checked while reading, and nonzero Ogg page versions return ErrInvalidPage.
+// It returns ErrNilReader for a nil reader, ErrInvalidPage or
 // ErrBadCRC for invalid page framing or checksums,
 // ErrInvalidHeader for malformed Opus headers, and propagates errors from r. If
 // r implements io.ReadSeeker, the Reader also supports SeekGranule.
@@ -100,14 +102,15 @@ func NewReader(r io.Reader) (*Reader, error) {
 			return nil, err
 		}
 		if page.SerialNumber != or.serial {
-			return nil, ErrInvalidPage
+			continue
 		}
 		if page.PageSequence != lastSequence+1 {
 			return nil, ErrInvalidPage
 		}
 		lastSequence = page.PageSequence
-		if page.IsContinuation() && len(tagsData) == 0 {
-			return nil, ErrInvalidPage // Can't continue from nothing.
+		// RFC 7845 section 3 preserves packet boundaries across header pages.
+		if page.IsContinuation() != (len(tagsData) > 0) {
+			return nil, ErrInvalidPage
 		}
 
 		// Stop at the OpusTags packet terminator, not merely the page's final
