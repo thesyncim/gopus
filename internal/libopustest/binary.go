@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"slices"
 )
 
 type OraclePayload struct {
@@ -54,8 +55,16 @@ func (p *OraclePayload) Float32(v float32) {
 }
 
 func (p *OraclePayload) Float32s(values ...float32) {
-	for _, v := range values {
-		p.Float32(v)
+	if len(values) == 0 {
+		return
+	}
+	const float32Size = 4
+	start := len(p.data)
+	extra := len(values) * float32Size
+	p.data = slices.Grow(p.data, extra)
+	p.data = p.data[:start+extra]
+	for i, v := range values {
+		binary.LittleEndian.PutUint32(p.data[start+i*float32Size:], math.Float32bits(v))
 	}
 }
 

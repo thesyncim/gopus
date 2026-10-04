@@ -150,9 +150,7 @@ func ProbeEncodeDiff(p EncodeDiffParams) ([]EncodeDiffRecord, error) {
 	payload.U32(uint32(p.FrameSize))
 	payload.U32(uint32(p.FrameCount))
 	payload.U32(uint32(nsamples))
-	for _, s := range p.PCM {
-		payload.Float32(s)
-	}
+	payload.Float32s(p.PCM...)
 
 	reader, err := RunOracle(binPath, payload.Bytes(), "opus encode diff", encodeDiffOutputMagic)
 	if err != nil {
