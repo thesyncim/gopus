@@ -835,6 +835,7 @@ func (d *Decoder) decodeDREDPLCStream(stream, frameSize int) ([]float32, bool, e
 			s.dredRecovery[stream] += frameSize
 		}
 		st.recordDecodeCall(frameSize, 0)
+		st.lastFinalRangeDataLen = 0
 		return decoded, true, nil
 	}
 	if st.celtDec == nil || st.lastMode != streamModeCELT {
@@ -886,6 +887,7 @@ func (d *Decoder) decodeDREDPLCStream(stream, frameSize int) ([]float32, bool, e
 		s.dredRecovery[stream] += frameSize
 	}
 	st.recordDecodeCall(frameSize, 0)
+	st.lastFinalRangeDataLen = 0
 	st.applyOutputGain32(out)
 	return out, true, nil
 }

@@ -63,6 +63,170 @@ static int valid_sample_rate(uint32_t sample_rate) {
          sample_rate == 48000 || sample_rate == 96000;
 }
 
+static unsigned char *read_blob(uint32_t n) {
+  if (n == 0) return NULL;
+  unsigned char *data = (unsigned char *)malloc(n);
+  if (data == NULL || !read_exact(data, n)) {
+    free(data);
+    return NULL;
+  }
+  return data;
+}
+
+/* Version 7 decodes independent records with a fresh decoder per packet. */
+static int run_fresh_decode_batch(void) {
+  uint32_t count = 0;
+  if (!read_u32(&count)) {
+    fprintf(stderr, "failed to read fresh-decode case count\n");
+    return 1;
+  }
+  if (count > 256) {
+    fprintf(stderr, "fresh-decode batch has too many cases: %u\n", count);
+    return 1;
+  }
+  if (!write_exact(GMSO_MAGIC, 4) || !write_u32(7) || !write_u32(count)) {
+    fprintf(stderr, "failed to write fresh-decode output header\n");
+    return 1;
+  }
+
+  for (uint32_t i = 0; i < count; i++) {
+    uint32_t sample_rate, raw_gain, sample_format, family, channels, streams, coupled;
+    uint32_t frame_size, mapping_len, demix_len, packet_len;
+    unsigned char *mapping = NULL, *demixing = NULL, *packet = NULL;
+    void *frame = NULL;
+    OpusMSDecoder *ms = NULL;
+    OpusProjectionDecoder *projection = NULL;
+    int result = 0;
+    opus_uint32 final_range = 0;
+    size_t sample_count, item_size, pcm_bytes = 0;
+
+    if (!read_u32(&sample_rate) || !read_u32(&raw_gain) || !read_u32(&sample_format) ||
+        !read_u32(&family) || !read_u32(&channels) || !read_u32(&streams) || !read_u32(&coupled) ||
+        !read_u32(&frame_size) || !read_u32(&mapping_len) || !read_u32(&demix_len) || !read_u32(&packet_len)) {
+      fprintf(stderr, "failed to read fresh-decode case %u header\n", i);
+      goto case_fail;
+    }
+    if (!valid_sample_rate(sample_rate) || channels == 0 || channels > 255 || streams == 0 || streams > 255 ||
+        coupled > 255 || frame_size == 0 || frame_size > (sample_rate * 120U / 1000U) ||
+        sample_format > SAMPLE_FORMAT_INT24 || mapping_len > 255 || demix_len > 1048576 || packet_len > 1048576 ||
+        (family != 3 && mapping_len < channels) ||
+        (family == 3 && demix_len != (uint64_t)channels * (streams + coupled) * sizeof(opus_int16)) ||
+        (size_t)channels > SIZE_MAX / (size_t)frame_size ||
+        (size_t)channels * (size_t)frame_size > SIZE_MAX / sizeof(uint32_t)) {
+      fprintf(stderr, "invalid fresh-decode case %u dimensions\n", i);
+      goto case_fail;
+    }
+
+    mapping = read_blob(mapping_len);
+    demixing = read_blob(demix_len);
+    packet = read_blob(packet_len);
+    if ((mapping_len && mapping == NULL) || (demix_len && demixing == NULL) || (packet_len && packet == NULL)) {
+      fprintf(stderr, "failed to read fresh-decode case %u payload\n", i);
+      goto case_fail;
+    }
+
+    sample_count = (size_t)channels * (size_t)frame_size;
+    item_size = sample_format == SAMPLE_FORMAT_INT16 ? sizeof(opus_int16) : sizeof(uint32_t);
+    frame = calloc(sample_count, sizeof(uint32_t));
+    if (frame == NULL) {
+      fprintf(stderr, "failed to allocate fresh-decode case %u PCM\n", i);
+      goto case_fail;
+    }
+
+    if (family == 3) {
+      int err = OPUS_OK;
+      projection = opus_projection_decoder_create((opus_int32)sample_rate, (int)channels, (int)streams,
+          (int)coupled, demixing, (opus_int32)demix_len, &err);
+      if (projection == NULL || err != OPUS_OK) {
+        fprintf(stderr, "fresh projection decoder create case %u failed: %d\n", i, err);
+        goto case_fail;
+      }
+      if ((int32_t)raw_gain != 0 &&
+          opus_projection_decoder_ctl(projection, OPUS_SET_GAIN((int32_t)raw_gain)) != OPUS_OK) {
+        fprintf(stderr, "fresh projection decoder gain case %u failed\n", i);
+        goto case_fail;
+      }
+      if (sample_format == SAMPLE_FORMAT_INT16) {
+        result = opus_projection_decode(projection, packet, (opus_int32)packet_len, (opus_int16 *)frame,
+            (int)frame_size, 0);
+      } else if (sample_format == SAMPLE_FORMAT_INT24) {
+        result = opus_projection_decode24(projection, packet, (opus_int32)packet_len, (opus_int32 *)frame,
+            (int)frame_size, 0);
+      } else {
+        result = opus_projection_decode_float(projection, packet, (opus_int32)packet_len, (float *)frame,
+            (int)frame_size, 0);
+      }
+    } else {
+      int err = OPUS_OK;
+      ms = opus_multistream_decoder_create((opus_int32)sample_rate, (int)channels, (int)streams,
+          (int)coupled, mapping, &err);
+      if (ms == NULL || err != OPUS_OK) {
+        fprintf(stderr, "fresh multistream decoder create case %u failed: %d\n", i, err);
+        goto case_fail;
+      }
+      if ((int32_t)raw_gain != 0 && opus_multistream_decoder_ctl(ms, OPUS_SET_GAIN((int32_t)raw_gain)) != OPUS_OK) {
+        fprintf(stderr, "fresh multistream decoder gain case %u failed\n", i);
+        goto case_fail;
+      }
+      if (sample_format == SAMPLE_FORMAT_INT16) {
+        result = opus_multistream_decode(ms, packet, (opus_int32)packet_len, (opus_int16 *)frame,
+            (int)frame_size, 0);
+      } else if (sample_format == SAMPLE_FORMAT_INT24) {
+        result = opus_multistream_decode24(ms, packet, (opus_int32)packet_len, (opus_int32 *)frame,
+            (int)frame_size, 0);
+      } else {
+        result = opus_multistream_decode_float(ms, packet, (opus_int32)packet_len, (float *)frame,
+            (int)frame_size, 0);
+      }
+    }
+
+    if (ms != NULL) {
+      if (opus_multistream_decoder_ctl(ms, OPUS_GET_FINAL_RANGE(&final_range)) != OPUS_OK) {
+        fprintf(stderr, "fresh multistream final range case %u failed\n", i);
+        goto case_fail;
+      }
+    } else if (opus_projection_decoder_ctl(projection, OPUS_GET_FINAL_RANGE(&final_range)) != OPUS_OK) {
+      fprintf(stderr, "fresh projection final range case %u failed\n", i);
+      goto case_fail;
+    }
+
+    if (result > 0) {
+      if ((size_t)result > SIZE_MAX / (size_t)channels / item_size) {
+        fprintf(stderr, "fresh-decode case %u PCM output overflows size_t\n", i);
+        goto case_fail;
+      }
+      pcm_bytes = (size_t)result * (size_t)channels * item_size;
+      if (pcm_bytes > UINT32_MAX) {
+        fprintf(stderr, "fresh-decode case %u PCM output is too large\n", i);
+        goto case_fail;
+      }
+    }
+    if (!write_u32((uint32_t)result) || !write_u32(final_range) || !write_u32((uint32_t)pcm_bytes) ||
+        (pcm_bytes && !write_exact(frame, pcm_bytes))) {
+      fprintf(stderr, "failed to write fresh-decode case %u output\n", i);
+      goto case_fail;
+    }
+
+    if (ms != NULL) opus_multistream_decoder_destroy(ms);
+    if (projection != NULL) opus_projection_decoder_destroy(projection);
+    free(frame);
+    free(mapping);
+    free(demixing);
+    free(packet);
+    continue;
+
+case_fail:
+    if (ms != NULL) opus_multistream_decoder_destroy(ms);
+    if (projection != NULL) opus_projection_decoder_destroy(projection);
+    free(frame);
+    free(mapping);
+    free(demixing);
+    free(packet);
+    return 1;
+  }
+  return 0;
+}
+
 static int append_items(void **out, size_t *out_len, size_t *out_cap, const void *src, size_t n, size_t item_size) {
   if (n == 0) {
     return 1;
@@ -138,6 +302,8 @@ int main(void) {
     fprintf(stderr, "failed to read header\n");
     return 1;
   }
+
+  if (version == 7) return run_fresh_decode_batch();
 
   if (version >= 2 && version <= 6) {
     if (!read_u32(&sample_rate)) {

@@ -278,13 +278,24 @@ func (d *Decoder) decodePLCToFloat32Into(frameSize int, applyProjection bool, ou
 			offset += total
 			remaining -= chunk
 		}
+		d.recordCompletedPLCPacket(frameSize)
 		return frameSize, nil
 	}
 
 	if err := d.decodePLCChunkToFloat32Into(frameSize, applyProjection, output[:totalSamples]); err != nil {
 		return 0, err
 	}
+	d.recordCompletedPLCPacket(frameSize)
 	return frameSize, nil
+}
+
+// src/opus_decoder.c: opus_decode_native reports pcm_count after the full PLC loop.
+func (d *Decoder) recordCompletedPLCPacket(frameSize int) {
+	for _, decoder := range d.decoders {
+		if st, ok := decoder.(*streamState); ok {
+			st.lastPacketDuration = int32(frameSize)
+		}
+	}
 }
 
 func (d *Decoder) decodePLCChunkToFloat32Into(frameSize int, applyProjection bool, output []float32) error {
