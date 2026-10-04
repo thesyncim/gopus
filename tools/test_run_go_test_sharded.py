@@ -70,7 +70,7 @@ class RunGoTestShardedTest(unittest.TestCase):
                 report = root / f"{stem}.inventory.json"
                 command = [
                     sys.executable,
-                    "tools/run_go_test_sharded.py",
+                    str(pathlib.Path(__file__).with_name("run_go_test_sharded.py").resolve()),
                     "--go=" + shlex.join([sys.executable, str(fake_go)]),
                     "--shard=" + str(index) + "/2",
                     "--root",
@@ -116,7 +116,7 @@ class RunGoTestShardedTest(unittest.TestCase):
             fake_go.write_text(FAKE_GO)
             command = [
                 sys.executable,
-                "tools/run_go_test_sharded.py",
+                str(pathlib.Path(__file__).with_name("run_go_test_sharded.py").resolve()),
                 "--go=" + shlex.join([sys.executable, str(fake_go)]),
                 "--shard=0/1",
                 "--root",
