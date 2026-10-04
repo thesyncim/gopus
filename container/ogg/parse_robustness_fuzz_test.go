@@ -22,6 +22,8 @@ func FuzzSegmentTableSplit(f *testing.F) {
 	f.Add([]byte{255}, make([]byte, 255))
 	// Lacing claims more than the payload provides (truncated payload).
 	f.Add([]byte{200}, make([]byte, 10))
+	// Truncation stops the packet list before any later lacing entries.
+	f.Add([]byte{3, 2, 1}, []byte{1, 2})
 	// Empty segment table.
 	f.Add([]byte{}, []byte{1, 2, 3})
 	// Zero-length packet (single zero lacing entry).
@@ -62,6 +64,9 @@ func FuzzSegmentTableSplit(f *testing.F) {
 		for i, pkt := range packets {
 			if len(pkt) > len(payload) {
 				t.Fatalf("packet[%d] len=%d exceeds payload len=%d", i, len(pkt), len(payload))
+			}
+			if len(pkt) < lengths[i] && i != len(packets)-1 {
+				t.Fatalf("packet[%d] is truncated but %d later packets are returned", i, len(packets)-i-1)
 			}
 			total += len(pkt)
 		}
