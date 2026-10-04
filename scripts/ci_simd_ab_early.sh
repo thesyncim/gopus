@@ -1,8 +1,27 @@
 #!/usr/bin/env bash
 set -u
 
+early_phase=all
+only_mode=""
+if [[ "${1:-}" == --mode ]]; then
+  if [[ $# -lt 2 || ( "$2" != simd && "$2" != nosimd ) ]]; then
+    echo "usage: $0 --mode simd|nosimd <baseline-checkout> <candidate-checkout> <artifact-dir>" >&2
+    exit 2
+  fi
+  only_mode="$2"
+  early_phase=correctness
+  shift 2
+elif [[ "${1:-}" == --phase ]]; then
+  if [[ $# -lt 2 || "$2" != benchmarks ]]; then
+    echo "usage: $0 --phase benchmarks <baseline-checkout> <candidate-checkout> <artifact-dir>" >&2
+    exit 2
+  fi
+  early_phase=benchmarks
+  shift 2
+fi
+
 if [[ $# -ne 3 ]]; then
-  echo "usage: $0 <baseline-checkout> <candidate-checkout> <artifact-dir>" >&2
+  echo "usage: $0 [--mode simd|nosimd | --phase benchmarks] <baseline-checkout> <candidate-checkout> <artifact-dir>" >&2
   exit 2
 fi
 
@@ -169,7 +188,14 @@ run_phase libopus-reference-build \
   make -C "$candidate_root" ensure-libopus ensure-libopus-scalar ensure-libopus-simd
 run_phase capture-paired-libopus-reference-artifacts capture_reference_artifacts
 
-for mode in simd nosimd; do
+if [[ "$early_phase" != benchmarks ]]; then
+if [[ -n "$only_mode" ]]; then
+  modes=("$only_mode")
+else
+  modes=(simd nosimd)
+fi
+
+for mode in "${modes[@]}"; do
   if [[ "$mode" == simd ]]; then
     build_env=(env -u GOPUS_LIBOPUS_REF_SCALAR GOEXPERIMENT=simd)
     run_env=(env -u GOPUS_LIBOPUS_REF_SCALAR GOPUS_STRICT_LIBOPUS_REF=1 GOPUS_TEST_TIER=parity GOPUS_REQUIRE_NATIVE_AVX2_FMA=1 GOEXPERIMENT=simd)
@@ -367,7 +393,18 @@ for mode in simd nosimd; do
     -count=1 -timeout=25m
 
 done
+fi
 
+if [[ "$early_phase" == benchmarks ]]; then
+  run_phase build-candidate-simd-root-test-binary \
+    run_in_checkout "$candidate_root" env -u GOPUS_LIBOPUS_REF_SCALAR GOEXPERIMENT=simd \
+    go test -c -pgo=auto -o "$artifact_root/candidate-simd-root.test" .
+  run_phase build-candidate-nosimd-root-test-binary \
+    run_in_checkout "$candidate_root" env GOEXPERIMENT=simd \
+    go test -tags nosimd -c -pgo=auto -o "$artifact_root/candidate-nosimd-root.test" .
+fi
+
+if [[ "$early_phase" != correctness ]]; then
 run_phase build-baseline-scalar-test-binary \
   run_in_checkout "$baseline_root" env -u GOEXPERIMENT GOPUS_LIBOPUS_REF_SCALAR=1 \
   go test -c -pgo=auto -o "$artifact_root/baseline-scalar-root.test" .
@@ -533,7 +570,11 @@ else
   printf 'matching scalar or SIMD E2E binaries unavailable after an earlier build failure\n' > "$artifact_root/profile-bench-skipped.txt"
 fi
 
-run_phase candidate-simd-dnn-primitive-artifacts capture_dnn_primitive
+fi
+
+if [[ "$early_phase" != benchmarks && "$only_mode" != nosimd ]]; then
+  run_phase candidate-simd-dnn-primitive-artifacts capture_dnn_primitive
+fi
 
 printf '%s\n' "$overall_status" > "$artifact_root/early.exit"
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then

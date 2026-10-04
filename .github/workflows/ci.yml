@@ -575,13 +575,55 @@ jobs:
       - name: Run Go SIMD parity gate
         run: make test-simd
 
+  # Independent correctness lanes run concurrently. Timing evidence for both
+  # revisions stays on the same benchmark worker and preserves all repetitions.
+  test-linux-simd-ab-evidence:
+    if: github.event_name == 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: early-simd
+            phase: early
+            mode: simd
+            shard: ""
+          - name: early-nosimd
+            phase: early
+            mode: nosimd
+            shard: ""
+          - name: benchmarks
+            phase: benchmarks
+            mode: ""
+            shard: ""
+          - name: full-0
+            phase: full-parity
+            mode: ""
+            shard: "0/4"
+          - name: full-1
+            phase: full-parity
+            mode: ""
+            shard: "1/4"
+          - name: full-2
+            phase: full-parity
+            mode: ""
+            shard: "2/4"
+          - name: full-3
+            phase: full-parity
+            mode: ""
+            shard: "3/4"
+    uses: ./.github/workflows/simd-ab-evidence.yml
+    with:
+      name: ${{ matrix.name }}
+      phase: ${{ matrix.phase }}
+      mode: ${{ matrix.mode }}
+      shard: ${{ matrix.shard }}
+
   test-linux-simd-ab:
     name: test-linux-simd-ab
-    env:
-      GOAMD64: v1
-    if: github.event_name == 'pull_request'
+    if: always() && github.event_name == 'pull_request'
+    needs: test-linux-simd-ab-evidence
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 10
     steps:
       - name: Checkout pull request base
         uses: actions/checkout@v5
@@ -599,101 +641,26 @@ jobs:
           path: candidate
           fetch-depth: 1
 
-      - name: Setup Go 1.27.1
-        uses: actions/setup-go@v6
-        with:
-          go-version: 1.27.1
-          cache: true
-          cache-dependency-path: |
-            baseline/go.mod
-            candidate/go.mod
-
-      - name: Identify native C toolchain
-        id: native_c_toolchain
-        shell: bash
-        run: |
-          native_cc_fingerprint=$( { cc --version; cc -dumpmachine; } | sha256sum | cut -d ' ' -f 1)
-          echo "fingerprint=$native_cc_fingerprint" >> "$GITHUB_OUTPUT"
-
-      - name: Restore pinned libopus builds
-        id: native_libopus_cache
-        uses: actions/cache/restore@v5
-        with:
-          path: |
-            baseline/tmp_check/opus-${{ env.LIBOPUS_VERSION }}
-            baseline/tmp_check/opus-${{ env.LIBOPUS_VERSION }}-scalar
-            baseline/tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
-            candidate/tmp_check/opus-${{ env.LIBOPUS_VERSION }}
-            candidate/tmp_check/opus-${{ env.LIBOPUS_VERSION }}-scalar
-            candidate/tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
-            candidate/tmp_check/opus-${{ env.LIBOPUS_VERSION }}-*-scalar
-            candidate/tmp_check/opus-${{ env.LIBOPUS_VERSION }}-*-simd
-            candidate/tmp_check/opus-${{ env.LIBOPUS_VERSION }}-simd
-            candidate/tmp_check/opus-${{ env.LIBOPUS_VERSION }}-dnnsrc-atomic
-            candidate/tmp_check/build-opus-*-linux-amd64
-          key: simd-ab-libopus-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.native_c_toolchain.outputs.fingerprint }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('candidate/tools/ensure_libopus.sh', 'candidate/internal/libopustooling/*.go', 'candidate/internal/libopustest/helpers.go') }}
-          # Helper changes reuse archives whose per-build provenance still matches.
-          # The resolvers reject and rebuild incompatible feature or ISA variants.
-          restore-keys: |
-            simd-ab-libopus-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.native_c_toolchain.outputs.fingerprint }}-${{ env.LIBOPUS_VERSION }}-
-
-      - name: Install Opus decoder and CPU compatibility emulator
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq opus-tools qemu-user
-          command -v opusdec
-          command -v qemu-x86_64
-
-      - name: Test native A/B comparator
-        run: python3 -m unittest discover -s candidate/scripts -p 'test_compare_simd_ab.py'
-
-      - name: Capture early native paired-reference evidence
-        id: early_native_evidence
-        continue-on-error: true
-        shell: bash
-        run: bash candidate/scripts/ci_simd_ab_early.sh baseline candidate "$RUNNER_TEMP/simd-ab-early"
-
-      - name: Upload early native paired-reference evidence
+      - name: Download complete native evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/download-artifact@v4
         with:
-          name: linux-amd64-simd-ab-early-${{ github.event.pull_request.head.sha }}
-          path: ${{ runner.temp }}/simd-ab-early
-          if-no-files-found: error
-          retention-days: 30
+          pattern: linux-amd64-simd-ab-${{ github.event.pull_request.head.sha }}-*
+          path: ${{ runner.temp }}/simd-ab-workers
 
-      # Completed reference builds remain reusable when a codec gate fails.
-      # The reference resolvers still validate compiler, flags, ISA and models.
-      - name: Save pinned libopus builds
-        if: always() && steps.native_libopus_cache.outputs.cache-primary-key != '' && steps.native_libopus_cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v5
-        with:
-          path: |
-            baseline/tmp_check/opus-${{ env.LIBOPUS_VERSION }}
-            baseline/tmp_check/opus-${{ env.LIBOPUS_VERSION }}-scalar
-            baseline/tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
-            candidate/tmp_check/opus-${{ env.LIBOPUS_VERSION }}
-            candidate/tmp_check/opus-${{ env.LIBOPUS_VERSION }}-scalar
-            candidate/tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
-            candidate/tmp_check/opus-${{ env.LIBOPUS_VERSION }}-*-scalar
-            candidate/tmp_check/opus-${{ env.LIBOPUS_VERSION }}-*-simd
-            candidate/tmp_check/opus-${{ env.LIBOPUS_VERSION }}-simd
-            candidate/tmp_check/opus-${{ env.LIBOPUS_VERSION }}-dnnsrc-atomic
-            candidate/tmp_check/build-opus-*-linux-amd64
-          key: ${{ steps.native_libopus_cache.outputs.cache-primary-key }}
-
-      - name: Capture native Linux A/B evidence
-        shell: bash
-        run: bash candidate/scripts/ci_simd_ab.sh baseline candidate "$RUNNER_TEMP/simd-ab"
-
-      - name: Test CELT and SILK SIMD tails at page boundaries
-        working-directory: candidate
+      - name: Require every correctness and benchmark worker
         env:
-          GOEXPERIMENT: simd
-          GOPUS_REQUIRE_XCORR_SIMD: "1"
-        run: go test ./internal/celt ./internal/silk -run '^TestXcorrKernelAVX8PageEndTails$' -count=1 -timeout=10m
+          EVIDENCE_RESULT: ${{ needs.test-linux-simd-ab-evidence.result }}
+        run: test "$EVIDENCE_RESULT" = success
 
-      - name: Upload native Linux A/B evidence
+      - name: Enforce complete test inventory and existing A/B gates
+        env:
+          EVIDENCE_PREFIX: linux-amd64-simd-ab-${{ github.event.pull_request.head.sha }}
+        run: |
+          cp -R "$RUNNER_TEMP/simd-ab-workers/$EVIDENCE_PREFIX-benchmarks/simd-ab" "$RUNNER_TEMP/simd-ab"
+          bash candidate/scripts/ci_simd_ab.sh --phase aggregate --shard-dir "$RUNNER_TEMP/simd-ab-workers" --shards 4 baseline candidate "$RUNNER_TEMP/simd-ab"
+
+      - name: Upload complete native Linux A/B evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -701,12 +668,6 @@ jobs:
           path: ${{ runner.temp }}/simd-ab
           if-no-files-found: error
           retention-days: 30
-
-      - name: Enforce early native paired-reference gate
-        if: always()
-        env:
-          EARLY_NATIVE_EVIDENCE_OUTCOME: ${{ steps.early_native_evidence.outcome }}
-        run: test "$EARLY_NATIVE_EVIDENCE_OUTCOME" = success
 
   capture-linux-amd64-opusdec-fixture:
     name: capture-linux-amd64-opusdec-fixture

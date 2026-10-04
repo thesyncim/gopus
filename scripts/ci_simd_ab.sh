@@ -1,8 +1,51 @@
 #!/usr/bin/env bash
 set -u
 
+phase=all
+parity_shard=""
+shard_dir=""
+shard_count=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --phase)
+      [[ $# -ge 2 ]] || { echo "--phase requires a value" >&2; exit 2; }
+      phase="$2"
+      shift 2
+      ;;
+    --shard)
+      [[ $# -ge 2 ]] || { echo "--shard requires INDEX/TOTAL" >&2; exit 2; }
+      parity_shard="$2"
+      shift 2
+      ;;
+    --shard-dir)
+      [[ $# -ge 2 ]] || { echo "--shard-dir requires a path" >&2; exit 2; }
+      shard_dir="$2"
+      shift 2
+      ;;
+    --shards)
+      [[ $# -ge 2 ]] || { echo "--shards requires a count" >&2; exit 2; }
+      shard_count="$2"
+      shift 2
+      ;;
+    *) break ;;
+  esac
+done
+
+case "$phase" in
+  all|modes|full-parity|aggregate) ;;
+  *) echo "unknown phase: $phase" >&2; exit 2 ;;
+esac
+
 if [[ $# -ne 3 ]]; then
-  echo "usage: $0 <baseline-checkout> <candidate-checkout> <artifact-dir>" >&2
+  echo "usage: $0 [--phase modes|full-parity|aggregate] [--shard INDEX/TOTAL] [--shard-dir DIR --shards N] <baseline-checkout> <candidate-checkout> <artifact-dir>" >&2
+  exit 2
+fi
+if [[ "$phase" == full-parity && -z "$parity_shard" ]]; then
+  echo "--phase full-parity requires --shard INDEX/TOTAL" >&2
+  exit 2
+fi
+if [[ "$phase" == aggregate && ( -z "$shard_dir" || ! "$shard_count" =~ ^[1-9][0-9]*$ ) ]]; then
+  echo "--phase aggregate requires --shard-dir DIR --shards N" >&2
   exit 2
 fi
 
@@ -10,32 +53,38 @@ baseline_root="$(cd "$1" && pwd)"
 candidate_root="$(cd "$2" && pwd)"
 artifact_root="$3"
 mkdir -p "$artifact_root"
+artifact_root="$(cd "$artifact_root" && pwd)"
 timing_file="$artifact_root/phase-timings.tsv"
-printf 'phase\telapsed_s\texit\n' > "$timing_file"
-{
-  printf 'online_cpus=%s\n' "$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || printf unknown)"
-  printf 'allowed_cpus=%s\n' "$(nproc 2>/dev/null || printf unknown)"
-  printf 'GOAMD64=%s\n' "$(go env GOAMD64 2>/dev/null || printf unknown)"
-  printf 'GOEXPERIMENT=%s\n' "${GOEXPERIMENT:-unset}"
-  printf 'GOMAXPROCS=%s\n' "${GOMAXPROCS:-unset}"
-  if [[ -r /sys/fs/cgroup/cpu.max ]]; then
-    printf 'cgroup_cpu_max=%s\n' "$(cat /sys/fs/cgroup/cpu.max)"
-  fi
-  if [[ -r /sys/fs/cgroup/memory.max ]]; then
-    printf 'cgroup_memory_max=%s\n' "$(cat /sys/fs/cgroup/memory.max)"
-  fi
-  awk -F ': *' '/^MemTotal:/ { print "host_memory_kb=" $2; exit }' /proc/meminfo 2>/dev/null || true
-} > "$artifact_root/resources.txt"
+if [[ "$phase" == aggregate ]]; then
+  timing_file="$artifact_root/aggregate-phase-timings.tsv"
+  printf 'phase\telapsed_s\texit\n' > "$timing_file"
+else
+  printf 'phase\telapsed_s\texit\n' > "$timing_file"
+  {
+    printf 'online_cpus=%s\n' "$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || printf unknown)"
+    printf 'allowed_cpus=%s\n' "$(nproc 2>/dev/null || printf unknown)"
+    printf 'GOAMD64=%s\n' "$(go env GOAMD64 2>/dev/null || printf unknown)"
+    printf 'GOEXPERIMENT=%s\n' "${GOEXPERIMENT:-unset}"
+    printf 'GOMAXPROCS=%s\n' "${GOMAXPROCS:-unset}"
+    if [[ -r /sys/fs/cgroup/cpu.max ]]; then
+      printf 'cgroup_cpu_max=%s\n' "$(cat /sys/fs/cgroup/cpu.max)"
+    fi
+    if [[ -r /sys/fs/cgroup/memory.max ]]; then
+      printf 'cgroup_memory_max=%s\n' "$(cat /sys/fs/cgroup/memory.max)"
+    fi
+    awk -F ': *' '/^MemTotal:/ { print "host_memory_kb=" $2; exit }' /proc/meminfo 2>/dev/null || true
+  } > "$artifact_root/resources.txt"
 
-printf 'runner_os=%s\nrunner_arch=%s\ngo=%s\ncc=%s\n' \
-  "$(uname -s)" \
-  "$(uname -m)" \
-  "$(go version)" \
-  "$(cc --version | sed -n '1p')" > "$artifact_root/environment.txt"
-printf 'goamd64=%s\n' "$(go env GOAMD64)" >> "$artifact_root/environment.txt"
-if [[ -r /proc/cpuinfo ]]; then
-  awk -F ': ' '/^model name[[:space:]]*:/ { print "cpu_model=" $2; exit }' \
-    /proc/cpuinfo >> "$artifact_root/environment.txt"
+  printf 'runner_os=%s\nrunner_arch=%s\ngo=%s\ncc=%s\n' \
+    "$(uname -s)" \
+    "$(uname -m)" \
+    "$(go version)" \
+    "$(cc --version | sed -n '1p')" > "$artifact_root/environment.txt"
+  printf 'goamd64=%s\n' "$(go env GOAMD64)" >> "$artifact_root/environment.txt"
+  if [[ -r /proc/cpuinfo ]]; then
+    awk -F ': ' '/^model name[[:space:]]*:/ { print "cpu_model=" $2; exit }' \
+      /proc/cpuinfo >> "$artifact_root/environment.txt"
+  fi
 fi
 
 run_phase() {
@@ -54,6 +103,30 @@ run_phase() {
   printf '%s\t%s\t%s\n' "$side-$phase" "$elapsed_s" "$rc" >> "$timing_file"
   echo "$side $phase exit=$rc"
   return 0
+}
+
+run_json_phase() {
+  local phase="$1"
+  shift
+  local log="$artifact_root/$phase.jsonl"
+  local status="$artifact_root/$phase.exit"
+  local start_s elapsed_s
+
+  start_s=$SECONDS
+  echo "==> $phase"
+  "$@" >"$log" 2>&1
+  local rc=$?
+  elapsed_s=$((SECONDS - start_s))
+  printf '%s\n' "$rc" > "$status"
+  printf '%s\t%s\t%s\n' "$phase" "$elapsed_s" "$rc" >> "$timing_file"
+  echo "$phase exit=$rc"
+  return 0
+}
+
+run_in_checkout() {
+  local root="$1"
+  shift
+  (cd "$root" && "$@")
 }
 
 install_amd64_kernel_benchmarks() {
@@ -244,8 +317,95 @@ run_side() {
   fi
 }
 
+prepare_full_parity_side() {
+  local side="$1" root="$2"
+  local fixture="$root/internal/celt/testdata/opusdec_crossval_fixture_linux_amd64.json"
+  local saved_fixture="$artifact_root/$side-parity-opusdec-fixture.json"
+
+  for reference in ensure-libopus ensure-libopus-scalar ensure-libopus-simd; do
+    run_phase "$side" "$root" "parity-$reference" make "$reference"
+    if [[ "$(cat "$artifact_root/$side-parity-$reference.exit")" != 0 ]]; then
+      return 1
+    fi
+  done
+
+  run_phase "$side" "$root" parity-save-opusdec-fixture cp "$fixture" "$saved_fixture"
+  if [[ "$(cat "$artifact_root/$side-parity-save-opusdec-fixture.exit")" != 0 ]]; then
+    return 1
+  fi
+  run_phase "$side" "$root" parity-platform-fixtures make fixtures-gen-platform
+  local fixture_status
+  fixture_status="$(cat "$artifact_root/$side-parity-platform-fixtures.exit")"
+  run_phase "$side" "$root" parity-restore-opusdec-fixture cp "$saved_fixture" "$fixture"
+  if [[ "$(cat "$artifact_root/$side-parity-restore-opusdec-fixture.exit")" != 0 || "$fixture_status" != 0 ]]; then
+    return 1
+  fi
+  return 0
+}
+
+capture_crossval_fixture() {
+  run_phase candidate "$candidate_root" simd-crossval-fixture-refresh \
+    env GOEXPERIMENT=simd GOPUS_REQUIRE_PLATFORM_FIXTURES=1 \
+    GOPUS_UPDATE_OPUSDEC_CROSSVAL_FIXTURE=1 GOPUS_TEST_TIER=parity \
+    go test ./internal/celt -run '^TestOpusdecCrossvalFixtureCoverage$' -count=1 -v
+  if [[ -f "$candidate_root/internal/celt/testdata/opusdec_crossval_fixture_linux_amd64.json" ]]; then
+    cp "$candidate_root/internal/celt/testdata/opusdec_crossval_fixture_linux_amd64.json" \
+      "$artifact_root/opusdec_crossval_fixture_linux_amd64.json"
+  fi
+}
+
+if [[ "$phase" == aggregate ]]; then
+  for side in baseline candidate; do
+    run_phase aggregate "$candidate_root" "merge-$side-full-parity" \
+      python3 "$candidate_root/tools/aggregate_go_test_shards.py" \
+      --shard-dir "$shard_dir" \
+      --prefix "$side-simd-full-parity" \
+      --shards "$shard_count" \
+      --output-log "$artifact_root/$side-simd-full-parity.log" \
+      --output-exit "$artifact_root/$side-simd-full-parity.exit"
+    if [[ "$(cat "$artifact_root/aggregate-merge-$side-full-parity.exit")" != 0 ]]; then
+      exit 1
+    fi
+  done
+  run_phase aggregate "$candidate_root" compare-lane-matched-evidence \
+    python3 "$candidate_root/scripts/compare_simd_ab.py" "$artifact_root"
+  exit "$(cat "$artifact_root/aggregate-compare-lane-matched-evidence.exit")"
+fi
+
+if [[ "$phase" == full-parity ]]; then
+  IFS=/ read -r shard_index shard_total <<< "$parity_shard"
+  if [[ ! "$shard_index" =~ ^[0-9]+$ || ! "$shard_total" =~ ^[1-9][0-9]*$ ||
+        "$shard_index" -ge "$shard_total" ]]; then
+    echo "invalid --shard value: $parity_shard" >&2
+    exit 2
+  fi
+  for side in baseline candidate; do
+    if [[ "$side" == baseline ]]; then root="$baseline_root"; else root="$candidate_root"; fi
+    if ! prepare_full_parity_side "$side" "$root"; then
+      echo "$side full-parity prerequisites failed" >&2
+      exit 1
+    fi
+    phase_name="$side-simd-full-parity-shard-$shard_index-of-$shard_total"
+    run_json_phase "$phase_name" \
+      run_in_checkout "$root" \
+      env -u GOPUS_LIBOPUS_REF_SCALAR GOEXPERIMENT=simd GOPUS_TEST_TIER=parity \
+      GOPUS_STRICT_LIBOPUS_REF=1 GOPUS_TEST_SHARD="$parity_shard" \
+      python3 "$candidate_root/tools/run_go_test_sharded.py" \
+      --go=go --go-work-env=GOWORK=off --root "$root" --shard "$parity_shard" \
+      --report "$artifact_root/$phase_name.inventory.json" \
+      --test-arg=-json --test-arg=-count=1 --test-arg=-timeout=25m
+  done
+  exit 0
+fi
+
 run_side baseline "$baseline_root"
 run_side candidate "$candidate_root"
+
+if [[ "$phase" == modes ]]; then
+  capture_crossval_fixture
+  echo "mode and benchmark evidence written to $artifact_root"
+  exit 0
+fi
 
 # Compare the same Go SIMD lane against the same pinned libopus SIMD reference.
 run_phase baseline "$baseline_root" simd-full-parity \
@@ -256,16 +416,9 @@ run_phase candidate "$candidate_root" simd-full-parity \
   bash ./tools/run_go_test_runnable.sh -json -count=1 -timeout=25m
 
 # On a packet-hash change, capture the exact native opusdec fixture generated
-# from the candidate bitstream for review. The comparison above still reads the
-# committed fixture and fails on missing hashes; generation cannot green it.
-run_phase candidate "$candidate_root" simd-crossval-fixture-refresh \
-  env GOEXPERIMENT=simd GOPUS_REQUIRE_PLATFORM_FIXTURES=1 \
-  GOPUS_UPDATE_OPUSDEC_CROSSVAL_FIXTURE=1 GOPUS_TEST_TIER=parity \
-  go test ./internal/celt -run '^TestOpusdecCrossvalFixtureCoverage$' -count=1 -v
-if [[ -f "$candidate_root/internal/celt/testdata/opusdec_crossval_fixture_linux_amd64.json" ]]; then
-  cp "$candidate_root/internal/celt/testdata/opusdec_crossval_fixture_linux_amd64.json" \
-    "$artifact_root/opusdec_crossval_fixture_linux_amd64.json"
-fi
+# from the candidate bitstream for review. The comparator still reads the
+# committed fixture; generation cannot green it.
+capture_crossval_fixture
 
 summary_file="${GITHUB_STEP_SUMMARY:-}"
 if [[ -n "$summary_file" ]]; then

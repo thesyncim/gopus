@@ -408,6 +408,22 @@ of compiler identity, effective flags, preprocessed sources, and linked archive
 contents; each input still executes the live C helper. Builds with custom linker
 outputs bypass reuse.
 
+Malformed multistream and projection sweeps send up to 128 independent requests
+per C helper process. Each request creates a fresh Go decoder and a fresh C
+decoder, including rejected packets; accepted results compare sample counts,
+PCM bits, and final ranges. PCM files use chunked little-endian writes, and the
+quality comparator serializes each request into one sized buffer. Independent
+end-to-end conformance cells run within Go's test parallelism bound. Encoder
+differentials reuse deterministic input templates and give every case a private
+PCM copy; shared oracle payloads append PCM in one bounded slice operation.
+
+`GOPUS_TEST_SHARD=INDEX/TOTAL` partitions the runnable suite by top-level test,
+fuzz seed target, and example names. Each shard executes with `-count=1` and
+emits its complete inventory with JSON results. `tools/aggregate_go_test_shards.py`
+requires every assigned test to complete exactly once before merging the suite.
+CI runs independent correctness lanes and four full-suite shards concurrently;
+paired benchmark samples for both revisions share one runner.
+
 ## Trust And Verification
 
 Released version: `v0.1.2`. The API is pre-v1.

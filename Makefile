@@ -127,6 +127,10 @@ test-lint-tags:
 	done
 
 # Run the default package suite with pinned-reference oracles active.
+# Set GOPUS_TEST_SHARD=INDEX/TOTAL to partition the complete top-level
+# Test/Fuzz/Example inventory for parallel CI workers. Merge each worker's
+# JSONL and inventory with tools/aggregate_go_test_shards.py before accepting
+# the suite as complete.
 test: ensure-libopus
 	$(RUNNABLE_PARITY)
 
