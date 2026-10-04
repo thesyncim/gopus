@@ -342,83 +342,81 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 		return "", fmt.Errorf("%s helper source not found: %w", cfg.Label, err)
 	}
 
-	outDir := filepath.Join(os.TempDir(), "gopus_libopus_test_helpers")
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
-		return "", fmt.Errorf("mkdir helper dir: %w", err)
-	}
-	digest := helperConfigDigest(cfg, refDir, srcPath, scalarRef)
-	outPath := helperOutputPathWithDigest(outDir, cfg.OutputBase, cfg.SourceFile, flavor, digest)
-	tmpFile, err := os.CreateTemp(outDir, filepath.Base(outPath)+".*.tmp")
-	if err != nil {
-		return "", fmt.Errorf("create helper temp output: %w", err)
-	}
-	tmpPath := tmpFile.Name()
-	if err := tmpFile.Close(); err != nil {
-		_ = os.Remove(tmpPath)
-		return "", fmt.Errorf("close helper temp output: %w", err)
-	}
-	if err := os.Remove(tmpPath); err != nil {
-		return "", fmt.Errorf("remove helper temp placeholder: %w", err)
-	}
-	defer func() {
-		_ = os.Remove(tmpPath)
-	}()
-
-	args := helperCCompileFlags(cfg, scalarRef)
-	args = append(args, "-I", refDir, "-I", filepath.Join(refDir, "include"))
-	for _, rel := range cfg.RefIncludes {
-		args = append(args, "-I", filepath.Join(refDir, filepath.FromSlash(rel)))
-	}
-	for _, inc := range cfg.IncludeDirs {
-		args = append(args, "-I", inc)
-	}
-	// An explicit SIMD reference keeps its platform dispatch even when other
-	// tests in the same Go build use the paired scalar reference.
-	if cfg.ForceScalarRef || (scalarRef && !cfg.SIMDRef) {
-		// libopus's config.h has no include guard, so each compiled .c re-defines
-		// the x86 feature macros (OPUS_X86_MAY_HAVE_SSE4_1, ...) -- clearing them
-		// via -include is undone. Instead pre-define the SIMD headers' own include
-		// guards so their bodies are skipped: silk/main.h then falls through to the
-		// scalar silk_inner_product_FLP / silk_VQ_WMat_EC macros (the _c kernels),
-		// which avoids referencing the RTCD
-		// dispatch tables that are absent from a hand-picked RefSource subset.
-		args = append(args, forceScalarRefDefines()...)
-	}
-	args = append(args, srcPath)
-	for _, rel := range cfg.RefSources {
-		args = append(args, filepath.Join(refDir, filepath.FromSlash(rel)))
-	}
-	args = append(args, cfg.Sources...)
+	compileArgs := helperCCompileArgs(cfg, refDir, scalarRef)
+	sourcePaths := helperCSourcePaths(cfg, refDir, srcPath)
 	libs := cfg.Libs
 	if len(libs) == 0 {
 		libs = []string{"-lm"}
 	}
-	args = append(args, libs...)
-	if scalarRef && runtime.GOOS == "linux" {
-		// Some helpers link the scalar libopus.a (which pulls celt.o defining
-		// celt_fatal) while their own source also provides a no-op celt_fatal stub.
-		// Let the stub win rather than erroring on the duplicate symbol (GNU ld).
-		args = append(args, "-Wl,--allow-multiple-definition")
-	}
-	if cfg.DeadStrip {
-		if runtime.GOOS == "darwin" {
-			args = append(args, "-Wl,-dead_strip")
-		} else {
-			args = append(args, "-Wl,--gc-sections")
+	cacheCfg := cfg
+	cacheCfg.Libs = libs
+	cacheable := helperBuildFlagsAllowCache(cacheCfg)
+	var compiler cHelperCompiler
+	var preprocessed []byte
+	if cacheable {
+		compiler, err = identifyCHelperCompiler(ccPath)
+		if err == nil {
+			preprocessed, err = helperPreprocessedSource(ccPath, compileArgs, sourcePaths)
 		}
+		cacheable = err == nil
 	}
-	args = append(args, cfg.LDFlags...)
-	args = append(args, "-o", tmpPath)
+	digest := helperConfigDigest(cacheCfg, refDir, srcPath, scalarRef, compileArgs, sourcePaths, compiler, preprocessed)
 
-	cmd := exec.Command(ccPath, args...)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return "", fmt.Errorf("build %s helper: %w (%s)", cfg.Label, err, bytes.TrimSpace(output))
+	outDir := filepath.Join(os.TempDir(), "gopus_libopus_test_helpers")
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		return "", fmt.Errorf("mkdir helper dir: %w", err)
 	}
-	if runtime.GOOS == "windows" {
-		_ = os.Remove(outPath)
-	}
-	if err := os.Rename(tmpPath, outPath); err != nil {
-		return "", fmt.Errorf("install %s helper: %w", cfg.Label, err)
+	outPath := helperOutputPathWithDigest(outDir, cfg.OutputBase, cfg.SourceFile, flavor, digest)
+	err = buildCHelperWithCache(outPath, cacheable, func() error {
+		tmpFile, err := os.CreateTemp(outDir, filepath.Base(outPath)+".*.tmp")
+		if err != nil {
+			return fmt.Errorf("create helper temp output: %w", err)
+		}
+		tmpPath := tmpFile.Name()
+		if err := tmpFile.Close(); err != nil {
+			_ = os.Remove(tmpPath)
+			return fmt.Errorf("close helper temp output: %w", err)
+		}
+		if err := os.Remove(tmpPath); err != nil {
+			return fmt.Errorf("remove helper temp placeholder: %w", err)
+		}
+		defer func() {
+			_ = os.Remove(tmpPath)
+		}()
+
+		args := append([]string(nil), compileArgs...)
+		args = append(args, sourcePaths...)
+		args = append(args, libs...)
+		if scalarRef && runtime.GOOS == "linux" {
+			// Some helpers link the scalar libopus.a (which pulls celt.o defining
+			// celt_fatal) while their own source also provides a no-op celt_fatal stub.
+			// Let the stub win rather than erroring on the duplicate symbol (GNU ld).
+			args = append(args, "-Wl,--allow-multiple-definition")
+		}
+		if cfg.DeadStrip {
+			if runtime.GOOS == "darwin" {
+				args = append(args, "-Wl,-dead_strip")
+			} else {
+				args = append(args, "-Wl,--gc-sections")
+			}
+		}
+		args = append(args, cfg.LDFlags...)
+		args = append(args, "-o", tmpPath)
+
+		cmd := exec.Command(ccPath, args...)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("build %s helper: %w (%s)", cfg.Label, err, bytes.TrimSpace(output))
+		}
+		if runtime.GOOS == "windows" {
+			_ = os.Remove(outPath)
+		}
+		if err := os.Rename(tmpPath, outPath); err != nil {
+			return fmt.Errorf("install %s helper: %w", cfg.Label, err)
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
 	}
 	return outPath, nil
 }
@@ -435,6 +433,110 @@ func helperCCompileFlags(cfg CHelperConfig, scalarRef bool) []string {
 		args = append(args, strings.Fields(libopustooling.LibopusScalarCVectorizationFlags)...)
 	}
 	return args
+}
+
+func helperCCompileArgs(cfg CHelperConfig, refDir string, scalarRef bool) []string {
+	args := helperCCompileFlags(cfg, scalarRef)
+	args = append(args, "-I", refDir, "-I", filepath.Join(refDir, "include"))
+	for _, rel := range cfg.RefIncludes {
+		args = append(args, "-I", filepath.Join(refDir, filepath.FromSlash(rel)))
+	}
+	for _, inc := range cfg.IncludeDirs {
+		args = append(args, "-I", inc)
+	}
+	// Explicit SIMD references keep their dispatch when other tests use the paired scalar reference.
+	if cfg.ForceScalarRef || (scalarRef && !cfg.SIMDRef) {
+		args = append(args, forceScalarRefDefines()...)
+	}
+	return args
+}
+
+func helperCSourcePaths(cfg CHelperConfig, refDir, srcPath string) []string {
+	paths := []string{srcPath}
+	for _, rel := range cfg.RefSources {
+		paths = append(paths, filepath.Join(refDir, filepath.FromSlash(rel)))
+	}
+	return append(paths, cfg.Sources...)
+}
+
+type cHelperCompiler struct {
+	path    string
+	target  string
+	version string
+}
+
+func identifyCHelperCompiler(ccPath string) (cHelperCompiler, error) {
+	compiler := cHelperCompiler{path: ccPath}
+	target, err := compilerFirstLine(ccPath, "-dumpmachine")
+	if err != nil {
+		return compiler, err
+	}
+	output, err := exec.Command(ccPath, "--version").CombinedOutput()
+	if err != nil {
+		return compiler, fmt.Errorf("identify C compiler %s --version: %w (%s)", ccPath, err, bytes.TrimSpace(output))
+	}
+	version := strings.TrimSpace(string(output))
+	if version == "" {
+		return compiler, fmt.Errorf("identify C compiler %s --version: empty output", ccPath)
+	}
+	compiler.target = target
+	compiler.version = version
+	return compiler, nil
+}
+
+func helperPreprocessedSource(ccPath string, compileArgs, sourcePaths []string) ([]byte, error) {
+	args := append([]string(nil), compileArgs...)
+	args = append(args, "-E")
+	args = append(args, sourcePaths...)
+	cmd := exec.Command(ccPath, args...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("preprocess helper C sources: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
+	}
+	return stdout.Bytes(), nil
+}
+
+func buildCHelperWithCache(outPath string, cacheable bool, build func() error) error {
+	lock, err := lockOracleBuild(outPath + ".lock")
+	if err != nil {
+		return fmt.Errorf("lock helper build %s: %w", outPath, err)
+	}
+	defer lock.Close()
+	if cacheable && usableCHelperBinary(outPath) {
+		return nil
+	}
+	return build()
+}
+
+func usableCHelperBinary(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Size() == 0 {
+		return false
+	}
+	return runtime.GOOS == "windows" || info.Mode().Perm()&0o111 != 0
+}
+
+func helperBuildFlagsAllowCache(cfg CHelperConfig) bool {
+	if len(cfg.LDFlags) != 0 {
+		return false
+	}
+	for _, flag := range cfg.CFlags {
+		if strings.HasPrefix(flag, "-o") || flag == "-Xlinker" || flag == "--coverage" ||
+			strings.HasPrefix(flag, "-Wl,") || strings.HasPrefix(flag, "-Wp,") ||
+			strings.HasPrefix(flag, "-L") || strings.HasPrefix(flag, "-l") ||
+			strings.HasPrefix(flag, "-save-temps") || strings.HasPrefix(flag, "-ftime-trace") ||
+			strings.HasPrefix(flag, "-fprofile-") || strings.HasPrefix(flag, "-M") {
+			return false
+		}
+	}
+	for _, lib := range cfg.Libs {
+		if strings.HasPrefix(lib, "-") && lib != "-lm" && lib != "-ldl" && lib != "-lpthread" {
+			return false
+		}
+	}
+	return true
 }
 
 func validateCHelperReferenceSelection(cfg CHelperConfig) error {
@@ -612,11 +714,15 @@ func forceScalarRefDefines() []string {
 	return []string{"-DMAIN_SSE_H=1", "-DVQ_SSE_H=1", "-DPITCH_SSE_H=1", "-DCELT_LPC_SSE_H=1"}
 }
 
-func helperConfigDigest(cfg CHelperConfig, refDir, srcPath string, scalarRef bool) string {
+func helperConfigDigest(cfg CHelperConfig, refDir, srcPath string, scalarRef bool, compileArgs, sourcePaths []string, compiler cHelperCompiler, preprocessed []byte) string {
 	h := sha256.New()
-	helperHashString(h, "v5")
+	helperHashString(h, "v6")
 	helperHashString(h, cfg.OutputBase)
 	helperHashString(h, cfg.SourceFile)
+	helperHashString(h, "compiler-path="+compiler.path)
+	helperHashString(h, "compiler-target="+compiler.target)
+	helperHashString(h, "compiler-version="+compiler.version)
+	helperHashString(h, fmt.Sprintf("scalar-ref=%t", scalarRef))
 	helperHashString(h, fmt.Sprintf("dead-strip=%t", cfg.DeadStrip))
 	helperHashString(h, fmt.Sprintf("qext-ref=%t", cfg.QEXTRef))
 	helperHashString(h, fmt.Sprintf("fixed-ref=%t", cfg.FixedRef))
@@ -634,8 +740,8 @@ func helperConfigDigest(cfg CHelperConfig, refDir, srcPath string, scalarRef boo
 	} else {
 		helperHashString(h, "paired-reference="+string(variant))
 	}
-	helperHashStrings(h, "cflags", cfg.CFlags)
-	helperHashStrings(h, "base-compile-flags", helperCCompileFlags(cfg, scalarRef))
+	helperHashStrings(h, "compile-args", compileArgs)
+	helperHashStrings(h, "source-paths", sourcePaths)
 	helperHashStrings(h, "ref-includes", cfg.RefIncludes)
 	helperHashStrings(h, "include-dirs", cfg.IncludeDirs)
 	helperHashStrings(h, "ref-sources", cfg.RefSources)
@@ -645,11 +751,28 @@ func helperConfigDigest(cfg CHelperConfig, refDir, srcPath string, scalarRef boo
 	helperHashFile(h, "source", srcPath)
 	helperHashFile(h, "config", filepath.Join(refDir, "config.h"))
 	helperHashFile(h, "build-stamp", filepath.Join(refDir, ".gopus-libopus-build"))
+	for _, env := range []string{"DEVELOPER_DIR", "SDKROOT", "MACOSX_DEPLOYMENT_TARGET", "LIBRARY_PATH", "COMPILER_PATH", "GCC_EXEC_PREFIX", "LD_RUN_PATH"} {
+		helperHashString(h, "compiler-env="+env+"="+os.Getenv(env))
+	}
 	for _, rel := range cfg.RefSources {
 		helperHashFile(h, "ref-source", filepath.Join(refDir, filepath.FromSlash(rel)))
 	}
 	for _, src := range cfg.Sources {
 		helperHashFile(h, "source-extra", src)
+	}
+	helperHashString(h, "preprocessed-source")
+	_, _ = h.Write(preprocessed)
+	_, _ = h.Write([]byte{0})
+	for _, lib := range cfg.Libs {
+		if lib == "" || strings.HasPrefix(lib, "-") {
+			continue
+		}
+		if !filepath.IsAbs(lib) {
+			if absolute, err := filepath.Abs(lib); err == nil {
+				lib = absolute
+			}
+		}
+		helperHashFile(h, "linked-library", lib)
 	}
 	return hex.EncodeToString(h.Sum(nil))[:12]
 }
