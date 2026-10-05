@@ -73,6 +73,10 @@ const (
 	reqGetIgnoreExtensions       = 4059
 )
 
+// reqSetForceMode mirrors OPUS_SET_FORCE_MODE_REQUEST from src/opus_private.h.
+// The curated encoder transition test uses this private libopus control.
+const reqSetForceMode = 11002
+
 // libopus argument-domain constants used by the generator.
 const (
 	cOpusAuto       = -1000
@@ -107,6 +111,8 @@ func ctlReqName(req int32) string {
 	switch int(req) {
 	case reqSetApplication:
 		return "SET_APPLICATION"
+	case reqSetForceMode:
+		return "SET_FORCE_MODE"
 	case reqGetApplication:
 		return "GET_APPLICATION"
 	case reqSetBitrate:
@@ -273,6 +279,21 @@ func applyEncoderSet(enc *Encoder, req, arg int32) int32 {
 			return cOpusBadArg
 		}
 		return gopusErrToCode(enc.SetApplication(app))
+	case reqSetForceMode:
+		var mode EncoderMode
+		switch arg {
+		case cOpusAuto:
+			mode = EncoderModeAuto
+		case libopustest.OpusForceModeSILKOnly:
+			mode = EncoderModeSILK
+		case libopustest.OpusForceModeHybrid:
+			mode = EncoderModeHybrid
+		case libopustest.OpusForceModeCELTOnly:
+			mode = EncoderModeCELT
+		default:
+			return cOpusBadArg
+		}
+		return gopusErrToCode(enc.SetMode(mode))
 	case reqSetBitrate:
 		return gopusErrToCode(enc.SetBitrate(int(arg)))
 	case reqSetMaxBandwidth:
@@ -794,26 +815,31 @@ func TestEncoderCTLSequenceFuzz(t *testing.T) {
 
 	for _, c := range configs {
 		t.Run(fmt.Sprintf("%dHz_%dch_%v", c.rate, c.ch, c.app), func(t *testing.T) {
+			programs := make([]libopustest.CTLSequenceParams, seeds)
 			for seed := range seeds {
 				r := rand.New(rand.NewSource(int64(seed)*1000003 + int64(c.rate) + int64(c.ch)))
 				// The Go facade starts at 64 kbps; libopus starts at OPUS_AUTO.
 				// Apply the same initial control before comparing encoded output.
 				ops := []libopustest.CTLOp{{Op: libopustest.CTLOpSet, Request: reqSetBitrate, Arg: cOpusAuto}}
 				ops = append(ops, genEncoderProgram(r, opsPerSeed, c.withProcess)...)
-
-				oracle, err := libopustest.ProbeCTLSequence(libopustest.CTLSequenceParams{
+				programs[seed] = libopustest.CTLSequenceParams{
 					IsDecoder:   false,
 					SampleRate:  c.rate,
 					Channels:    c.ch,
 					Application: applicationFromConfig(c.app),
 					FrameSize:   ctlFuzzFrameSize,
 					Ops:         ops,
-				})
-				if err != nil {
-					t.Fatalf("oracle seed %d: %v", seed, err)
 				}
+			}
+
+			oracle, err := libopustest.ProbeCTLSequenceBatch(programs)
+			if err != nil {
+				t.Fatalf("oracle batch: %v", err)
+			}
+			for seed := range seeds {
+				ops := programs[seed].Ops
 				gopus := runEncoderCTLProgram(t, c.rate, c.ch, c.app, ops)
-				compareCTLResults(t, fmt.Sprintf("enc seed=%d", seed), ops, gopus, oracle)
+				compareCTLResults(t, fmt.Sprintf("enc seed=%d", seed), ops, gopus, oracle[seed])
 				if t.Failed() {
 					return
 				}
@@ -849,23 +875,28 @@ func TestDecoderCTLSequenceFuzz(t *testing.T) {
 	for _, c := range configs {
 		t.Run(fmt.Sprintf("%dHz_%dch", c.rate, c.ch), func(t *testing.T) {
 			feed := encodeFeederPacket(t, c.rate, c.ch)
+			programs := make([]libopustest.CTLSequenceParams, seeds)
 			for seed := range seeds {
 				r := rand.New(rand.NewSource(int64(seed)*2000003 + int64(c.rate) + int64(c.ch)))
 				ops := genDecoderProgram(r, opsPerSeed)
-
-				oracle, err := libopustest.ProbeCTLSequence(libopustest.CTLSequenceParams{
+				programs[seed] = libopustest.CTLSequenceParams{
 					IsDecoder:  true,
 					SampleRate: c.rate,
 					Channels:   c.ch,
 					FrameSize:  ctlFuzzFrameSize,
 					FeedPacket: feed,
 					Ops:        ops,
-				})
-				if err != nil {
-					t.Fatalf("oracle seed %d: %v", seed, err)
 				}
+			}
+
+			oracle, err := libopustest.ProbeCTLSequenceBatch(programs)
+			if err != nil {
+				t.Fatalf("oracle batch: %v", err)
+			}
+			for seed := range seeds {
+				ops := programs[seed].Ops
 				gopus := runDecoderCTLProgram(t, c.rate, c.ch, ops, feed)
-				compareCTLResults(t, fmt.Sprintf("dec seed=%d", seed), ops, gopus, oracle)
+				compareCTLResults(t, fmt.Sprintf("dec seed=%d", seed), ops, gopus, oracle[seed])
 				if t.Failed() {
 					return
 				}

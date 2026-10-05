@@ -655,7 +655,7 @@ func (e *Encoder) resetFixedCELT() {
 	e.fixedFrameReady = false
 	e.fixedFrameCursor = 0
 	if e.fixedCELT != nil {
-		e.fixedCELT.enc = fixedpoint.NewCELTEncoderRate(e.fixedCELT.channels, int(e.fixedCELT.modeFs))
+		e.fixedCELT.enc.Reset()
 	}
 }
 

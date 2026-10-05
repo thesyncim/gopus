@@ -655,51 +655,48 @@ func ConcealSILKWithLTPInto(dec SILKDecoderStateExtended, plcState *SILKPLCState
 	clear(sLTPQ15)
 	sLTPBufIdx := ltpMemLength
 
-	// Rewhiten LTP state using LPC analysis
-	if signalType == 2 {
-		startIdx := ltpMemLength - lag - lpcOrder - ltpOrder/2
-		if startIdx <= 0 {
-			startIdx = 1
-		}
+	// Rewhiten LTP state on each loss, matching silk/PLC.c:silk_PLC_conceal.
+	startIdx := ltpMemLength - lag - lpcOrder - ltpOrder/2
+	if startIdx <= 0 {
+		startIdx = 1
+	}
 
-		// Perform LPC analysis to get sLTP.
-		// Prefer decoder outBuf history (Q0), which matches libopus PLC inputs.
-		if cap(scratch.sLTP) < ltpMemLength {
-			scratch.sLTP = make([]int16, ltpMemLength)
-		}
-		sLTP := scratch.sLTP[:ltpMemLength]
-		clear(sLTP)
-		haveOutBufQ0 := false
-		outBufQ0 := dec.GetOutBufHistoryQ0()
-		if len(outBufQ0) >= ltpMemLength && startIdx < ltpMemLength {
-			lpcAnalysisFilterInt16(
-				sLTP[startIdx:],
-				outBufQ0[startIdx:ltpMemLength],
-				lpcQ12,
-				ltpMemLength-startIdx,
-				lpcOrder,
-			)
-			haveOutBufQ0 = true
-		}
-		if !haveOutBufQ0 {
-			// Fallback for decoders that don't expose outBuf history.
-			outHistory := dec.OutputHistory()
-			if len(outHistory) > 0 {
-				lpcAnalysisFilter(sLTP[startIdx:], outHistory, lpcQ12, ltpMemLength-startIdx, lpcOrder, startIdx)
-			}
-		}
-
-		// Scale LTP state
-		invGainQ30 := inverse32VarQ(plcState.PrevGainQ16[1], 46)
-		if invGainQ30 > (1<<30 - 1) {
-			invGainQ30 = 1<<30 - 1
-		}
-
-		for i := startIdx + lpcOrder; i < ltpMemLength; i++ {
-			sLTPQ15[i] = smulwb(invGainQ30, int32(sLTP[i]))
+	// Perform LPC analysis to get sLTP.
+	// Prefer decoder outBuf history (Q0), which matches libopus PLC inputs.
+	if cap(scratch.sLTP) < ltpMemLength {
+		scratch.sLTP = make([]int16, ltpMemLength)
+	}
+	sLTP := scratch.sLTP[:ltpMemLength]
+	clear(sLTP)
+	haveOutBufQ0 := false
+	outBufQ0 := dec.GetOutBufHistoryQ0()
+	if len(outBufQ0) >= ltpMemLength && startIdx < ltpMemLength {
+		lpcAnalysisFilterInt16(
+			sLTP[startIdx:],
+			outBufQ0[startIdx:ltpMemLength],
+			lpcQ12,
+			ltpMemLength-startIdx,
+			lpcOrder,
+		)
+		haveOutBufQ0 = true
+	}
+	if !haveOutBufQ0 {
+		// Fallback for decoders that don't expose outBuf history.
+		outHistory := dec.OutputHistory()
+		if len(outHistory) > 0 {
+			lpcAnalysisFilter(sLTP[startIdx:], outHistory, lpcQ12, ltpMemLength-startIdx, lpcOrder, startIdx)
 		}
 	}
 
+	// Scale LTP state
+	invGainQ30 := inverse32VarQ(plcState.PrevGainQ16[1], 46)
+	if invGainQ30 > (1<<30 - 1) {
+		invGainQ30 = 1<<30 - 1
+	}
+
+	for i := startIdx + lpcOrder; i < ltpMemLength; i++ {
+		sLTPQ15[i] = smulwb(invGainQ30, int32(sLTP[i]))
+	}
 	randSeed := plcState.RandSeed
 	B_Q14 := plcState.LTPCoefQ14
 

@@ -8,16 +8,17 @@
  * of a 48 kHz encode). gopus mirrors this with celt.HD96kMode + the qext
  * extension encode chain.
  *
- * The encoder is configured CELT-only / fullband / CBR with QEXT enabled, to
- * match the gopus native HD96k encode routing under test.
+ * The encoder is configured CELT-only / fullband with QEXT enabled, to match
+ * the gopus native HD96k encode routing under test.
  *
  * Protocol (little-endian):
- *   in : "GQEI" magic, u32 version(=1),
+ *   in : "GQEI" magic, u32 version(=2),
  *        u32 channels (1|2), u32 frameSize (per-channel samples at 96 kHz),
  *        i32 bitrate, i32 complexity, u32 vbr (0=CBR,1=VBR),
+ *        u32 vbrConstraint (0=unconstrained,1=CVBR),
  *        u32 maxPacketBytes, u32 frameCount,
  *        then frameCount*frameSize*channels float32 PCM samples
- *   out: "GQEO" magic, u32 version(=1), u32 frameCount,
+ *   out: "GQEO" magic, u32 version(=2), u32 frameCount,
  *        then for each frame: u32 packetLen, packetLen bytes (4-byte padded),
  *        then u32 frameCount, frameCount*u32 finalRange
  */
@@ -79,6 +80,7 @@ int main(void) {
   int32_t bitrate = 0;
   int32_t complexity = 0;
   uint32_t vbr = 0;
+  uint32_t vbr_constraint = 0;
   uint32_t max_packet = 0;
   uint32_t frame_count = 0;
   uint32_t f;
@@ -91,14 +93,16 @@ int main(void) {
 
   if (!set_binary_stdio()) { fprintf(stderr, "stdio mode\n"); return 1; }
   if (!read_exact(magic, 4) || memcmp(magic, GQEI_MAGIC, 4) != 0) { fprintf(stderr, "bad magic\n"); return 1; }
-  if (!read_u32(&version) || version != 1) { fprintf(stderr, "bad version\n"); return 1; }
+  if (!read_u32(&version) || version != 2) { fprintf(stderr, "bad version\n"); return 1; }
   if (!read_u32(&channels) || !read_u32(&frame_size) ||
       !read_u32((uint32_t *)&bitrate) || !read_u32((uint32_t *)&complexity) ||
-      !read_u32(&vbr) || !read_u32(&max_packet) || !read_u32(&frame_count)) {
+      !read_u32(&vbr) || !read_u32(&vbr_constraint) ||
+      !read_u32(&max_packet) || !read_u32(&frame_count)) {
     fprintf(stderr, "bad header\n");
     return 1;
   }
-  if (channels < 1 || channels > 2 || frame_size == 0 || max_packet == 0) {
+  if (channels < 1 || channels > 2 || frame_size == 0 || max_packet == 0 ||
+      vbr > 1 || vbr_constraint > 1) {
     fprintf(stderr, "bad dims\n");
     return 1;
   }
@@ -113,7 +117,7 @@ int main(void) {
   opus_encoder_ctl(enc, OPUS_SET_BANDWIDTH(OPUS_BANDWIDTH_FULLBAND));
   opus_encoder_ctl(enc, OPUS_SET_BITRATE((opus_int32)bitrate));
   opus_encoder_ctl(enc, OPUS_SET_VBR((int)vbr));
-  opus_encoder_ctl(enc, OPUS_SET_VBR_CONSTRAINT(0));
+  opus_encoder_ctl(enc, OPUS_SET_VBR_CONSTRAINT((int)vbr_constraint));
   opus_encoder_ctl(enc, OPUS_SET_COMPLEXITY((int)complexity));
   opus_encoder_ctl(enc, OPUS_SET_LSB_DEPTH(24));
 
@@ -127,7 +131,7 @@ int main(void) {
     return 1;
   }
 
-  if (!write_exact(GQEO_MAGIC, 4) || !write_u32(1) || !write_u32(frame_count)) {
+  if (!write_exact(GQEO_MAGIC, 4) || !write_u32(2) || !write_u32(frame_count)) {
     opus_encoder_destroy(enc); free(pcm); free(packet); free(ranges);
     return 1;
   }

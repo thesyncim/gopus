@@ -288,16 +288,17 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float3
 	samples := d.synthesizeFrame(specMono, specMono, frameSize, mode.LM, shortBlocks, transient, postfilterPeriod, postfilterGain, postfilterTapset)
 
 	stereoEnergies := ensureGLogSlice(&d.scratchStereoEnergies, bandStride*2)
-	for i := 0; i < end; i++ {
-		stereoEnergies[i] = monoEnergies[i]
-		stereoEnergies[bandStride+i] = monoEnergies[i]
-	}
-	for i := end; i < bandStride; i++ {
-		stereoEnergies[i] = -28.0
-		stereoEnergies[bandStride+i] = -28.0
+	for i := range bandStride {
+		// Update background energy from oldBandE before clearing the inactive bands.
+		energy := prev1Energy[i]
+		if i < end {
+			energy = monoEnergies[i]
+		}
+		stereoEnergies[i] = energy
+		stereoEnergies[bandStride+i] = energy
 	}
 
-	d.updateLogEGLog(stereoEnergies, end, transient)
+	d.updateLogEGLog(stereoEnergies, bandStride, transient)
 	for i := range bandStride {
 		d.prevEnergy[i] = stereoEnergies[i]
 		d.prevEnergy[bandStride+i] = stereoEnergies[bandStride+i]
@@ -615,16 +616,17 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 
 	var stereoEnergiesArr [MaxBands * 2]celtGLog
 	stereoEnergies := stereoEnergiesArr[:]
-	for i := 0; i < end; i++ {
-		stereoEnergies[i] = monoEnergies[i]
-		stereoEnergies[MaxBands+i] = monoEnergies[i]
-	}
-	for i := end; i < MaxBands; i++ {
-		stereoEnergies[i] = -28.0
-		stereoEnergies[MaxBands+i] = -28.0
+	for i := range MaxBands {
+		// Match celt_decode_with_ec: update background, then clear outside the range.
+		energy := prev1Energy[i]
+		if i >= start && i < end {
+			energy = monoEnergies[i]
+		}
+		stereoEnergies[i] = energy
+		stereoEnergies[MaxBands+i] = energy
 	}
 
-	d.updateLogEGLog(stereoEnergies, end, transient)
+	d.updateLogEGLog(stereoEnergies, MaxBands, transient)
 	d.setPrevEnergyGLog(stereoEnergies)
 	d.updateBackgroundEnergy(lm)
 	d.clearFrameHistoryOutsideRange(start, end, origChannels)

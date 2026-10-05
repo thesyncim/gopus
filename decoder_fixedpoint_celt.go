@@ -69,10 +69,10 @@ func (d *Decoder) fixedCaptureSILKOutput(pcm []float32) bool {
 	return true
 }
 
-// fixedAccumulateFECHybridToSILKFade appends the integer CELT silence overlap
-// to the most recently captured SILK FEC samples. The C frame decoder performs
-// this celt_accum step after SILK decode when a SILK packet follows Hybrid.
-func (d *Decoder) fixedAccumulateFECHybridToSILKFade(frameSizeAPI, fadeSamplesAPI int, packetStereo bool, celtBW celt.CELTBandwidth) bool {
+// fixedAccumulateHybridToSILKFade adds the integer CELT silence overlap to the
+// current packet's captured SILK samples. The C frame decoder performs this
+// celt_accum step after SILK decode whenever a SILK frame follows Hybrid.
+func (d *Decoder) fixedAccumulateHybridToSILKFade(frameSizeAPI, fadeSamplesAPI int, packetStereo bool, celtBW celt.CELTBandwidth) bool {
 	if !d.fixedPacketActive {
 		return true
 	}

@@ -3,8 +3,11 @@ package libopustest
 import "fmt"
 
 const (
-	ctlSequenceInputMagic  = "GCTI"
-	ctlSequenceOutputMagic = "GCTO"
+	ctlSequenceInputMagic   = "GCTI"
+	ctlSequenceOutputMagic  = "GCTO"
+	ctlSequenceBatchMagic   = "GCTB"
+	ctlSequenceBatchVersion = 1
+	ctlSequenceMaxBatch     = 256
 )
 
 // CTL sequence opcodes. Values are in the libopus argument domain.
@@ -30,6 +33,9 @@ type CTLResult struct {
 	Ret       int32
 	Value     int32
 	HaveValue bool
+	// Packet contains the encoded packet for OP_PROCESS when CapturePackets is
+	// enabled on the sequence. Other operations and decoder processes return nil.
+	Packet []byte
 }
 
 // CTLSequenceParams configures one oracle run against a single encoder or
@@ -44,7 +50,10 @@ type CTLSequenceParams struct {
 	// same bytes must be decoded by gopus so decode-derived GETs are comparable.
 	// Ignored for the encoder.
 	FeedPacket []byte
-	Ops        []CTLOp
+	// CapturePackets asks the helper to return packet bytes for encoder OP_PROCESS
+	// operations. It adds per-operation packet data to the oracle wire response.
+	CapturePackets bool
+	Ops            []CTLOp
 }
 
 var ctlSequenceHelper HelperCache
@@ -78,7 +87,65 @@ func ProbeCTLSequence(p CTLSequenceParams) ([]CTLResult, error) {
 		return nil, fmt.Errorf("ctl sequence: invalid channels %d", p.Channels)
 	}
 
-	payload := NewOraclePayloadVersion(ctlSequenceInputMagic, 1)
+	version := ctlSequenceVersion(p)
+	payload := &OraclePayload{}
+	appendCTLSequenceProgram(payload, p)
+	reader, err := RunOracleVersion(binPath, payload.Bytes(), "opus ctl sequence", ctlSequenceOutputMagic, version)
+	if err != nil {
+		return nil, err
+	}
+	out, err := readCTLSequenceResults(reader, version, p.Ops)
+	if err != nil {
+		return nil, err
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, fmt.Errorf("ctl sequence oracle payload not fully consumed: %w", err)
+	}
+	return out, nil
+}
+
+// ProbeCTLSequenceBatch runs each CTL program in a fresh libopus state instance
+// while sharing one helper process. Every program creates and destroys its own
+// encoder or decoder, so controls and reset history do not cross boundaries.
+func ProbeCTLSequenceBatch(programs []CTLSequenceParams) ([][]CTLResult, error) {
+	if len(programs) == 0 {
+		return nil, nil
+	}
+	if len(programs) > ctlSequenceMaxBatch {
+		return nil, fmt.Errorf("ctl sequence: batch has %d programs, maximum is %d", len(programs), ctlSequenceMaxBatch)
+	}
+	for i, p := range programs {
+		if p.Channels < 1 || p.Channels > 2 {
+			return nil, fmt.Errorf("ctl sequence: program %d has invalid channels %d", i, p.Channels)
+		}
+	}
+
+	binPath, err := CTLSequenceHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	payload := NewOraclePayloadVersion(ctlSequenceBatchMagic, ctlSequenceBatchVersion, uint32(len(programs)))
+	for _, p := range programs {
+		appendCTLSequenceProgram(payload, p)
+	}
+	data, err := RunHelper(binPath, payload.Bytes())
+	if err != nil {
+		return nil, fmt.Errorf("run opus ctl sequence batch helper: %w", err)
+	}
+	return parseCTLSequenceBatchResults(data, programs)
+}
+
+func ctlSequenceVersion(p CTLSequenceParams) uint32 {
+	if p.CapturePackets {
+		return 2
+	}
+	return 1
+}
+
+func appendCTLSequenceProgram(payload *OraclePayload, p CTLSequenceParams) {
+	payload.Magic(ctlSequenceInputMagic)
+	version := ctlSequenceVersion(p)
+	payload.U32(version)
 	dec := uint32(0)
 	if p.IsDecoder {
 		dec = 1
@@ -105,24 +172,62 @@ func ProbeCTLSequence(p CTLSequenceParams) ([]CTLResult, error) {
 		payload.I32(op.Request)
 		payload.I32(op.Arg)
 	}
+}
 
-	reader, err := RunOracle(binPath, payload.Bytes(), "opus ctl sequence", ctlSequenceOutputMagic)
-	if err != nil {
-		return nil, err
-	}
-	n := reader.Count(len(p.Ops))
+func readCTLSequenceResults(reader *OracleReader, version uint32, ops []CTLOp) ([]CTLResult, error) {
+	n := reader.Count(len(ops))
 	out := make([]CTLResult, n)
 	for i := range n {
 		ret := reader.I32()
 		val := reader.I32()
 		have := reader.U32()
 		out[i] = CTLResult{Ret: ret, Value: val, HaveValue: have != 0}
+		if version >= 2 {
+			packetLen := int(reader.U32())
+			if packetLen < 0 || packetLen > 4000 {
+				return nil, fmt.Errorf("ctl sequence: op %d packet length=%d", i, packetLen)
+			}
+			out[i].Packet = append([]byte(nil), reader.Bytes(packetLen)...)
+			if pad := (4 - packetLen%4) % 4; pad > 0 {
+				reader.Bytes(pad)
+			}
+		}
+	}
+	return out, nil
+}
+
+func parseCTLSequenceBatchResults(data []byte, programs []CTLSequenceParams) ([][]CTLResult, error) {
+	reader, version, err := NewOracleReaderVersion("opus ctl sequence batch", ctlSequenceBatchMagic, data)
+	if err != nil {
+		return nil, err
+	}
+	if version != ctlSequenceBatchVersion {
+		return nil, fmt.Errorf("opus ctl sequence batch helper version=%d want %d", version, ctlSequenceBatchVersion)
+	}
+	n := reader.Count(len(programs))
+	out := make([][]CTLResult, n)
+	for i := range n {
+		if got := string(reader.Bytes(4)); reader.Err() != nil {
+			return nil, reader.Err()
+		} else if got != ctlSequenceOutputMagic {
+			return nil, fmt.Errorf("ctl sequence batch program %d: unexpected result magic %q", i, got)
+		}
+		programVersion := reader.U32()
+		wantVersion := ctlSequenceVersion(programs[i])
+		if programVersion != wantVersion {
+			return nil, fmt.Errorf("ctl sequence batch program %d helper version=%d want %d", i, programVersion, wantVersion)
+		}
+		results, err := readCTLSequenceResults(reader, programVersion, programs[i].Ops)
+		if err != nil {
+			return nil, fmt.Errorf("ctl sequence batch program %d: %w", i, err)
+		}
+		if err := reader.Err(); err != nil {
+			return nil, fmt.Errorf("ctl sequence batch program %d: %w", i, err)
+		}
+		out[i] = results
 	}
 	if err := reader.ExpectConsumed(); err != nil {
-		return nil, fmt.Errorf("ctl sequence oracle payload not fully consumed: %w", err)
-	}
-	if err := reader.Err(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ctl sequence batch oracle payload not fully consumed: %w", err)
 	}
 	return out, nil
 }

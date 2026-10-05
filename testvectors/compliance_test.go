@@ -608,12 +608,11 @@ func TestMonoCELTReferenceFormat(t *testing.T) {
 }
 
 func cachedVectorResult(name string) vectorResult {
-	if cached, ok := vectorResultCache.Load(name); ok {
-		return cached.(vectorResult)
-	}
-	result := runVectorSilent(name)
-	actual, _ := vectorResultCache.LoadOrStore(name, result)
-	return actual.(vectorResult)
+	candidate := sync.OnceValue(func() vectorResult {
+		return runVectorSilent(name)
+	})
+	cached, _ := vectorResultCache.LoadOrStore(name, candidate)
+	return cached.(func() vectorResult)()
 }
 
 // runVectorSilent runs a test vector and returns structured results without verbose logging.

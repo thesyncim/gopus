@@ -3,7 +3,11 @@
 
 package celt
 
-import "github.com/thesyncim/gopus/internal/opusmath"
+import (
+	"math"
+
+	"github.com/thesyncim/gopus/internal/opusmath"
+)
 
 // EMeans contains the mean log-energy per band in libopus float-build width.
 // These values are in log2 units (1.0 = 6 dB) and represent typical
@@ -18,6 +22,15 @@ var EMeans = [25]celtGLog{
 }
 
 const leakBands = 19
+
+// dynallocToneFrequencyBin mirrors the float expression in
+// celt/celt_encoder.c:1210: QEXT_SCALE(tone_freq)*120 is evaluated in float,
+// then division by M_PI and floor are evaluated in double. The caller scales
+// native 96 kHz tone frequencies with the active mode's QEXT scale.
+func dynallocToneFrequencyBin(toneFreq float32) int {
+	frequencyTimes120 := float64(toneFreq * 120)
+	return int(math.Floor(0.5 + frequencyTimes120/math.Pi))
+}
 
 func dynallocImportanceFromFollower(follower float32) int32 {
 	if follower > 4.0 {
@@ -493,7 +506,7 @@ func DynallocAnalysis(
 
 		// Compensate for Opus under-allocation on tones.
 		if toneishness > 0.98 && toneFreq >= 0 {
-			freqBin := floor32ToInt(0.5 + toneFreq*120.0/3.1415927)
+			freqBin := dynallocToneFrequencyBin(toneFreq)
 			for i := start; i < end; i++ {
 				if freqBin >= EBands[i] && freqBin <= EBands[i+1] {
 					follower[i] += 2.0
@@ -905,7 +918,7 @@ func DynallocAnalysisWithScratch(
 
 	// Compensate for Opus' under-allocation on tones.
 	if toneishness > 0.98 && toneFreq >= 0 {
-		freqBin := floor32ToInt(0.5 + toneFreq*120.0/3.1415927)
+		freqBin := dynallocToneFrequencyBin(toneFreq)
 		for i := start; i < end; i++ {
 			if freqBin >= edges[i] && freqBin <= edges[i+1] {
 				follower[i] += 2.0

@@ -719,13 +719,17 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 		surroundMasking = masking
 		surroundDynalloc = surroundDynallocScratch[:nbBands]
 	}
+	// libopus applies QEXT_SCALE(tone_freq) only in dynalloc tone
+	// compensation. Keep the tone detector's raw value for the other analysis
+	// stages and scale this local copy at the dynalloc boundary.
+	dynallocToneFreq := toneFreq * float32(e.combScale())
 	dynallocResult := DynallocAnalysisWithScratch(
 		analysisEnergies, bandLogE2Use, oldBandE,
 		nbBands, start, end, codedChannels, lsbDepth, lm,
 		logN,
 		effectiveBytes,
 		transient, isVBR, isConstrainedVBR, e.lfe,
-		toneFreq, toneishness,
+		dynallocToneFreq, toneishness,
 		surroundDynalloc,
 		e.analysisValid, e.dynallocLeakBoost(),
 		&e.dynallocScratch,

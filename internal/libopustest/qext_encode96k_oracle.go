@@ -33,10 +33,11 @@ func getQEXTEncode96kHelperPath() (string, error) {
 // extension-band encode chain.
 type QEXTEncode96kParams struct {
 	Channels      int
-	FrameSize     int // per-channel samples at 96 kHz (1920 for 20 ms)
+	FrameSize     int // per-channel samples at 96 kHz
 	Bitrate       int
 	Complexity    int
 	VBR           bool
+	VBRConstraint bool
 	MaxPacketSize int
 	// PCM is the interleaved native 96 kHz float input for all frames,
 	// length FrameSize*Channels*FrameCount.
@@ -75,19 +76,24 @@ func ProbeQEXTEncode96k(p QEXTEncode96kParams) (QEXTEncode96kResult, error) {
 		vbr = 1
 	}
 
-	payload := NewOraclePayloadVersion(qextEncode96kInputMagic, 1)
+	payload := NewOraclePayloadVersion(qextEncode96kInputMagic, 2)
 	payload.U32(uint32(p.Channels))
 	payload.U32(uint32(p.FrameSize))
 	payload.U32(uint32(p.Bitrate))
 	payload.U32(uint32(p.Complexity))
 	payload.U32(vbr)
+	if p.VBRConstraint {
+		payload.U32(1)
+	} else {
+		payload.U32(0)
+	}
 	payload.U32(uint32(p.MaxPacketSize))
 	payload.U32(uint32(p.FrameCount))
 	for _, s := range p.PCM {
 		payload.Float32(s)
 	}
 
-	reader, err := RunOracle(binPath, payload.Bytes(), "qext encode96k", qextEncode96kOutputMagic)
+	reader, err := RunOracleVersion(binPath, payload.Bytes(), "qext encode96k", qextEncode96kOutputMagic, 2)
 	if err != nil {
 		return QEXTEncode96kResult{}, err
 	}

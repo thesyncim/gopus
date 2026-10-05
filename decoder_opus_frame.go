@@ -324,7 +324,6 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 	celtBW := celt.CELTFullband
 	if data != nil {
 		celtBW = celt.BandwidthFromOpusConfig(int(bandwidth))
-		d.celtDecoder.SetBandwidth(celtBW)
 	}
 
 	redundancy := false
@@ -440,24 +439,6 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 					}
 				}
 
-				if redundancy && celtToSilk && redundancyBytes > 0 && mainLen >= 0 && mainLen+redundancyBytes <= len(data) {
-					redundantData := data[mainLen : mainLen+redundancyBytes]
-					// Mirror the reference: the integer CELT->SILK redundancy
-					// frame is decoded (start band 0, no reset) on the same
-					// integer CELT decoder before the main hybrid accum, so the
-					// shared decode_mem / energy state stays bit-identical.
-					codedChannels := 1
-					if packetStereoLocal {
-						codedChannels = 2
-					}
-					d.fixedDecodeRedundantCELT(redundantData, celtBW, false, codedChannels)
-					decoded, err := decodeRedundantCELT(redundantData)
-					if err != nil {
-						return 0, err
-					}
-					redundantAudio = decoded
-				}
-
 				if transition && !redundancy && len(pcmTransition) == 0 {
 					transSize := min(F5, audiosize)
 					// Mirror the reference transition decode on the integer CELT
@@ -508,6 +489,29 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 					}
 				}
 
+				// libopus applies CELT_SET_END_BAND after the recursive transition
+				// PLC and before redundancy or main CELT decoding. Keep the previous
+				// frame's end band active while that PLC frame advances CELT state.
+				d.celtDecoder.SetBandwidth(celtBW)
+
+				if redundancy && celtToSilk && redundancyBytes > 0 && mainLen >= 0 && mainLen+redundancyBytes <= len(data) {
+					redundantData := data[mainLen : mainLen+redundancyBytes]
+					// Mirror the reference: the integer CELT->SILK redundancy
+					// frame is decoded (start band 0, no reset) on the same
+					// integer CELT decoder before the main hybrid accum, so the
+					// shared decode_mem / energy state stays bit-identical.
+					codedChannels := 1
+					if packetStereoLocal {
+						codedChannels = 2
+					}
+					d.fixedDecodeRedundantCELT(redundantData, celtBW, false, codedChannels)
+					decoded, err := decodeRedundantCELT(redundantData)
+					if err != nil {
+						return 0, err
+					}
+					redundantAudio = decoded
+				}
+
 				if needCeltReset {
 					d.celtDecoder.Reset()
 					d.celtDecoder.SetBandwidth(celtBW)
@@ -545,6 +549,20 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		if !ok {
 			silkBW = silk.BandwidthWideband
 		}
+		if data == nil && useDecoderPLCState {
+			// A one-byte DTX packet updates the public bandwidth from its TOC,
+			// but libopus opus_decode_frame (src/opus_decoder.c) updates
+			// DecControl.internalSampleRate only for coded data. Public PLC
+			// follows the active SILK rate.
+			switch d.silkDecoder.GetSampleRateKHz() {
+			case 8:
+				silkBW = silk.BandwidthNarrowband
+			case 12:
+				silkBW = silk.BandwidthMediumband
+			case 16:
+				silkBW = silk.BandwidthWideband
+			}
+		}
 		if extsupport.OSCERuntime && data != nil {
 			d.installOSCELACESilkPostfilterHook(mode, silkBW, packetStereoLocal)
 			defer d.clearOSCELACESilkPostfilterHook()
@@ -565,14 +583,11 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 					}
 				}
 			case packetStereoLocal && channels == 1:
-				var silkOut []float32
-				silkOut, err = d.silkDecoder.DecodeStereoToMonoWithDecoder(rd, silkBW, silkDecodeSize, true)
+				silkSamples, err = d.silkDecoder.DecodeStereoToMonoWithDecoderInto(rd, silkBW, silkDecodeSize, true, out)
 				if err == nil {
-					silkSamples = len(silkOut) / channels
 					if frameSize < silkDecodeSize {
 						silkSamples = frameSize
 					}
-					copyFloat32(out, silkOut[:silkSamples*channels])
 				}
 			case !packetStereoLocal && channels == 2:
 				silkSamples, err = d.silkDecoder.DecodeMonoToStereoWithDecoderInto(rd, silkBW, silkDecodeSize, true, d.prevPacketStereo, out)
@@ -690,12 +705,9 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		// Capture the main decode's FinalRange AFTER redundancy flag reads but BEFORE any CELT redundancy decode.
 		// For SILK-only mode, the final range includes all bits read from the range decoder.
 		d.mainDecodeRng = rd.Range()
-		if (!d.haveDecoded || d.prevMode != ModeHybrid) ||
-			(redundancy && celtToSilk && d.prevRedundancy) {
-			// Capture the integer SILK body before a CELT transition fade rewrites
-			// its first 5 ms in the float output buffer.
-			fixedSILKFrame = d.fixedCaptureSILKOutput(out[:audiosize*channels])
-		}
+		// Capture the integer SILK body before a CELT transition fade or
+		// redundancy post-processing rewrites its output buffer.
+		fixedSILKFrame = d.fixedCaptureSILKOutput(out[:audiosize*channels])
 
 		if transition && !redundancy && len(pcmTransition) == 0 {
 			transSize := min(F5, audiosize)
@@ -753,15 +765,18 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 				d.applyOutputGain(pcmTransition)
 			}
 		}
+		if data != nil {
+			d.celtDecoder.SetBandwidth(celtBW)
+		}
 
 	case ModeCELT:
 		if needCeltReset {
 			d.celtDecoder.Reset()
 			d.resetFixedCELT()
 			d.resetFixedQEXTCELT()
-			if data != nil {
-				d.celtDecoder.SetBandwidth(celtBW)
-			}
+		}
+		if data != nil {
+			d.celtDecoder.SetBandwidth(celtBW)
 		}
 		if extsupport.QEXT {
 			d.setCELTQEXTPayload(qextPayload)
@@ -864,6 +879,9 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		// SILK output.
 		if err := d.celtDecoder.AccumulateFrameWithPacketStereoAtAPIRate(celtSilenceFrame2B[:], F2_5, packetStereoLocal, out); err != nil {
 			return 0, err
+		}
+		if fixedSILKFrame && !d.fixedAccumulateHybridToSILKFade(frameSize, F2_5, packetStereoLocal, celtBW) {
+			d.markFixedUnhandled()
 		}
 	}
 

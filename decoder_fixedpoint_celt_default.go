@@ -12,7 +12,7 @@ func (d *Decoder) decodeFECPublicFloat32(data []byte, pcm []float32) (int, error
 	return d.decodeWithFECFloat32(data, pcm)
 }
 func (d *Decoder) fixedCaptureSILKOutput(_ []float32) bool { return false }
-func (d *Decoder) fixedAccumulateFECHybridToSILKFade(_, _ int, _ bool, _ celt.CELTBandwidth) bool {
+func (d *Decoder) fixedAccumulateHybridToSILKFade(_, _ int, _ bool, _ celt.CELTBandwidth) bool {
 	return true
 }
 

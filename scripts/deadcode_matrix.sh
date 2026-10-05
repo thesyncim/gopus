@@ -143,14 +143,12 @@ echo "deadcode-matrix: ${#CONFIGS[@]} configurations" >&2
 # Run both analyzers for one config, emit normalized "file\tsymbol" lines.
 run_config() {
   local label="$1" arch="$2" tags="$3"
-  local tagflag=()
-  [ -n "${tags}" ] && tagflag=(-tags "${tags}")
   local keys_file="${OUT_DIR}/${label}.${arch}.keys"
   : > "${keys_file}"
 
   # deadcode (RTA reachability; functions/methods). -test traces test exes.
   local dc_json="${OUT_DIR}/${label}.${arch}.deadcode.json"
-  if GOARCH="${arch}" deadcode -test -json "${tagflag[@]}" ./... >"${dc_json}" 2>"${dc_json}.err"; then
+  if GOARCH="${arch}" deadcode -test -json -tags "${tags}" ./... >"${dc_json}" 2>"${dc_json}.err"; then
     python3 "${OUT_DIR}/parse_deadcode.py" "${dc_json}" "${ROOT_DIR}" >>"${keys_file}"
   else
     echo "  [warn] deadcode failed for ${label}/${arch}: $(head -1 "${dc_json}.err")" >&2
@@ -164,7 +162,7 @@ run_config() {
   # staticcheck U1000 (unused funcs/types/consts/vars/fields). Package-path form.
   local sc_json="${OUT_DIR}/${label}.${arch}.staticcheck.json"
   # staticcheck exits non-zero when it reports findings; that is expected.
-  GOARCH="${arch}" staticcheck -f json "${tagflag[@]}" ./... >"${sc_json}" 2>"${sc_json}.err" || true
+  GOARCH="${arch}" staticcheck -f json -tags "${tags}" ./... >"${sc_json}" 2>"${sc_json}.err" || true
   if [ -s "${sc_json}" ]; then
     python3 "${OUT_DIR}/parse_staticcheck.py" "${sc_json}" "${ROOT_DIR}" >>"${keys_file}"
   fi

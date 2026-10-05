@@ -237,7 +237,7 @@ func (d *Decoder) applyLossEnergySafety(intra bool, start, end, lm int) {
 // frameSize*channels long or sized for the API rate, in which case the
 // de-emphasis downsamples into it.
 func (d *Decoder) DecodeHybridFECPLC(frameSize int, out []float32) error {
-	if !d.validHybridFrameSize(frameSize) && frameSize != d.synthOverlapLen()*2 {
+	if !d.validHybridFrameSize(frameSize) && frameSize != d.synthOverlapLen() && frameSize != d.synthOverlapLen()*2 {
 		return ErrInvalidFrameSize
 	}
 

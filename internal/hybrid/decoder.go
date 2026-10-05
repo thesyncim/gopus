@@ -111,6 +111,14 @@ func (d *Decoder) SetFixedHighband(h FixedHybridHighband) {
 // select mono; values above two select stereo. The API sample rate defaults to
 // 48 kHz, and Hybrid frames use the wideband SILK decoder plus CELT high bands.
 func NewDecoder(channels int) *Decoder {
+	return NewDecoderWithSharedDecoders(channels, nil, nil)
+}
+
+// NewDecoderWithSharedDecoders creates a Hybrid decoder using the supplied SILK
+// and CELT decoders where non-nil. The caller configures those child decoders
+// for the same channel count and stream, then shares them across mode decoders
+// to preserve their histories.
+func NewDecoderWithSharedDecoders(channels int, silkDec *silk.Decoder, celtDec *celt.Decoder) *Decoder {
 	if channels < 1 {
 		channels = 1
 	}
@@ -122,9 +130,16 @@ func NewDecoder(channels int) *Decoder {
 	// at 48 kHz. QEXT 96 kHz output grows it on demand.
 	maxSamples := 960 * channels
 
+	if silkDec == nil {
+		silkDec = silk.NewDecoder()
+	}
+	if celtDec == nil {
+		celtDec = celt.NewDecoder(channels)
+	}
+
 	return &Decoder{
-		silkDecoder: silk.NewDecoder(),
-		celtDecoder: celt.NewDecoder(channels),
+		silkDecoder: silkDec,
+		celtDecoder: celtDec,
 
 		channels:      int32(channels),
 		apiSampleRate: 48000,
@@ -133,21 +148,6 @@ func NewDecoder(channels int) *Decoder {
 		// Pre-allocate scratch buffers for zero-alloc decode path
 		scratchSilkUpsampled: make([]float32, maxSamples),
 	}
-}
-
-// NewDecoderWithSharedDecoders creates a Hybrid decoder using the supplied SILK
-// and CELT decoders where non-nil. The caller configures those child decoders
-// for the same channel count and stream, then shares them across mode decoders
-// to preserve their histories.
-func NewDecoderWithSharedDecoders(channels int, silkDec *silk.Decoder, celtDec *celt.Decoder) *Decoder {
-	d := NewDecoder(channels)
-	if silkDec != nil {
-		d.silkDecoder = silkDec
-	}
-	if celtDec != nil {
-		d.celtDecoder = celtDec
-	}
-	return d
 }
 
 // SetAPISampleRate sets the output rate for Hybrid PCM. Rates of 8, 12, 16, 24,

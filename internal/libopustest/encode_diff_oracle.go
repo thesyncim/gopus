@@ -3,8 +3,11 @@ package libopustest
 import "fmt"
 
 const (
-	encodeDiffInputMagic  = "GEDI"
-	encodeDiffOutputMagic = "GEDO"
+	encodeDiffInputMagic   = "GEDI"
+	encodeDiffOutputMagic  = "GEDO"
+	encodeDiffBatchMagic   = "GEDB"
+	encodeDiffBatchVersion = 1
+	encodeDiffMaxBatch     = 64
 )
 
 // EncodeDiff force-mode codes (opus_private.h MODE_* consumed by
@@ -110,25 +113,81 @@ func ProbeEncodeDiff(p EncodeDiffParams) ([]EncodeDiffRecord, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := validateEncodeDiffParams(p); err != nil {
+		return nil, err
+	}
+
+	payload := &OraclePayload{}
+	appendEncodeDiffProgram(payload, p)
+	reader, err := RunOracle(binPath, payload.Bytes(), "opus encode diff", encodeDiffOutputMagic)
+	if err != nil {
+		return nil, err
+	}
+	recs := readEncodeDiffRecords(reader, p.FrameCount)
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, fmt.Errorf("encode diff oracle payload not fully consumed: %w", err)
+	}
+	if err := reader.Err(); err != nil {
+		return nil, err
+	}
+	return recs, nil
+}
+
+// ProbeEncodeDiffBatch runs each stateful encode sequence with a fresh libopus
+// encoder while sharing one helper process. Each sequence retains its own
+// encoder state across the frames in its EncodeDiffParams.
+func ProbeEncodeDiffBatch(programs []EncodeDiffParams) ([][]EncodeDiffRecord, error) {
+	if len(programs) == 0 {
+		return nil, nil
+	}
+	if len(programs) > encodeDiffMaxBatch {
+		return nil, fmt.Errorf("encode diff: batch has %d programs, maximum is %d", len(programs), encodeDiffMaxBatch)
+	}
+	for i, p := range programs {
+		if err := validateEncodeDiffParams(p); err != nil {
+			return nil, fmt.Errorf("encode diff batch program %d: %w", i, err)
+		}
+	}
+
+	binPath, err := getEncodeDiffHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	payload := NewOraclePayloadVersion(encodeDiffBatchMagic, encodeDiffBatchVersion, uint32(len(programs)))
+	for _, p := range programs {
+		appendEncodeDiffProgram(payload, p)
+	}
+	data, err := RunHelper(binPath, payload.Bytes())
+	if err != nil {
+		return nil, fmt.Errorf("run encode diff batch helper: %w", err)
+	}
+	return parseEncodeDiffBatchResults(data, programs)
+}
+
+func validateEncodeDiffParams(p EncodeDiffParams) error {
 	if p.Channels < 1 || p.Channels > 2 {
-		return nil, fmt.Errorf("encode diff: invalid channels %d", p.Channels)
+		return fmt.Errorf("encode diff: invalid channels %d", p.Channels)
 	}
 	if p.FrameSize <= 0 || p.FrameCount <= 0 {
-		return nil, fmt.Errorf("encode diff: invalid dimensions")
+		return fmt.Errorf("encode diff: invalid dimensions")
 	}
 	nsamples := p.FrameSize * p.Channels * p.FrameCount
 	if len(p.PCM) != nsamples {
-		return nil, fmt.Errorf("encode diff: PCM len %d want %d", len(p.PCM), nsamples)
+		return fmt.Errorf("encode diff: PCM len %d want %d", len(p.PCM), nsamples)
 	}
+	return nil
+}
 
+func appendEncodeDiffProgram(payload *OraclePayload, p EncodeDiffParams) {
 	b2u := func(b bool) uint32 {
 		if b {
 			return 1
 		}
 		return 0
 	}
-
-	payload := NewOraclePayloadVersion(encodeDiffInputMagic, 1)
+	nsamples := p.FrameSize * p.Channels * p.FrameCount
+	payload.Magic(encodeDiffInputMagic)
+	payload.U32(1)
 	payload.U32(uint32(p.SampleRate))
 	payload.U32(uint32(p.Channels))
 	payload.U32(uint32(p.Application))
@@ -151,12 +210,10 @@ func ProbeEncodeDiff(p EncodeDiffParams) ([]EncodeDiffRecord, error) {
 	payload.U32(uint32(p.FrameCount))
 	payload.U32(uint32(nsamples))
 	payload.Float32s(p.PCM...)
+}
 
-	reader, err := RunOracle(binPath, payload.Bytes(), "opus encode diff", encodeDiffOutputMagic)
-	if err != nil {
-		return nil, err
-	}
-	n := reader.Count(p.FrameCount)
+func readEncodeDiffRecords(reader *OracleReader, frameCount int) []EncodeDiffRecord {
+	n := reader.Count(frameCount)
 	recs := make([]EncodeDiffRecord, n)
 	for i := range n {
 		ret := int(int32(reader.U32()))
@@ -171,11 +228,36 @@ func ProbeEncodeDiff(p EncodeDiffParams) ([]EncodeDiffRecord, error) {
 		}
 		recs[i] = EncodeDiffRecord{Ret: ret, FinalRange: fr, Packet: pkt}
 	}
-	if err := reader.ExpectConsumed(); err != nil {
-		return nil, fmt.Errorf("encode diff oracle payload not fully consumed: %w", err)
-	}
-	if err := reader.Err(); err != nil {
+	return recs
+}
+
+func parseEncodeDiffBatchResults(data []byte, programs []EncodeDiffParams) ([][]EncodeDiffRecord, error) {
+	reader, version, err := NewOracleReaderVersion("opus encode diff batch", encodeDiffBatchMagic, data)
+	if err != nil {
 		return nil, err
 	}
-	return recs, nil
+	if version != encodeDiffBatchVersion {
+		return nil, fmt.Errorf("opus encode diff batch helper version=%d want %d", version, encodeDiffBatchVersion)
+	}
+	n := reader.Count(len(programs))
+	results := make([][]EncodeDiffRecord, n)
+	for i := range n {
+		if got := string(reader.Bytes(4)); reader.Err() != nil {
+			return nil, reader.Err()
+		} else if got != encodeDiffOutputMagic {
+			return nil, fmt.Errorf("encode diff batch program %d: unexpected result magic %q", i, got)
+		}
+		programVersion := reader.U32()
+		if programVersion != 1 {
+			return nil, fmt.Errorf("encode diff batch program %d helper version=%d want 1", i, programVersion)
+		}
+		results[i] = readEncodeDiffRecords(reader, programs[i].FrameCount)
+		if err := reader.Err(); err != nil {
+			return nil, fmt.Errorf("encode diff batch program %d: %w", i, err)
+		}
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, fmt.Errorf("encode diff batch oracle payload not fully consumed: %w", err)
+	}
+	return results, nil
 }

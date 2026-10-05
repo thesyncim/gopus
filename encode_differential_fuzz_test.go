@@ -388,140 +388,183 @@ func TestEncodeDifferentialFuzz(t *testing.T) {
 	packetLoss := 20
 	inputCache := make(encDiffInputCache)
 
-	for idx := 0; idx < len(specs) && tested < budget; idx += stride {
-		spec := specs[idx]
-		tested++
-		t.Run(spec.name, func(t *testing.T) {
-			fs := encFrameSamples48k(spec.frameMs)
-			pcm, err := inputCache.get(spec.sigClass, sampleRate, fs*framesPerSpec*spec.channels, spec.channels)
-			if err != nil {
-				t.Fatalf("GenerateCorpusSignal(%s): %v", spec.sigClass, err)
-			}
+	type preparedSpec struct {
+		spec        encDiffSpec
+		fs          int
+		pcm         []float32
+		inputErr    error
+		oracleIndex int
+	}
+	selected := make([]encDiffSpec, 0, budget)
+	for idx := 0; idx < len(specs) && len(selected) < budget; idx += stride {
+		selected = append(selected, specs[idx])
+	}
+	tested = len(selected)
 
-			vbr, constraint := vbrFlags(spec.vbr)
-			fecCfg := 0
-			pl := 0
-			if spec.fec {
-				fecCfg = 1
-				pl = packetLoss
-			}
-			recs, err := libopustest.ProbeEncodeDiff(libopustest.EncodeDiffParams{
-				SampleRate:    sampleRate,
-				Channels:      spec.channels,
-				Application:   libopustest.EncodeDiffApplicationAudio,
-				ForceMode:     spec.forceMode,
-				Bandwidth:     spec.bwCode,
-				MaxBandwidth:  spec.bwCode,
-				Bitrate:       spec.bitrate,
-				Complexity:    10,
-				Signal:        spec.signal,
-				VBR:           vbr,
-				VBRConstraint: constraint,
-				ForceChannels: spec.channels,
-				InbandFEC:     fecCfg,
-				PacketLoss:    pl,
-				DTX:           spec.dtx,
-				FrameSize:     fs,
-				FrameCount:    framesPerSpec,
-				PCM:           pcm,
-			})
-			if err != nil {
-				libopustest.HelperUnavailable(t, "encode diff oracle", err)
+	const oracleBatchSize = 64
+	for start := 0; start < len(selected); start += oracleBatchSize {
+		end := min(start+oracleBatchSize, len(selected))
+		var (
+			batch         []preparedSpec
+			oracleResults [][]libopustest.EncodeDiffRecord
+			oracleErr     error
+			loaded        bool
+		)
+		loadBatch := func() {
+			if loaded {
 				return
 			}
-
-			if len(recs) != framesPerSpec {
-				t.Fatalf("%s: oracle returned %d frames, want %d", spec.name, len(recs), framesPerSpec)
+			loaded = true
+			batch = make([]preparedSpec, end-start)
+			params := make([]libopustest.EncodeDiffParams, 0, len(batch))
+			for i, spec := range selected[start:end] {
+				prepared := preparedSpec{spec: spec, fs: encFrameSamples48k(spec.frameMs)}
+				prepared.pcm, prepared.inputErr = inputCache.get(
+					spec.sigClass, sampleRate, prepared.fs*framesPerSpec*spec.channels, spec.channels,
+				)
+				if prepared.inputErr == nil {
+					vbr, constraint := vbrFlags(spec.vbr)
+					fecCfg := 0
+					pl := 0
+					if spec.fec {
+						fecCfg = 1
+						pl = packetLoss
+					}
+					prepared.oracleIndex = len(params)
+					params = append(params, libopustest.EncodeDiffParams{
+						SampleRate:    sampleRate,
+						Channels:      spec.channels,
+						Application:   libopustest.EncodeDiffApplicationAudio,
+						ForceMode:     spec.forceMode,
+						Bandwidth:     spec.bwCode,
+						MaxBandwidth:  spec.bwCode,
+						Bitrate:       spec.bitrate,
+						Complexity:    10,
+						Signal:        spec.signal,
+						VBR:           vbr,
+						VBRConstraint: constraint,
+						ForceChannels: spec.channels,
+						InbandFEC:     fecCfg,
+						PacketLoss:    pl,
+						DTX:           spec.dtx,
+						FrameSize:     prepared.fs,
+						FrameCount:    framesPerSpec,
+						PCM:           prepared.pcm,
+					})
+				}
+				batch[i] = prepared
 			}
-
-			enc, ok := configureEncDiff(t, spec)
-			if !ok {
-				t.Fatalf("gopus rejected required config %s", spec.name)
+			if len(params) > 0 {
+				oracleResults, oracleErr = libopustest.ProbeEncodeDiffBatch(params)
 			}
-
-			gotRecs := make([]libopustest.EncodeDiffRecord, framesPerSpec)
-			for f := range framesPerSpec {
-				frame := pcm[f*fs*spec.channels : (f+1)*fs*spec.channels]
-				pkt, err := encDiffEncodeOneFrame(enc, frame)
-				if err != nil {
-					t.Fatalf("%s frame %d: gopus encode error: %v", spec.name, f, err)
+		}
+		for i, spec := range selected[start:end] {
+			i := i
+			t.Run(spec.name, func(t *testing.T) {
+				loadBatch()
+				prepared := batch[i]
+				if prepared.inputErr != nil {
+					t.Fatalf("GenerateCorpusSignal(%s): %v", spec.sigClass, prepared.inputErr)
 				}
-				gotRecs[f] = libopustest.EncodeDiffRecord{
-					Ret:        len(pkt),
-					FinalRange: enc.FinalRange(),
-					Packet:     pkt,
+				if oracleErr != nil {
+					libopustest.HelperUnavailable(t, "encode diff batch oracle", fmt.Errorf("batch starting at spec %d: %w", start, oracleErr))
+					return
 				}
-			}
-
-			for f := range framesPerSpec {
-				g := gotRecs[f]
-				o := recs[f]
-				label := fmt.Sprintf("%s/frame%d", spec.name, f)
-
-				if g.Ret != o.Ret {
-					t.Errorf("%s: return count differs gopus=%d libopus=%d", label, g.Ret, o.Ret)
-				}
-				if g.FinalRange != o.FinalRange {
-					rangeMismatches++
-					t.Errorf("%s: final_range differs gopus=%08x libopus=%08x",
-						label, g.FinalRange, o.FinalRange)
+				recs := oracleResults[prepared.oracleIndex]
+				if len(recs) != framesPerSpec {
+					t.Fatalf("%s: oracle returned %d frames, want %d", spec.name, len(recs), framesPerSpec)
 				}
 
-				// Empty output and a one-byte DTX packet are distinct results.
-				// Compare return counts and final ranges even for empty output.
-				gHas := len(g.Packet) > 0
-				oHas := o.Ret > 0
-
-				gClass := tocModeClass(byte0(g.Packet), gHas)
-				oClass := tocModeClass(byte0(o.Packet), oHas)
-
-				if gHas != oHas {
-					packetCountMis++
-					t.Errorf("%s: emission mismatch gopus(len=%d) libopus(ret=%d) — DTX/output cadence differs",
-						label, len(g.Packet), o.Ret)
-					continue
-				}
-				if !gHas {
-					continue // both emitted nothing this frame
+				enc, ok := configureEncDiff(t, spec)
+				if !ok {
+					t.Fatalf("gopus rejected required config %s", spec.name)
 				}
 
-				if bytes.Equal(g.Packet, o.Packet) {
-					continue
+				gotRecs := make([]libopustest.EncodeDiffRecord, framesPerSpec)
+				for f := range framesPerSpec {
+					frame := prepared.pcm[f*prepared.fs*spec.channels : (f+1)*prepared.fs*spec.channels]
+					pkt, err := encDiffEncodeOneFrame(enc, frame)
+					if err != nil {
+						t.Fatalf("%s frame %d: gopus encode error: %v", spec.name, f, err)
+					}
+					gotRecs[f] = libopustest.EncodeDiffRecord{
+						Ret:        len(pkt),
+						FinalRange: enc.FinalRange(),
+						Packet:     pkt,
+					}
 				}
 
-				// Divergence. Classify.
-				if gClass != oClass {
-					tocFlips++
-					t.Errorf("%s: TOC MODE-CLASS FLIP gopus=%s(toc=%02x) libopus=%s(toc=%02x) "+
-						"br=%d vbr=%d fec=%t dtx=%t ch=%d — deterministic mode-decision divergence",
-						label, modeClassName(gClass), byte0(g.Packet), modeClassName(oClass), byte0(o.Packet),
-						spec.bitrate, spec.vbr, spec.fec, spec.dtx, spec.channels)
-					continue
-				}
+				for f := range framesPerSpec {
+					g := gotRecs[f]
+					o := recs[f]
+					label := fmt.Sprintf("%s/frame%d", spec.name, f)
 
-				fb := firstByteDiff(g.Packet, o.Packet)
+					if g.Ret != o.Ret {
+						t.Errorf("%s: return count differs gopus=%d libopus=%d", label, g.Ret, o.Ret)
+					}
+					if g.FinalRange != o.FinalRange {
+						rangeMismatches++
+						t.Errorf("%s: final_range differs gopus=%08x libopus=%08x",
+							label, g.FinalRange, o.FinalRange)
+					}
 
-				// Same mode class but a different TOC byte is a packet-framing
-				// divergence (the code 0/1/2/3 field).
-				if byte0(g.Packet) != byte0(o.Packet) {
-					framingDiffs++
-					t.Errorf("%s: packet framing differs gopus toc=%02x(len=%d) libopus toc=%02x(len=%d)",
-						label, byte0(g.Packet), len(g.Packet), byte0(o.Packet), len(o.Packet))
-					continue
-				}
+					// Empty output and a one-byte DTX packet are distinct results.
+					// Compare return counts and final ranges even for empty output.
+					gHas := len(g.Packet) > 0
+					oHas := o.Ret > 0
 
-				if gClass == 0 {
-					silkByteFails++
-				} else {
-					celtByteFails++
+					gClass := tocModeClass(byte0(g.Packet), gHas)
+					oClass := tocModeClass(byte0(o.Packet), oHas)
+
+					if gHas != oHas {
+						packetCountMis++
+						t.Errorf("%s: emission mismatch gopus(len=%d) libopus(ret=%d) — DTX/output cadence differs",
+							label, len(g.Packet), o.Ret)
+						continue
+					}
+					if !gHas {
+						continue // both emitted nothing this frame
+					}
+
+					if bytes.Equal(g.Packet, o.Packet) {
+						continue
+					}
+
+					// Divergence. Classify.
+					if gClass != oClass {
+						tocFlips++
+						t.Errorf("%s: TOC MODE-CLASS FLIP gopus=%s(toc=%02x) libopus=%s(toc=%02x) "+
+							"br=%d vbr=%d fec=%t dtx=%t ch=%d — deterministic mode-decision divergence",
+							label, modeClassName(gClass), byte0(g.Packet), modeClassName(oClass), byte0(o.Packet),
+							spec.bitrate, spec.vbr, spec.fec, spec.dtx, spec.channels)
+						continue
+					}
+
+					fb := firstByteDiff(g.Packet, o.Packet)
+
+					// Same mode class but a different TOC byte is a packet-framing
+					// divergence (the code 0/1/2/3 field).
+					if byte0(g.Packet) != byte0(o.Packet) {
+						framingDiffs++
+						t.Errorf("%s: packet framing differs gopus toc=%02x(len=%d) libopus toc=%02x(len=%d)",
+							label, byte0(g.Packet), len(g.Packet), byte0(o.Packet), len(o.Packet))
+						continue
+					}
+
+					if gClass == 0 {
+						silkByteFails++
+					} else {
+						celtByteFails++
+					}
+					t.Errorf("%s: %s payload differs at byte %d (len g=%d o=%d range g=%08x o=%08x) "+
+						"br=%d vbr=%d fec=%t dtx=%t",
+						label, modeClassName(gClass), fb, len(g.Packet), len(o.Packet), g.FinalRange, o.FinalRange,
+						spec.bitrate, spec.vbr, spec.fec, spec.dtx)
 				}
-				t.Errorf("%s: %s payload differs at byte %d (len g=%d o=%d range g=%08x o=%08x) "+
-					"br=%d vbr=%d fec=%t dtx=%t",
-					label, modeClassName(gClass), fb, len(g.Packet), len(o.Packet), g.FinalRange, o.FinalRange,
-					spec.bitrate, spec.vbr, spec.fec, spec.dtx)
-			}
-		})
+			})
+		}
 	}
+
 	t.Logf("encode differential sweep: %d/%d specs × %d frames; arch=%s; "+
 		"TOC-mode-flips=%d framing-diffs=%d packet-count-mismatch=%d SILK-byte-mismatches=%d "+
 		"CELT/Hybrid-byte-mismatches=%d range-mismatches=%d",

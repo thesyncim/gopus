@@ -363,6 +363,18 @@ func (e *Encoder) autoStreamChannelsDecision(voiceEst, equivRate int32) {
 	}
 }
 
+// applyStereoToMonoTransition delays a forced or automatic stereo-to-mono
+// change for one frame while SILK is active, matching opus_encoder.c:1562-1570.
+func (e *Encoder) applyStereoToMonoTransition(mode Mode) {
+	if e.streamChannels == 1 && e.prevChannels == 2 && e.toMono == 0 &&
+		mode != ModeCELT && e.prevMode != ModeCELT {
+		e.toMono = 1
+		e.streamChannels = 2
+	} else {
+		e.toMono = 0
+	}
+}
+
 func (e *Encoder) updateStreamChannelsForFrame(frameSize int) {
 	frameRate := int(e.sampleRate) / frameSize
 	if frameRate <= 0 {
@@ -501,6 +513,25 @@ func (e *Encoder) autoSelectBandwidth(voiceEst, equivRate int32) types.Bandwidth
 	}
 
 	return bandwidth
+}
+
+// selectAutoBandwidth updates the selected bandwidth in the cases where
+// libopus reruns its rate-dependent bandwidth selection. Keep autoBandwidth
+// before max-bandwidth and user-bandwidth clamps so a later relaxed limit can
+// restore the automatic choice.
+func (e *Encoder) selectAutoBandwidth(mode Mode, voiceEst, equivRate int32) {
+	if mode != ModeCELT && !e.first && !e.silkMode.AllowBandwidthSwitch {
+		return
+	}
+
+	e.bandwidth = e.autoSelectBandwidth(voiceEst, equivRate)
+	e.autoBandwidth = e.bandwidth
+	// Prevent any transition to SWB/FB until SILK has switched to WB and turned
+	// off the variable LP filter.
+	if !e.first && mode != ModeCELT && !e.silkMode.InWBModeWithoutVariableLP &&
+		e.bandwidth > types.BandwidthWideband {
+		e.bandwidth = types.BandwidthWideband
+	}
 }
 
 // autoClampBandwidth applies bandwidth clamping rules.
@@ -649,16 +680,8 @@ func (e *Encoder) autoModeAndBandwidthDecision(stereoWidth opusVal16, frameSize,
 	// bandwidth decision and the mode fixup see the mode.
 	mode, prevModeNext = e.applyCELTTransitionDelay(frameSize, mode)
 
-	// Step 11: Stereo→mono transition delay (lines 1562-1570).
-	// When switching from stereo to mono, delay by two frames for smooth SILK downmix.
-	// toMono is set to 1 on the first frame, then cleared on the next.
-	if e.streamChannels == 1 && e.prevChannels == 2 && e.toMono == 0 &&
-		mode != ModeCELT && e.prevMode != ModeCELT {
-		e.toMono = 1
-		e.streamChannels = 2
-	} else {
-		e.toMono = 0
-	}
+	// Step 11: Stereo-to-mono transition delay (lines 1562-1570).
+	e.applyStereoToMonoTransition(mode)
 
 	// Step 12: Recompute equiv_rate with mode decision (lines 1572-1574).
 	equivRate = e.computeEquivRate(e.bitrate, e.streamChannels, int32(frameRate), useVBR,
@@ -667,17 +690,7 @@ func (e *Encoder) autoModeAndBandwidthDecision(stereoWidth opusVal16, frameSize,
 	// Step 13: Auto bandwidth selection (lines 1583-1627). It runs for CELT-only
 	// frames, on the first frame, and when the last SILK packet reported that
 	// low speech activity allows a bandwidth switch.
-	if mode == ModeCELT || e.first || e.silkMode.AllowBandwidthSwitch {
-		bw := e.autoSelectBandwidth(voiceEst, equivRate)
-		e.bandwidth = bw
-		e.autoBandwidth = bw
-		// Prevent any transition to SWB/FB until the SILK layer has fully
-		// switched to WB and turned the variable LP filter off.
-		if !e.first && mode != ModeCELT && !e.silkMode.InWBModeWithoutVariableLP &&
-			e.bandwidth > types.BandwidthWideband {
-			e.bandwidth = types.BandwidthWideband
-		}
-	}
+	e.selectAutoBandwidth(mode, voiceEst, equivRate)
 
 	// Step 14: Bandwidth clamping (lines 1629-1684).
 	e.bandwidth = e.autoClampBandwidth(e.bandwidth, mode, equivRate, maxRate)

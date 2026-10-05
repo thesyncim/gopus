@@ -262,7 +262,7 @@ func (d *Decoder) DecodePLCToFloat32WithPacketStereoInto(frameSize int, stereo b
 	// reports as the final range. Returning early here would freeze st->rng and
 	// desync the range coder on the next FEC step, so the CELT PLC must run on
 	// every lost frame regardless of how decayed the energy is.
-	fadeFactor := d.plcState.RecordLoss()
+	_ = d.plcState.RecordLoss()
 
 	// SILK PLC cannot produce less than 10ms; use 10ms and trim if needed.
 	plcSilkFrameSize := frameSizeAPI
@@ -319,29 +319,12 @@ func (d *Decoder) DecodePLCToFloat32WithPacketStereoInto(frameSize int, stereo b
 	// Conceal the CELT highband (bands 17-21) and accumulate it onto the SILK
 	// lowband, as opus_decode_frame's celt_decode_with_ec(NULL, celt_accum=1)
 	// does for a lost Hybrid frame.
-	if frameSize48 == 240 || frameSize48 == 480 || frameSize48 == 960 {
-		celtFrameSize := frameSize48
-		if apiSampleRate == 96000 {
-			celtFrameSize = frameSizeAPI
-		}
-		if err := d.celtDecoder.DecodeHybridFECPLC(celtFrameSize, output); err != nil {
-			return err
-		}
-	} else {
-		// Fallback for non-hybrid frame sizes used by internal cadence paths.
-		// Pass celtDecoder as both state and synthesizer (implements both interfaces).
-		celtConcealed := plc.ConcealCELTHybrid(d.celtDecoder, d.celtDecoder, frameSize48, fadeFactor)
-		factor := 1
-		if apiSampleRate > 0 {
-			factor = max(48000/apiSampleRate, 1)
-		}
-		for i := range frameSizeAPI {
-			for c := range channels {
-				if celtIdx := i*factor*channels + c; celtIdx < len(celtConcealed) {
-					output[i*channels+c] += celtConcealed[celtIdx] * (1.0 / 32768.0)
-				}
-			}
-		}
+	celtFrameSize := frameSize48
+	if apiSampleRate == 96000 {
+		celtFrameSize = frameSizeAPI
+	}
+	if err := d.celtDecoder.DecodeHybridFECPLC(celtFrameSize, output); err != nil {
+		return err
 	}
 
 	return nil

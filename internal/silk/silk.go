@@ -314,12 +314,10 @@ func (d *Decoder) DecodeMonoToStereo(
 	if bandwidth > BandwidthWideband {
 		return nil, ErrInvalidBandwidth
 	}
-	useStereoHistory := d.ShouldUseStereoToMonoHistory(bandwidth, stereoToMono)
-
-	// Handle bandwidth changes - reset sMid state when sample rate changes
-	d.handleBandwidthChange(bandwidth)
-
 	if data == nil {
+		useStereoHistory := d.ShouldUseStereoToMonoHistory(bandwidth, stereoToMono)
+		// Handle bandwidth changes - reset sMid state when sample rate changes.
+		d.handleBandwidthChange(bandwidth)
 		if !useStereoHistory {
 			mono, err := d.decodePLC(bandwidth, frameSizeSamples)
 			if err != nil {
@@ -331,74 +329,16 @@ func (d *Decoder) DecodeMonoToStereo(
 		}
 		return d.decodePLCStereo(bandwidth, frameSizeSamples)
 	}
-
-	duration := d.frameDurationFromAPISamples(frameSizeSamples)
-
 	var rd rangecoding.Decoder
 	rd.Init(data)
-
-	// Decode at native rate without delay compensation (sMid buffering happens before resampler)
-	nativeSamples, err := d.DecodeFrameRaw(&rd, bandwidth, duration, vadFlag)
+	out := make([]float32, frameSizeSamples*2)
+	n, err := d.DecodeMonoToStereoWithDecoderInto(
+		&rd, bandwidth, frameSizeSamples, vadFlag, stereoToMono, out,
+	)
 	if err != nil {
 		return nil, err
 	}
-
-	// Check for bandwidth change and reset sMid state if needed.
-	d.HandleBandwidthChange(bandwidth)
-
-	config := GetBandwidthConfig(bandwidth)
-	framesPerPacket, nbSubfr, err := frameParams(duration)
-	if err != nil {
-		return nil, err
-	}
-	fsKHz := config.SampleRate / 1000
-	frameLength := nbSubfr * subFrameLengthMs * fsKHz
-	if framesPerPacket > 0 && frameLength*framesPerPacket != len(nativeSamples) {
-		frameLength = len(nativeSamples) / framesPerPacket
-	}
-
-	leftResampler := d.GetResamplerForChannel(bandwidth, 0)
-	rightResampler := d.GetResamplerForChannel(bandwidth, 1)
-
-	leftOut := make([]float32, 0, frameSizeSamples)
-	var rightOut []float32
-	if useStereoHistory {
-		rightOut = make([]float32, 0, frameSizeSamples)
-	}
-
-	for f := range framesPerPacket {
-		start := f * frameLength
-		end := start + frameLength
-		if start < 0 || end > len(nativeSamples) || frameLength == 0 {
-			break
-		}
-		frame := nativeSamples[start:end]
-		resamplerInput := d.BuildMonoResamplerInput(frame)
-		left := leftResampler.Process(resamplerInput)
-		leftOut = append(leftOut, left...)
-		if useStereoHistory {
-			right := rightResampler.Process(resamplerInput)
-			rightOut = append(rightOut, right...)
-		}
-	}
-
-	out := make([]float32, len(leftOut)*2)
-	for i := range leftOut {
-		out[i*2] = leftOut[i]
-		if useStereoHistory {
-			if i < len(rightOut) {
-				out[i*2+1] = rightOut[i]
-			} else {
-				out[i*2+1] = leftOut[i]
-			}
-		} else {
-			out[i*2+1] = leftOut[i]
-		}
-	}
-
-	d.finalizeSuccessfulDecode(frameSizeSamples, 2)
-
-	return out, nil
+	return out[:n], nil
 }
 
 // DecodeWithDecoder decodes a SILK mono frame using a pre-initialized range decoder.
@@ -665,28 +605,30 @@ func (d *Decoder) DecodeStereoWithDecoder(
 	return output, nil
 }
 
-// DecodeStereoToMonoWithDecoder decodes a SILK stereo frame to mono using a pre-initialized range decoder.
-func (d *Decoder) DecodeStereoToMonoWithDecoder(
+// DecodeStereoToMonoWithDecoderInto decodes a SILK stereo frame to mono into a
+// caller-owned buffer using a pre-initialized range decoder.
+func (d *Decoder) DecodeStereoToMonoWithDecoderInto(
 	rd *rangecoding.Decoder,
 	bandwidth Bandwidth,
 	frameSizeSamples int,
 	vadFlag bool,
-) ([]float32, error) {
+	output []float32,
+) (int, error) {
 	// Handle bandwidth changes - reset sMid state when sample rate changes
 	d.handleBandwidthChange(bandwidth)
 
 	if bandwidth > BandwidthWideband {
-		return nil, ErrInvalidBandwidth
+		return 0, ErrInvalidBandwidth
 	}
 	if rd == nil {
-		return nil, ErrDecodeFailed
+		return 0, ErrDecodeFailed
 	}
 
 	duration := d.frameDurationFromAPISamples(frameSizeSamples)
 
 	midNative, frameLength, err := d.decodeStereoMidNative(rd, bandwidth, duration, vadFlag)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 
 	framesPerPacket := 0
@@ -694,116 +636,34 @@ func (d *Decoder) DecodeStereoToMonoWithDecoder(
 		framesPerPacket = len(midNative) / frameLength
 	}
 	resampler := d.GetResamplerForChannel(bandwidth, 0)
-	output := make([]float32, 0, frameSizeSamples)
+	outputOffset := 0
+	config := GetBandwidthConfig(bandwidth)
 	for f := 0; f < framesPerPacket; f++ {
 		start := f * frameLength
 		end := start + frameLength
 		if start < 0 || end > len(midNative) || frameLength == 0 {
 			break
 		}
-		frame := midNative[start:end]
-
-		resamplerInput := make([]float32, frameLength)
-		resamplerInput[0] = float32(d.stereo.sMid[1]) / 32768.0
-		if frameLength > 1 {
-			for i := 0; i < frameLength-1; i++ {
-				resamplerInput[i+1] = float32(frame[i]) / 32768.0
+		resamplerInput := d.BuildMonoResamplerInputInt16(midNative[start:end])
+		frameOutputLen := len(resamplerInput) * d.outputSampleRate() / config.SampleRate
+		frameOutput := output[outputOffset:]
+		copyToOutput := len(frameOutput) >= frameOutputLen
+		if !copyToOutput {
+			if frameOutputLen > cap(d.upsampleScratch) {
+				return outputOffset, ErrDecodeFailed
 			}
+			frameOutput = d.upsampleScratch[:frameOutputLen]
 		}
-		d.updateMonoHistoryFromInt16(frame)
-
-		output = append(output, resampler.Process(resamplerInput)...)
+		written := resampler.ProcessInt16Into(resamplerInput, frameOutput)
+		if !copyToOutput {
+			written = copy(output[outputOffset:], frameOutput[:written])
+		}
+		outputOffset += written
 	}
 
 	d.finalizeSuccessfulDecode(frameSizeSamples, 1)
 
-	return output, nil
-}
-
-// DecodeMonoToStereoWithDecoder decodes a mono SILK frame to stereo using a pre-initialized range decoder.
-// stereoToMono mirrors libopus behavior for stereo->mono transitions.
-func (d *Decoder) DecodeMonoToStereoWithDecoder(
-	rd *rangecoding.Decoder,
-	bandwidth Bandwidth,
-	frameSizeSamples int,
-	vadFlag bool,
-	stereoToMono bool,
-) ([]float32, error) {
-	if bandwidth > BandwidthWideband {
-		return nil, ErrInvalidBandwidth
-	}
-	if rd == nil {
-		return nil, ErrDecodeFailed
-	}
-	useStereoHistory := d.ShouldUseStereoToMonoHistory(bandwidth, stereoToMono)
-
-	// Handle bandwidth changes - reset sMid state when sample rate changes
-	d.handleBandwidthChange(bandwidth)
-
-	duration := d.frameDurationFromAPISamples(frameSizeSamples)
-
-	// Decode at native rate without delay compensation (sMid buffering happens before resampler)
-	nativeSamples, err := d.DecodeFrameRaw(rd, bandwidth, duration, vadFlag)
-	if err != nil {
-		return nil, err
-	}
-
-	// Check for bandwidth change and reset sMid state if needed.
-	d.HandleBandwidthChange(bandwidth)
-
-	config := GetBandwidthConfig(bandwidth)
-	framesPerPacket, nbSubfr, err := frameParams(duration)
-	if err != nil {
-		return nil, err
-	}
-	fsKHz := config.SampleRate / 1000
-	frameLength := nbSubfr * subFrameLengthMs * fsKHz
-	if framesPerPacket > 0 && frameLength*framesPerPacket != len(nativeSamples) {
-		frameLength = len(nativeSamples) / framesPerPacket
-	}
-
-	leftResampler := d.GetResamplerForChannel(bandwidth, 0)
-	rightResampler := d.GetResamplerForChannel(bandwidth, 1)
-
-	leftOut := make([]float32, 0, frameSizeSamples)
-	var rightOut []float32
-	if useStereoHistory {
-		rightOut = make([]float32, 0, frameSizeSamples)
-	}
-
-	for f := range framesPerPacket {
-		start := f * frameLength
-		end := start + frameLength
-		if start < 0 || end > len(nativeSamples) || frameLength == 0 {
-			break
-		}
-		frame := nativeSamples[start:end]
-		resamplerInput := d.BuildMonoResamplerInput(frame)
-		left := leftResampler.Process(resamplerInput)
-		leftOut = append(leftOut, left...)
-		if useStereoHistory {
-			right := rightResampler.Process(resamplerInput)
-			rightOut = append(rightOut, right...)
-		}
-	}
-
-	out := make([]float32, len(leftOut)*2)
-	for i := range leftOut {
-		out[i*2] = leftOut[i]
-		if useStereoHistory {
-			if i < len(rightOut) {
-				out[i*2+1] = rightOut[i]
-			} else {
-				out[i*2+1] = leftOut[i]
-			}
-		} else {
-			out[i*2+1] = leftOut[i]
-		}
-	}
-
-	d.finalizeSuccessfulDecode(frameSizeSamples, 2)
-
-	return out, nil
+	return outputOffset, nil
 }
 
 // DecodeMonoToStereoWithDecoderInto decodes a mono SILK frame into a
@@ -865,10 +725,14 @@ func (d *Decoder) DecodeMonoToStereoWithDecoderInto(
 		if start < 0 || end > len(nativeSamples) {
 			return 0, ErrDecodeFailed
 		}
+		// dec_API.c recomputes stereo_to_mono per silk_Decode call. A
+		// multi-frame packet resamples the retained right history only on its
+		// first frame, before nChannelsInternal becomes mono.
+		useStereoHistoryThisFrame := useStereoHistory && f == 0
 		resamplerInput := d.BuildMonoResamplerInputInt16(nativeSamples[start:end])
 		nLeft := leftResampler.ProcessInt16Into(resamplerInput, leftScratch)
 		n := nLeft
-		if useStereoHistory {
+		if useStereoHistoryThisFrame {
 			nRight := rightResampler.ProcessInt16Into(resamplerInput, rightScratch)
 			if nRight < n {
 				n = nRight
@@ -877,7 +741,7 @@ func (d *Decoder) DecodeMonoToStereoWithDecoderInto(
 		if n < 0 || (outputOffset+n)*2 > len(output) {
 			return 0, ErrDecodeFailed
 		}
-		if useStereoHistory {
+		if useStereoHistoryThisFrame {
 			for i := 0; i < n; i++ {
 				left := leftScratch[i]
 				output[(outputOffset+i)*2] = left
