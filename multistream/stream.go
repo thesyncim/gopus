@@ -17,8 +17,8 @@ var (
 	// ErrDurationMismatch indicates streams have different frame durations.
 	ErrDurationMismatch = errors.New("multistream: streams have different frame durations")
 
-	// ErrInvalidStreamCount indicates an invalid stream count (must be >= 1).
-	ErrInvalidStreamCount = errors.New("multistream: invalid stream count (must be >= 1)")
+	// ErrInvalidStreamCount indicates a stream count outside 1..255.
+	ErrInvalidStreamCount = errors.New("multistream: invalid stream count (must be 1-255)")
 )
 
 // parseSelfDelimitedLength parses a self-delimiting packet length from the data.
@@ -81,7 +81,9 @@ func parseMultistreamPacketInto(scratch [][]byte, data []byte, numStreams int) (
 // them coexist for the per-stream decode loop that follows. parser/arena may be
 // nil to fall back to per-packet allocation.
 func parseMultistreamPacketScratch(scratch [][]byte, parser *packetScratch, ba *arena.Bump[byte], data []byte, numStreams int) ([][]byte, error) {
-	if numStreams < 1 {
+	// libopus src/opus_multistream_decoder.c:opus_multistream_decoder_create
+	// rejects counts above 255 before allocating per-stream state.
+	if numStreams < 1 || numStreams > 255 {
 		return nil, ErrInvalidStreamCount
 	}
 
@@ -262,7 +264,7 @@ func validateStreamDurationsAtRateScratch(parser *packetScratch, packets [][]byt
 }
 
 // PacketDuration returns the common packet duration for a multistream packet in
-// 48 kHz samples per channel.
+// 48 kHz samples per channel. numStreams must be in 1..255.
 func PacketDuration(data []byte, numStreams int) (int, error) {
 	packets, err := parseMultistreamPacket(data, numStreams)
 	if err != nil {
@@ -272,7 +274,8 @@ func PacketDuration(data []byte, numStreams int) (int, error) {
 }
 
 // PacketDurationAtRate returns the common packet duration in samples per
-// channel at sampleRate, matching opus_packet_get_nb_samples().
+// channel at sampleRate, matching opus_packet_get_nb_samples(). numStreams
+// must be in 1..255.
 func PacketDurationAtRate(data []byte, numStreams, sampleRate int) (int, error) {
 	packets, err := parseMultistreamPacket(data, numStreams)
 	if err != nil {

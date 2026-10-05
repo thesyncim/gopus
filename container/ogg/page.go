@@ -164,7 +164,7 @@ func (p *Page) Packets() [][]byte {
 		if offset+length > len(p.Payload) {
 			// Truncated payload
 			packets[i] = p.Payload[offset:]
-			break
+			return packets[:i+1]
 		}
 		packets[i] = p.Payload[offset : offset+length]
 		offset += length

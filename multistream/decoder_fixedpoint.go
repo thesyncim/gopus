@@ -156,6 +156,7 @@ func (d *Decoder) DecodePLCToResFixed(frameSize int) ([]int32, bool, error) {
 		applyChannelMappingResInto(d.fixedOutput[outOffset:outEnd], streamRes, d.mapping, d.coupledStreams, chunk, d.outputChannels)
 		offset += chunk
 	}
+	d.recordCompletedPLCPacket(frameSize)
 	return d.fixedOutput, true, nil
 }
 

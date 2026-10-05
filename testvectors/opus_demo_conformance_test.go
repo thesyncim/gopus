@@ -353,6 +353,8 @@ func TestOpusDemoEndToEndConformance(t *testing.T) {
 
 	for _, c := range conformanceMatrix() {
 		t.Run(c.label(), func(t *testing.T) {
+			t.Parallel()
+
 			raw, err := testsignal.GenerateCorpusSignal(c.signal, conformanceSampleRate, totalSamples, c.channels)
 			if err != nil {
 				t.Fatalf("generate signal %q: %v", c.signal, err)

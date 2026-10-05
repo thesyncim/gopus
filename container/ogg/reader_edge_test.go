@@ -263,8 +263,8 @@ func TestPacketDuration48k(t *testing.T) {
 		},
 		{
 			name:    "code3 frame count exactly 48",
-			packet:  []byte{tocByte(0, 3), 48}, // 480 * 48
-			wantDur: 480 * 48,
+			packet:  []byte{tocByte(16, 3), 48}, // 120 * 48 = 120 ms
+			wantDur: 120 * 48,
 			wantOK:  true,
 		},
 	}

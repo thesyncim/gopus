@@ -133,11 +133,13 @@ type streamState struct {
 	lastTOCFrameSize   int32
 	lastPacketDuration int32
 	lastDataLen        int32
-	lastSILKRange      uint32
-	lastHybridRange    uint32
-	decodeGainQ8       int32
-	ignoreExtensions   bool
-	complexity         int32
+	// src/opus_decoder.c: opus_decode_frame clears rangeFinal for payloads <= 1 byte.
+	lastFinalRangeDataLen int32
+	lastSILKRange         uint32
+	lastHybridRange       uint32
+	decodeGainQ8          int32
+	ignoreExtensions      bool
+	complexity            int32
 
 	// softClipMem is the per-stream soft-clip filter memory (one entry per stream
 	// channel), mirroring the per-decoder softclip_mem[2] in libopus
@@ -266,6 +268,7 @@ func (d *streamState) Reset() {
 	d.lastTOCFrameSize = d.sampleRate / 400
 	d.lastPacketDuration = 0
 	d.lastDataLen = 0
+	d.lastFinalRangeDataLen = 0
 	d.lastSILKRange = 0
 	d.lastHybridRange = 0
 	d.rangeDecoder = rangecoding.Decoder{}
@@ -376,7 +379,7 @@ func (d *streamState) InDTX() bool {
 
 // FinalRange returns the final range coder state for the last decoded packet.
 func (d *streamState) FinalRange() uint32 {
-	if d.lastDataLen <= 1 {
+	if d.lastFinalRangeDataLen <= 1 {
 		return 0
 	}
 
@@ -590,6 +593,7 @@ func (d *streamState) decodeFramePayloadToFloat32(frame []byte, frameSize int, t
 		d.markOSCEInactiveIfModeIneligible(toc, nil, frameSize)
 	}
 	d.recordDecodedTOC(toc)
+	d.lastFinalRangeDataLen = int32(len(frame))
 	return out, nil
 }
 
@@ -660,7 +664,6 @@ func (d *streamState) decodePLCToFloat32(frameSize int) ([]float32, error) {
 		d.recordPLCMode(mode)
 		remaining -= chunk
 	}
-	d.lastPacketDuration = int32(frameSize)
 	return out, nil
 }
 
@@ -705,51 +708,56 @@ func nextCELTPLCChunk(remaining, maxChunk, frameSize20ms int) int {
 // decodePLCChunkToFloat32 conceals a single <=F20 frame in the stream's last
 // decoded mode.
 func (d *streamState) decodePLCChunkToFloat32(frameSize int) ([]float32, error) {
-	d.recordDecodeCall(frameSize, 0)
+	d.lastFrameSize = int32(frameSize)
 
 	if !d.haveDecoded {
 		out := d.framePCMFor(frameSize * int(d.channels))
 		clear(out)
+		d.lastFinalRangeDataLen = 0
 		return out, nil
 	}
 
 	mode := d.concealmentMode()
+	var out []float32
+	var err error
 	switch mode {
 	case streamModeSILK:
 		// opus_decode_frame asks silk_Decode for at least F10 samples, then
 		// copies only the requested prefix for an F5 PLC remainder.
 		silkSize := max(frameSize, int(d.sampleRate)/100)
-		out, err := d.decodeSILKToFloat32(nil, silkSize, d.lastPacketStereo, int(d.lastBandwidth))
+		out, err = d.decodeSILKToFloat32(nil, silkSize, d.lastPacketStereo, int(d.lastBandwidth))
 		if err != nil {
 			return nil, err
 		}
-		return d.finishDecode32(out[:frameSize*int(d.channels)], nil)
+		out, err = d.finishDecode32(out[:frameSize*int(d.channels)], nil)
 	case streamModeHybrid:
-		out := d.framePCMFor(frameSize * int(d.channels))
-		err := d.decodeHybridPLCChunkToFloat32(frameSize, out)
+		out = d.framePCMFor(frameSize * int(d.channels))
+		err = d.decodeHybridPLCChunkToFloat32(frameSize, out)
 		out, err = d.finishDecode32(out, err)
 		if extsupport.OSCERuntime && err == nil {
 			d.markOSCEInactiveIfModeIneligible(streamTOC{mode: int(mode), bandwidth: int(d.lastBandwidth), stereo: d.lastPacketStereo}, nil, frameSize)
 		}
-		return out, err
 	case streamModeCELT:
 		d.celtDec.SetBandwidth(celt.BandwidthFromOpusConfig(int(d.lastBandwidth)))
-		out := d.framePCMFor(frameSize * int(d.channels))
-		err := d.celtDec.DecodeFrameWithPacketStereoToFloat32AtAPIRate(nil, frameSize, d.lastPacketStereo, out)
+		out = d.framePCMFor(frameSize * int(d.channels))
+		err = d.celtDec.DecodeFrameWithPacketStereoToFloat32AtAPIRate(nil, frameSize, d.lastPacketStereo, out)
 		out, err = d.finishDecode32(out, err)
 		if extsupport.OSCERuntime && err == nil {
 			d.markOSCEInactiveIfModeIneligible(streamTOC{mode: int(mode), bandwidth: int(d.lastBandwidth), stereo: d.lastPacketStereo}, nil, frameSize)
 		}
-		return out, err
 	default:
-		out := d.framePCMFor(frameSize * int(d.channels))
+		out = d.framePCMFor(frameSize * int(d.channels))
 		clear(out)
-		return out, nil
 	}
+	if err == nil {
+		d.lastFinalRangeDataLen = 0
+	}
+	return out, err
 }
 
 func (d *streamState) decodePacketToFloat32(data []byte, frameSize int) ([]float32, error) {
 	if len(data) == 0 {
+		d.recordDecodeCall(frameSize, 0)
 		return d.decodePLCToFloat32(frameSize)
 	}
 	if len(data) < 1 {

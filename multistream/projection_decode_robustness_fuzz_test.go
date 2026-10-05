@@ -19,12 +19,14 @@
 //   (b) structured-malformed mutations of valid family-3 packets (truncation,
 //       byte/bit flips, first-stream TOC rewrites, sub-packet length corruption,
 //       junk append) → NO-PANIC + accept/reject parity vs the libopus projection
-//       oracle (one packet per call) + exact full PCM when both accept. Only a
-//       typed oracle exit with a negative C decode status counts as rejection.
+//       oracle in bounded batches + exact full PCM when both accept. The oracle
+//       creates a fresh C decoder per record and reports negative decode statuses
+//       independently; build, process, and protocol errors fail the test.
 
 package multistream
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"math"
@@ -142,37 +144,55 @@ const (
 
 // projRobustGopusDecode decodes one packet through a fresh gopus projection
 // decoder, recovering a panic into an error so a crash minimises to one packet.
-func projRobustGopusDecode(seed projRobustSeed, format projRobustFormat, packet []byte) (pcm []uint32, err error) {
+func projRobustGopusDecode(seed projRobustSeed, format projRobustFormat, packet []byte, capturePCM bool) (pcm []uint32, samples int, finalRange uint32, err error) {
 	defer func() {
 		if r := recover(); r != nil {
+			pcm = nil
+			samples = 0
+			finalRange = 0
 			err = fmt.Errorf("PANIC in gopus projection decode: %v", r)
 		}
 	}()
 	dec, err := NewProjectionDecoder(48000, seed.channels, seed.streams, seed.coupled, seed.demixing)
 	if err != nil {
-		return nil, err
+		return nil, 0, 0, err
 	}
 	switch format {
 	case projRobustInt16:
 		out, e := dec.DecodeToInt16(packet, seed.frameSize)
-		for _, v := range out {
-			pcm = append(pcm, uint32(int32(v)))
+		samples = len(out) / seed.channels
+		finalRange = dec.FinalRange()
+		if capturePCM {
+			pcm = make([]uint32, len(out))
+			for i, v := range out {
+				pcm[i] = uint32(int32(v))
+			}
 		}
 		err = e
 	case projRobustInt24:
 		out, e := dec.DecodeToInt24(packet, seed.frameSize)
-		for _, v := range out {
-			pcm = append(pcm, uint32(v))
+		samples = len(out) / seed.channels
+		finalRange = dec.FinalRange()
+		if capturePCM {
+			pcm = make([]uint32, len(out))
+			for i, v := range out {
+				pcm[i] = uint32(v)
+			}
 		}
 		err = e
 	default:
 		out, e := dec.DecodeToFloat32(packet, seed.frameSize)
-		for _, v := range out {
-			pcm = append(pcm, math.Float32bits(v))
+		samples = len(out) / seed.channels
+		finalRange = dec.FinalRange()
+		if capturePCM {
+			pcm = make([]uint32, len(out))
+			for i, v := range out {
+				pcm[i] = math.Float32bits(v)
+			}
 		}
 		err = e
 	}
-	return pcm, err
+	return pcm, samples, finalRange, err
 }
 
 // projRobustOracleDecode preserves every output bit. Infrastructure failures
@@ -182,20 +202,23 @@ func projRobustOracleDecode(seed projRobustSeed, format projRobustFormat, packet
 	switch format {
 	case projRobustInt16:
 		out, e := decodeWithLibopusReferencePacketsInt16Gain(3, 48000, seed.channels, seed.streams, seed.coupled, seed.frameSize, 0, mapping, seed.demixing, [][]byte{packet})
-		for _, v := range out {
-			pcm = append(pcm, uint32(int32(v)))
+		pcm = make([]uint32, len(out))
+		for i, v := range out {
+			pcm[i] = uint32(int32(v))
 		}
 		err = e
 	case projRobustInt24:
 		out, e := decodeWithLibopusReferencePacketsInt24Gain(3, 48000, seed.channels, seed.streams, seed.coupled, seed.frameSize, 0, mapping, seed.demixing, [][]byte{packet})
-		for _, v := range out {
-			pcm = append(pcm, uint32(v))
+		pcm = make([]uint32, len(out))
+		for i, v := range out {
+			pcm[i] = uint32(v)
 		}
 		err = e
 	default:
 		out, e := decodeWithLibopusReferencePackets(3, 48000, seed.channels, seed.streams, seed.coupled, seed.frameSize, mapping, seed.demixing, [][]byte{packet})
-		for _, v := range out {
-			pcm = append(pcm, math.Float32bits(v))
+		pcm = make([]uint32, len(out))
+		for i, v := range out {
+			pcm[i] = math.Float32bits(v)
 		}
 		err = e
 	}
@@ -263,16 +286,16 @@ func TestProjectionDecodeRobustnessRandom(t *testing.T) {
 	rng := rand.New(rand.NewSource(0x9203A))
 	iters := fuzzBudget(4000)
 	cases := 0
+	buf := make([]byte, maxLen)
 	for range iters {
 		seed := seeds[rng.Intn(len(seeds))]
 		n := rng.Intn(maxLen + 1)
-		buf := make([]byte, n)
+		buf = buf[:n]
 		for i := range buf {
 			buf[i] = byte(rng.Intn(256))
 		}
 		for _, format := range []projRobustFormat{projRobustFloat32, projRobustInt16, projRobustInt24} {
-			pcm, err := projRobustGopusDecode(seed, format, buf)
-			samples := len(pcm) / seed.channels
+			_, samples, _, err := projRobustGopusDecode(seed, format, buf, false)
 			cases++
 			if projIsRobustPanic(err) {
 				t.Fatalf("ch%d/fmt%d: %v — packet=% x", seed.channels, format, err, buf)
@@ -300,43 +323,88 @@ func TestProjectionDecodeRobustnessMalformed(t *testing.T) {
 	formats := []projRobustFormat{projRobustFloat32, projRobustInt16, projRobustInt24}
 	total := 0
 	var accepted, rejectedCounts [3]int
-	for k := range iters {
-		seed := seeds[rng.Intn(len(seeds))]
-		m := projRobustMutate(rng, seed.packet)
-		format := formats[rng.Intn(len(formats))]
-		label := fmt.Sprintf("ch%d/fmt%d/mut%d", seed.channels, format, k)
-
-		got, gerr := projRobustGopusDecode(seed, format, m)
-		gn := len(got) / seed.channels
-		if projIsRobustPanic(gerr) {
-			t.Fatalf("%s: %v — packet=% x", label, gerr, m)
+	const batchSize = 128
+	for base := 0; base < iters; base += batchSize {
+		count := min(batchSize, iters-base)
+		type malformedCase struct {
+			seed   projRobustSeed
+			format projRobustFormat
+			packet []byte
+			label  string
+			got    []uint32
+			gn     int
+			grange uint32
+			gerr   error
 		}
-		want, rejected, oerr := projRobustOracleDecode(seed, format, m)
-		on := len(want) / seed.channels
+		cases := make([]malformedCase, count)
+		oracleCases := make([]libopustest.MultistreamDecodeCase, count)
+		for i := range cases {
+			k := base + i
+			seed := seeds[rng.Intn(len(seeds))]
+			m := projRobustMutate(rng, seed.packet)
+			format := formats[rng.Intn(len(formats))]
+			label := fmt.Sprintf("ch%d/fmt%d/mut%d", seed.channels, format, k)
+
+			got, gn, grange, gerr := projRobustGopusDecode(seed, format, m, true)
+			if projIsRobustPanic(gerr) {
+				t.Fatalf("%s: %v — packet=% x", label, gerr, m)
+			}
+			cases[i] = malformedCase{seed, format, m, label, got, gn, grange, gerr}
+			oracleCases[i] = libopustest.MultistreamDecodeCase{
+				SampleRate: 48000,
+				Format:     projRobustOracleFormat(format),
+				Family:     3,
+				Channels:   uint32(seed.channels),
+				Streams:    uint32(seed.streams),
+				Coupled:    uint32(seed.coupled),
+				FrameSize:  uint32(seed.frameSize),
+				Mapping:    trivialMapping(seed.channels),
+				Demixing:   seed.demixing,
+				Packet:     m,
+			}
+		}
+
+		oracleResults, oerr := libopustest.ProbeMultistreamDecodeFresh(oracleCases)
 		if oerr != nil {
 			libopustest.HelperUnavailable(t, "projection reference decode", oerr)
 			return
 		}
-		total++
+		if len(oracleResults) != len(cases) {
+			t.Fatalf("projection reference decode returned %d results for %d cases", len(oracleResults), len(cases))
+		}
+		for i, tc := range cases {
+			oracle := oracleResults[i]
+			want, pcmErr := projRobustPCMFromOracle(tc.format, oracle.PCM)
+			if pcmErr != nil {
+				libopustest.HelperUnavailable(t, "projection reference decode", pcmErr)
+				return
+			}
+			on := int(oracle.Code)
+			rejected := oracle.Code < 0
+			total++
 
-		if rejected {
-			rejectedCounts[format]++
-			if gerr == nil {
-				t.Errorf("%s: libopus REJECTED but gopus ACCEPTED (n=%d) — packet=% x", label, gn, m)
+			if rejected {
+				rejectedCounts[tc.format]++
+				if tc.gerr == nil {
+					t.Errorf("%s: libopus REJECTED but gopus ACCEPTED (n=%d) — packet=% x", tc.label, tc.gn, tc.packet)
+				}
+				continue
 			}
-			continue
-		}
-		if gerr != nil {
-			t.Errorf("%s: libopus ACCEPTED (n=%d) but gopus REJECTED: %v — packet=% x", label, on, gerr, m)
-			continue
-		}
-		accepted[format]++
-		if !slices.Equal(got, want) {
-			first := 0
-			for first < min(len(got), len(want)) && got[first] == want[first] {
-				first++
+			if tc.gerr != nil {
+				t.Errorf("%s: libopus ACCEPTED (n=%d) but gopus REJECTED: %v — packet=% x", tc.label, on, tc.gerr, tc.packet)
+				continue
 			}
-			t.Errorf("%s: PCM differs at sample %d; lengths Go=%d C=%d — packet=% x", label, first, len(got), len(want), m)
+			accepted[tc.format]++
+			if tc.grange != oracle.FinalRange {
+				t.Errorf("%s: final range gopus=%08x libopus=%08x — packet=% x", tc.label, tc.grange, oracle.FinalRange, tc.packet)
+			}
+			if !slices.Equal(tc.got, want) {
+				first := 0
+				for first < min(len(tc.got), len(want)) && tc.got[first] == want[first] {
+					first++
+				}
+				t.Errorf("%s: PCM differs at sample %d; lengths Go=%d C=%d — packet=% x", tc.label, first, len(tc.got), len(want), tc.packet)
+			}
 		}
 	}
 	for _, format := range formats {
@@ -345,4 +413,35 @@ func TestProjectionDecodeRobustnessMalformed(t *testing.T) {
 		}
 	}
 	t.Logf("projection malformed sweep: %d cases; accepted float/int16/int24=%v, rejected=%v", total, accepted, rejectedCounts)
+}
+
+func projRobustOracleFormat(format projRobustFormat) uint32 {
+	switch format {
+	case projRobustInt16:
+		return libopustest.MultistreamDecodeFormatInt16
+	case projRobustInt24:
+		return libopustest.MultistreamDecodeFormatInt24
+	default:
+		return libopustest.MultistreamDecodeFormatFloat32
+	}
+}
+
+func projRobustPCMFromOracle(format projRobustFormat, raw []byte) ([]uint32, error) {
+	sampleBytes := 4
+	if format == projRobustInt16 {
+		sampleBytes = 2
+	}
+	if len(raw)%sampleBytes != 0 {
+		return nil, fmt.Errorf("PCM bytes=%d is not a multiple of sample width %d", len(raw), sampleBytes)
+	}
+	pcm := make([]uint32, len(raw)/sampleBytes)
+	for i := range pcm {
+		switch format {
+		case projRobustInt16:
+			pcm[i] = uint32(int32(int16(binary.LittleEndian.Uint16(raw[2*i:]))))
+		default:
+			pcm[i] = binary.LittleEndian.Uint32(raw[4*i:])
+		}
+	}
+	return pcm, nil
 }

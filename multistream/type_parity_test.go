@@ -18,6 +18,7 @@ func TestStreamDecoderControlFieldWidthsMatchLibopusFloatBuild(t *testing.T) {
 		"lastTOCFrameSize",
 		"lastPacketDuration",
 		"lastDataLen",
+		"lastFinalRangeDataLen",
 	} {
 		field, ok := reflect.TypeFor[streamState]().FieldByName(name)
 		if !ok {

@@ -36,6 +36,7 @@ func TestEncodeDifferentialLongFrames(t *testing.T) {
 	}
 	silkFrames := []ExpertFrameDuration{ExpertFrameDuration80Ms, ExpertFrameDuration100Ms, ExpertFrameDuration120Ms}
 	multiFrames := []ExpertFrameDuration{ExpertFrameDuration40Ms, ExpertFrameDuration60Ms}
+	inputCache := make(encDiffInputCache)
 	modes := []longMode{
 		{"silk_nb", libopustest.EncodeDiffForceModeSILKOnly, EncoderModeSILK, libopustest.EncodeDiffBandwidthNarrowband, BandwidthNarrowband, silkFrames, []int{8000, 16000}, libopustest.EncodeDiffSignalVoice, SignalVoice, testsignal.CorpusCleanSpeechV1},
 		{"silk_wb", libopustest.EncodeDiffForceModeSILKOnly, EncoderModeSILK, libopustest.EncodeDiffBandwidthWideband, BandwidthWideband, silkFrames, []int{16000, 40000}, libopustest.EncodeDiffSignalVoice, SignalVoice, testsignal.CorpusSpeechInNoiseV1},
@@ -65,7 +66,7 @@ func TestEncodeDifferentialLongFrames(t *testing.T) {
 						}
 						t.Run(spec.name, func(t *testing.T) {
 							fs := encFrameSamples48k(spec.frameMs)
-							pcm, err := testsignal.GenerateCorpusSignal(spec.sigClass, sampleRate, fs*framesPerSpec*spec.channels, spec.channels)
+							pcm, err := inputCache.get(spec.sigClass, sampleRate, fs*framesPerSpec*spec.channels, spec.channels)
 							if err != nil {
 								t.Fatalf("GenerateCorpusSignal(%s): %v", spec.sigClass, err)
 							}

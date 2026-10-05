@@ -45,9 +45,11 @@ const readerBufferSize = 64 * 1024 // 64KB
 
 // NewReader returns a Reader for r after parsing the OpusHead and OpusTags
 // headers from the initial logical bitstream. It requires a BOS page containing
-// OpusHead followed by OpusTags pages with the same serial number. Page lengths
-// and CRCs are checked while reading, and nonzero Ogg page versions return
-// ErrInvalidPage. It returns ErrNilReader for a nil reader, ErrInvalidPage or
+// OpusHead followed by OpusTags pages with the same serial number; pages from
+// other logical bitstreams are skipped. Split OpusTags pages must carry the
+// continuation flag and consecutive sequence numbers. Page lengths and CRCs
+// are checked while reading, and nonzero Ogg page versions return ErrInvalidPage.
+// It returns ErrNilReader for a nil reader, ErrInvalidPage or
 // ErrBadCRC for invalid page framing or checksums,
 // ErrInvalidHeader for malformed Opus headers, and propagates errors from r. If
 // r implements io.ReadSeeker, the Reader also supports SeekGranule.
@@ -100,14 +102,15 @@ func NewReader(r io.Reader) (*Reader, error) {
 			return nil, err
 		}
 		if page.SerialNumber != or.serial {
-			return nil, ErrInvalidPage
+			continue
 		}
 		if page.PageSequence != lastSequence+1 {
 			return nil, ErrInvalidPage
 		}
 		lastSequence = page.PageSequence
-		if page.IsContinuation() && len(tagsData) == 0 {
-			return nil, ErrInvalidPage // Can't continue from nothing.
+		// RFC 7845 section 3 preserves packet boundaries across header pages.
+		if len(page.Segments) > 0 && page.IsContinuation() != (len(tagsData) > 0) {
+			return nil, ErrInvalidPage
 		}
 
 		// Stop at the OpusTags packet terminator, not merely the page's final
@@ -275,7 +278,8 @@ func (or *Reader) nextPacket(dst []byte, limit int) ([]byte, uint64, error) {
 // it continues the packet being assembled. RFC 7845 section 3 requires a
 // continued packet's pages to have consecutive sequence numbers. A leading
 // continuation with no matching prefix is discarded through its first packet
-// terminator; subsequent complete packets on the page remain readable.
+// terminator; subsequent complete packets on the page remain readable. Empty
+// pages preserve a pending packet when their sequence numbers are continuous.
 func (or *Reader) advancePage(continuePacket bool) (bool, error) {
 	// Capture this before readPage can replace or.page with another stream's page.
 	expectedSequence := or.audioSequence
@@ -301,14 +305,16 @@ func (or *Reader) advancePage(continuePacket bool) (bool, error) {
 		if or.page.SerialNumber != or.serial {
 			continue
 		}
-		continued := continuePacket && or.havePage &&
-			or.page.PageSequence == expectedSequence && or.page.IsContinuation()
 		sequenceContinuous := or.page.PageSequence == expectedSequence
+		// RFC 7845 section 3 checks continuation on the next page with packet
+		// data; an empty lacing table leaves the pending packet intact.
+		continued := continuePacket && or.havePage && sequenceContinuous &&
+			(len(or.page.Segments) == 0 || or.page.IsContinuation())
 		or.pageIsFirstAudio = false
 		or.pageAudioDuration = 0
 		or.pageDurationKnown = true
 		or.pageHasAudioPacket = false
-		if !sequenceContinuous || (or.page.IsContinuation() && !continued) {
+		if !sequenceContinuous || (len(or.page.Segments) > 0 && or.page.IsContinuation() && !continued) {
 			or.haveAudioPageGranule = false
 			or.audioHistoryKnown = false
 		} else if !or.haveAudioPageGranule && !or.seenAudioPacket && or.audioHistoryKnown {
@@ -562,7 +568,13 @@ func packetDuration48k(packet []byte) (uint64, bool) {
 		return 0, false
 	}
 
-	return uint64(frameSize) * uint64(frameCount), true
+	duration := uint64(frameSize) * uint64(frameCount)
+	// libopus src/opus_decoder.c:opus_packet_get_nb_samples rejects packets
+	// longer than 120 ms. Unknown durations use the page-granule fallback.
+	if duration > 5760 {
+		return 0, false
+	}
+	return duration, true
 }
 
 func (or *Reader) streamOffset() (int64, error) {

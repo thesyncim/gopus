@@ -54,6 +54,40 @@ type encDiffSpec struct {
 	sigClass  string
 }
 
+type encDiffInputKey struct {
+	signalClass string
+	sampleRate  int
+	samples     int
+	channels    int
+}
+
+type encDiffInput struct {
+	pcm []float32
+	err error
+}
+
+// encDiffInputCache reuses deterministic corpus generation while returning a
+// private PCM slice for each independent encoder/oracle case.
+type encDiffInputCache map[encDiffInputKey]encDiffInput
+
+func (cache encDiffInputCache) get(signalClass string, sampleRate, samples, channels int) ([]float32, error) {
+	key := encDiffInputKey{
+		signalClass: signalClass,
+		sampleRate:  sampleRate,
+		samples:     samples,
+		channels:    channels,
+	}
+	input, ok := cache[key]
+	if !ok {
+		input.pcm, input.err = testsignal.GenerateCorpusSignal(signalClass, sampleRate, samples, channels)
+		cache[key] = input
+	}
+	if input.err != nil {
+		return nil, input.err
+	}
+	return append([]float32(nil), input.pcm...), nil
+}
+
 func encFrameSamples48k(d ExpertFrameDuration) int {
 	switch d {
 	case ExpertFrameDuration2_5Ms:
@@ -352,13 +386,14 @@ func TestEncodeDifferentialFuzz(t *testing.T) {
 		rangeMismatches int
 	)
 	packetLoss := 20
+	inputCache := make(encDiffInputCache)
 
 	for idx := 0; idx < len(specs) && tested < budget; idx += stride {
 		spec := specs[idx]
 		tested++
 		t.Run(spec.name, func(t *testing.T) {
 			fs := encFrameSamples48k(spec.frameMs)
-			pcm, err := testsignal.GenerateCorpusSignal(spec.sigClass, sampleRate, fs*framesPerSpec*spec.channels, spec.channels)
+			pcm, err := inputCache.get(spec.sigClass, sampleRate, fs*framesPerSpec*spec.channels, spec.channels)
 			if err != nil {
 				t.Fatalf("GenerateCorpusSignal(%s): %v", spec.sigClass, err)
 			}

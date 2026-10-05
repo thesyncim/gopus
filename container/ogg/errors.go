@@ -13,9 +13,9 @@ var (
 	// ErrInvalidPage indicates malformed page framing or a page that violates
 	// the stream structure required by Reader. This includes missing "OggS"
 	// magic, a truncated header/lacing table/payload, an invalid first-page BOS
-	// marker, or inconsistent header serial numbers. ParsePage preserves the
-	// version byte instead of rejecting a
-	// nonzero value; checksum mismatches return ErrBadCRC.
+	// marker, or inconsistent header continuation flags or sequence numbers.
+	// Reader skips other logical streams. ParsePage preserves the version byte
+	// instead of rejecting a nonzero value; checksum mismatches return ErrBadCRC.
 	ErrInvalidPage = errors.New("ogg: invalid page structure")
 
 	// ErrInvalidHeader indicates an Opus header (OpusHead or OpusTags) is malformed.

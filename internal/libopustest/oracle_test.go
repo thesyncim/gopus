@@ -223,39 +223,166 @@ func TestHelperConfigDigestTracksBuildInputs(t *testing.T) {
 		CFlags:     []string{"-DHAVE_CONFIG_H"},
 		RefSources: []string{"silk/ref.c"},
 	}
-	base := helperConfigDigest(cfg, refDir, srcPath, false)
-	if got := helperConfigDigest(cfg, refDir, srcPath, true); got == base {
-		t.Fatal("digest did not change when base compile flags changed with the selected scalar reference")
+	compiler := cHelperCompiler{path: "cc", target: "test-target", version: "test compiler 1"}
+	digest := func() string {
+		compileArgs := helperCCompileArgs(cfg, refDir, false)
+		sourcePaths := helperCSourcePaths(cfg, refDir, srcPath)
+		return helperConfigDigest(cfg, refDir, srcPath, false, compileArgs, sourcePaths, compiler, []byte("preprocessed helper sources"))
+	}
+	base := digest()
+	if got := helperConfigDigest(cfg, refDir, srcPath, true, helperCCompileArgs(cfg, refDir, true), helperCSourcePaths(cfg, refDir, srcPath), compiler, []byte("preprocessed helper sources")); got == base {
+		t.Fatal("digest did not change when scalar reference compile flags changed")
+	}
+	if got := helperConfigDigest(cfg, refDir, srcPath, false, helperCCompileArgs(cfg, refDir, false), helperCSourcePaths(cfg, refDir, srcPath), cHelperCompiler{path: "cc", target: "test-target", version: "test compiler 2"}, []byte("preprocessed helper sources")); got == base {
+		t.Fatal("digest did not change when compiler version changed")
 	}
 	if err := os.WriteFile(stampPath, []byte("CFLAGS=-O3 -DNDEBUG\ncc=clang\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := helperConfigDigest(cfg, refDir, srcPath, false); got == base {
+	if got := digest(); got == base {
 		t.Fatal("digest did not change when libopus build stamp changed")
 	}
-	base = helperConfigDigest(cfg, refDir, srcPath, false)
+	base = digest()
 	cfg.CFlags = append(cfg.CFlags, "-DNDEBUG")
-	if got := helperConfigDigest(cfg, refDir, srcPath, false); got == base {
+	if got := digest(); got == base {
 		t.Fatal("digest did not change when C flags changed")
 	}
 	cfg.CFlags = []string{"-DHAVE_CONFIG_H"}
-	base = helperConfigDigest(cfg, refDir, srcPath, false)
+	base = digest()
 	if err := os.WriteFile(srcPath, []byte("int main(void) { return 2; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := helperConfigDigest(cfg, refDir, srcPath, false); got == base {
+	if got := digest(); got == base {
 		t.Fatal("digest did not change when helper source changed")
 	}
-	base = helperConfigDigest(cfg, refDir, srcPath, false)
+	base = digest()
 	cfg.QEXTRef = true
-	if got := helperConfigDigest(cfg, refDir, srcPath, false); got == base {
+	if got := digest(); got == base {
 		t.Fatal("digest did not change when QEXT reference tree changed")
 	}
 	cfg.QEXTRef = false
-	base = helperConfigDigest(cfg, refDir, srcPath, false)
+	base = digest()
 	cfg.FixedQEXTRef = true
-	if got := helperConfigDigest(cfg, refDir, srcPath, false); got == base {
+	if got := digest(); got == base {
 		t.Fatal("digest did not change when fixed-QEXT reference tree changed")
+	}
+}
+
+func TestHelperConfigDigestTracksPreprocessedHeadersAndArchives(t *testing.T) {
+	cc, err := libopustooling.FindCCompiler()
+	if err != nil {
+		HelperUnavailable(t, "helper cache digest", err)
+		return
+	}
+	compiler, err := identifyCHelperCompiler(cc)
+	if err != nil {
+		HelperUnavailable(t, "helper cache digest compiler identity", err)
+		return
+	}
+
+	root := t.TempDir()
+	helperDir := filepath.Join(root, "helper inputs")
+	refDir := filepath.Join(root, "reference")
+	if err := os.MkdirAll(helperDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(refDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	helperHeader := filepath.Join(helperDir, "helper header.h")
+	refHeader := filepath.Join(refDir, "reference header.h")
+	srcPath := filepath.Join(helperDir, "helper source.c")
+	refSource := filepath.Join(refDir, "reference source.c")
+	configPath := filepath.Join(refDir, "config.h")
+	stampPath := filepath.Join(refDir, ".gopus-libopus-build")
+	archivePath := filepath.Join(root, "libopus.a")
+	for path, contents := range map[string]string{
+		helperHeader: "#define HELPER_VALUE 1\n",
+		refHeader:    "#define REFERENCE_VALUE 2\n",
+		srcPath:      "#include \"helper header.h\"\n#include <stddef.h>\nint main(void) { return HELPER_VALUE + sizeof(size_t); }\n",
+		refSource:    "#include \"reference header.h\"\nint reference(void) { return REFERENCE_VALUE; }\n",
+		configPath:   "#define OPUS_VERSION \"test\"\n",
+		stampPath:    "CFLAGS=-O3\n",
+	} {
+		if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(archivePath, []byte("archive one"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	workingDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	relativeArchive, err := filepath.Rel(workingDir, archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := CHelperConfig{
+		OutputBase:  "gopus_dependency_helper",
+		SourceFile:  "helper.c",
+		IncludeDirs: []string{helperDir},
+		RefSources:  []string{"reference source.c"},
+		Libs:        []string{relativeArchive},
+	}
+	digest := func() string {
+		t.Helper()
+		compileArgs := helperCCompileArgs(cfg, refDir, false)
+		sourcePaths := helperCSourcePaths(cfg, refDir, srcPath)
+		preprocessed, err := helperPreprocessedSource(cc, compileArgs, sourcePaths)
+		if err != nil {
+			t.Fatalf("preprocess test helper: %v", err)
+		}
+		if !strings.Contains(string(preprocessed), "stddef.h") {
+			t.Fatal("preprocessed input omits the system header dependency")
+		}
+		return helperConfigDigest(cfg, refDir, srcPath, false, compileArgs, sourcePaths, compiler, preprocessed)
+	}
+	base := digest()
+	if err := os.WriteFile(helperHeader, []byte("#define HELPER_VALUE 3\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if digest() == base {
+		t.Fatal("digest did not change when a helper-local header changed")
+	}
+	base = digest()
+	if err := os.WriteFile(refHeader, []byte("#define REFERENCE_VALUE 4\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if digest() == base {
+		t.Fatal("digest did not change when a libopus reference header changed")
+	}
+	base = digest()
+	if err := os.WriteFile(archivePath, []byte("archive two"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if digest() == base {
+		t.Fatal("digest did not change when a linked archive changed")
+	}
+	base = digest()
+	cfg.CFlags = []string{"-DHELPER_BUILD_VARIANT=1"}
+	if digest() == base {
+		t.Fatal("digest did not change when a compile flag changed")
+	}
+	if helperBuildFlagsAllowCache(CHelperConfig{LDFlags: []string{"-Wl,-Map,/tmp/helper.map"}}) {
+		t.Fatal("linker output flags must bypass the cached build")
+	}
+	if helperBuildFlagsAllowCache(CHelperConfig{LDFlags: []string{"-Wl,--wrap=opus_encode_float"}}) {
+		t.Fatal("custom linker flags must bypass the cached build")
+	}
+	if helperBuildFlagsAllowCache(CHelperConfig{CFlags: []string{"-ohelper"}}) {
+		t.Fatal("joined output flags must bypass the cached build")
+	}
+	if helperBuildFlagsAllowCache(CHelperConfig{Libs: []string{"-Wl,-Map,/tmp/helper.map"}}) {
+		t.Fatal("linker output options in Libs must bypass the cached build")
+	}
+	if helperBuildFlagsAllowCache(CHelperConfig{Libs: []string{"-lcustom"}}) {
+		t.Fatal("untracked library options in Libs must bypass the cached build")
+	}
+	if !helperBuildFlagsAllowCache(CHelperConfig{Libs: []string{"/tmp/libopus.a", "-lm", "-ldl", "-lpthread"}}) {
+		t.Fatal("explicit files and supported system libraries should allow cache reuse")
 	}
 }
 

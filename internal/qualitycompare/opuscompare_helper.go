@@ -186,37 +186,25 @@ func opusCompareHelperError(proc *opusCompareHelperProcess, err error) error {
 	return fmt.Errorf("%w (%s)", err, stderr)
 }
 
-func encodeOpusCompareHelperPayload(reference, decoded []int16, sampleRate, channels int, delays []int) ([]byte, error) {
-	var payload bytes.Buffer
-	payload.WriteString(opusCompareHelperInputMagic)
-	for _, v := range []uint32{
-		1,
-		uint32(sampleRate),
-		uint32(channels),
-		uint32(len(reference)),
-		uint32(len(decoded)),
-		uint32(len(delays)),
-	} {
-		if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
-			return nil, fmt.Errorf("encode compare helper header: %w", err)
-		}
+func encodeOpusCompareHelperPayload(reference, decoded []int16, sampleRate, channels int, delays []int) []byte {
+	payload := make([]byte, len(opusCompareHelperInputMagic)+24+2*(len(reference)+len(decoded))+4*len(delays))
+	copy(payload, opusCompareHelperInputMagic)
+	offset := len(opusCompareHelperInputMagic)
+	for _, value := range []uint32{1, uint32(sampleRate), uint32(channels), uint32(len(reference)), uint32(len(decoded)), uint32(len(delays))} {
+		binary.LittleEndian.PutUint32(payload[offset:], value)
+		offset += 4
 	}
-	for _, s := range reference {
-		if err := binary.Write(&payload, binary.LittleEndian, s); err != nil {
-			return nil, fmt.Errorf("encode reference pcm: %w", err)
-		}
-	}
-	for _, s := range decoded {
-		if err := binary.Write(&payload, binary.LittleEndian, s); err != nil {
-			return nil, fmt.Errorf("encode decoded pcm: %w", err)
+	for _, pcm := range [][]int16{reference, decoded} {
+		for _, sample := range pcm {
+			binary.LittleEndian.PutUint16(payload[offset:], uint16(sample))
+			offset += 2
 		}
 	}
 	for _, delay := range delays {
-		if err := binary.Write(&payload, binary.LittleEndian, int32(delay)); err != nil {
-			return nil, fmt.Errorf("encode compare delay: %w", err)
-		}
+		binary.LittleEndian.PutUint32(payload[offset:], uint32(int32(delay)))
+		offset += 4
 	}
-	return payload.Bytes(), nil
+	return payload
 }
 
 func runOpusCompareHelperRequest(proc *opusCompareHelperProcess, payload []byte) (float64, int, error) {
@@ -334,10 +322,7 @@ func startOpusCompareHelperPool() error {
 }
 
 func runOpusCompareHelper(reference, decoded []int16, sampleRate, channels int, delays []int) (float64, int, error) {
-	payload, err := encodeOpusCompareHelperPayload(reference, decoded, sampleRate, channels, delays)
-	if err != nil {
-		return 0, 0, err
-	}
+	payload := encodeOpusCompareHelperPayload(reference, decoded, sampleRate, channels, delays)
 	if err := startOpusCompareHelperPool(); err != nil {
 		return 0, 0, err
 	}
