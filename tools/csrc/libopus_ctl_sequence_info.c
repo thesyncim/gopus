@@ -21,6 +21,10 @@
  *              [num_ops x u32(op) i32(request) i32(arg)]
  *   OUT: "GCTO" u32(version) u32(num_results)
  *              [num_results x i32(ret) i32(value) u32(have_value)]
+ *   Batch IN:  "GCTB" u32(version=1) u32(num_programs), followed by that many
+ *              complete GCTI programs.
+ *   Batch OUT: "GCTB" u32(version=1) u32(num_programs), followed by one GCTO
+ *              result record per program in request order.
  *   Version 2 appends u32(packet_len) bytes(packet_len) pad-to-4 after every
  *   result, returning bytes only for successful encoder OP_PROCESS operations.
  *
@@ -43,6 +47,7 @@
  * fed the packets produced by encoding that same sine with a sibling encoder
  * so OP_PROCESS exercises real last_packet_duration / pitch / bandwidth state.
  *
+ * Every GCTI program creates and destroys its own encoder or decoder.
  * Reference: libopus src/opus_encoder.c opus_encoder_ctl,
  *            src/opus_decoder.c opus_decoder_ctl.
  */
@@ -68,6 +73,9 @@
 
 #define INPUT_MAGIC  "GCTI"
 #define OUTPUT_MAGIC "GCTO"
+#define BATCH_MAGIC  "GCTB"
+#define MAX_BATCH 256
+#define MAX_OPS 100000
 
 #define OP_SET     0u
 #define OP_GET     1u
@@ -170,18 +178,12 @@ static int dec_get(OpusDecoder *d, int32_t request, int32_t *out) {
   return ret;
 }
 
-int main(void) {
-  if (!set_binary_stdio()) {
-    fprintf(stderr, "set_binary_stdio failed\n");
-    return 1;
-  }
-
-  char magic[4];
-  if (!read_exact(magic, 4) || memcmp(magic, INPUT_MAGIC, 4) != 0) {
+static int run_program(const char magic[4]) {
+  if (memcmp(magic, INPUT_MAGIC, 4) != 0) {
     fprintf(stderr, "bad input magic\n");
     return 1;
   }
-  uint32_t version;
+  uint32_t version = 0;
   if (!read_u32(&version) || (version != 1 && version != 2)) {
     fprintf(stderr, "bad input version %u\n", version);
     return 1;
@@ -217,6 +219,10 @@ int main(void) {
   uint32_t num_ops;
   if (!read_u32(&num_ops)) {
     fprintf(stderr, "truncated num_ops\n");
+    return 1;
+  }
+  if (num_ops > MAX_OPS) {
+    fprintf(stderr, "too many ops %u\n", num_ops);
     return 1;
   }
 
@@ -332,5 +338,54 @@ int main(void) {
   free(ops);
   free(reqs);
   free(args);
+  return 0;
+}
+
+int main(void) {
+  if (!set_binary_stdio()) {
+    fprintf(stderr, "set_binary_stdio failed\n");
+    return 1;
+  }
+
+  char magic[4];
+  if (!read_exact(magic, 4)) {
+    fprintf(stderr, "truncated input magic\n");
+    return 1;
+  }
+  if (memcmp(magic, INPUT_MAGIC, 4) == 0) return run_program(magic);
+  if (memcmp(magic, BATCH_MAGIC, 4) != 0) {
+    fprintf(stderr, "bad input magic\n");
+    return 1;
+  }
+
+  uint32_t version = 0, num_programs;
+  if (!read_u32(&version) || version != 1) {
+    fprintf(stderr, "bad batch version %u\n", version);
+    return 1;
+  }
+  if (!read_u32(&num_programs)) {
+    fprintf(stderr, "truncated batch count\n");
+    return 1;
+  }
+  if (num_programs == 0 || num_programs > MAX_BATCH) {
+    fprintf(stderr, "bad batch count %u\n", num_programs);
+    return 1;
+  }
+  if (!write_exact(BATCH_MAGIC, 4) || !write_u32(1) || !write_u32(num_programs)) {
+    fprintf(stderr, "write batch header failed\n");
+    return 1;
+  }
+  for (uint32_t i = 0; i < num_programs; i++) {
+    char program_magic[4];
+    if (!read_exact(program_magic, 4)) {
+      fprintf(stderr, "truncated batch program %u magic\n", i);
+      return 1;
+    }
+    if (run_program(program_magic) != 0) return 1;
+  }
+  if (fgetc(stdin) != EOF || ferror(stdin)) {
+    fprintf(stderr, "trailing batch input\n");
+    return 1;
+  }
   return 0;
 }
