@@ -1090,6 +1090,9 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 		// The switch into CELT-only precedes the bandwidth clamp and the mode
 		// fixup, as in the auto path (src/opus_encoder.c:1533-1557).
 		requestedMode, prevModeNext = e.applyCELTTransitionDelay(frameSize, requestedMode)
+		// libopus applies the stereo-to-mono delay after choosing the mode and
+		// before recomputing the rate used for FEC and bandwidth decisions.
+		e.applyStereoToMonoTransition(requestedMode)
 		// Run decide_fec for non-auto modes too. In libopus, decide_fec()
 		// runs unconditionally at line 1675 (not just in auto mode).
 		// This controls whether LBRR is actually coded based on bitrate,
@@ -1099,7 +1102,7 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 			frameRate = 50
 		}
 		useVBR := e.bitrateMode != ModeCBR
-		equivRate := e.computeEquivRate(e.bitrate, int32(channels), int32(frameRate),
+		equivRate := e.computeEquivRate(e.bitrate, e.streamChannels, int32(frameRate),
 			useVBR, requestedMode, e.complexity, e.packetLoss)
 		e.bandwidth = e.autoClampBandwidth(e.bandwidth, requestedMode, equivRate, e.maxRateForFrame(frameSize, cbrMaxDataBytes))
 		bw := e.bandwidth

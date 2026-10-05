@@ -363,6 +363,18 @@ func (e *Encoder) autoStreamChannelsDecision(voiceEst, equivRate int32) {
 	}
 }
 
+// applyStereoToMonoTransition delays a forced or automatic stereo-to-mono
+// change for one frame while SILK is active, matching opus_encoder.c:1562-1570.
+func (e *Encoder) applyStereoToMonoTransition(mode Mode) {
+	if e.streamChannels == 1 && e.prevChannels == 2 && e.toMono == 0 &&
+		mode != ModeCELT && e.prevMode != ModeCELT {
+		e.toMono = 1
+		e.streamChannels = 2
+	} else {
+		e.toMono = 0
+	}
+}
+
 func (e *Encoder) updateStreamChannelsForFrame(frameSize int) {
 	frameRate := int(e.sampleRate) / frameSize
 	if frameRate <= 0 {
@@ -649,16 +661,8 @@ func (e *Encoder) autoModeAndBandwidthDecision(stereoWidth opusVal16, frameSize,
 	// bandwidth decision and the mode fixup see the mode.
 	mode, prevModeNext = e.applyCELTTransitionDelay(frameSize, mode)
 
-	// Step 11: Stereo→mono transition delay (lines 1562-1570).
-	// When switching from stereo to mono, delay by two frames for smooth SILK downmix.
-	// toMono is set to 1 on the first frame, then cleared on the next.
-	if e.streamChannels == 1 && e.prevChannels == 2 && e.toMono == 0 &&
-		mode != ModeCELT && e.prevMode != ModeCELT {
-		e.toMono = 1
-		e.streamChannels = 2
-	} else {
-		e.toMono = 0
-	}
+	// Step 11: Stereo-to-mono transition delay (lines 1562-1570).
+	e.applyStereoToMonoTransition(mode)
 
 	// Step 12: Recompute equiv_rate with mode decision (lines 1572-1574).
 	equivRate = e.computeEquivRate(e.bitrate, e.streamChannels, int32(frameRate), useVBR,
