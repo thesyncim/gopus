@@ -1139,6 +1139,18 @@ func (d *Decoder) stereoFrameScratch(frameLength int) (mid, side []int16, ok boo
 // reset the right-channel resampler before copying left-channel history over.
 func (d *Decoder) ResetSideChannel() {
 	resetDecoderState(&d.state[1])
+	if state := d.silkPLCState[1]; state != nil {
+		// silk_init_decoder() resets channel_state[1], then
+		// silk_PLC_Reset() initializes the embedded PLC state. Mirror the
+		// resulting zero state and its nonzero PLC_Reset defaults in the
+		// separate Go-side PLC state used by concealSILKFrame().
+		*state = plc.SILKPLCState{
+			PitchLQ8:    d.state[1].frameLength << 7,
+			PrevGainQ16: [2]int32{1 << 16, 1 << 16},
+			SubfrLength: 20,
+			NbSubfr:     2,
+		}
+	}
 	d.setupScratchBuffers()
 	d.stereo.predPrevQ13 = [2]int16{}
 	d.stereo.sSide = [2]int16{}
