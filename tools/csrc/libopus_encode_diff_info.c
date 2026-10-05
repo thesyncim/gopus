@@ -23,6 +23,10 @@
  *   OUT: "GEDO" u32(version=1) u32(num_records)
  *              [num_records × u32(ret) u32(final_range) u32(packet_len)
  *                             bytes(packet_len) pad-to-4]
+ *   Batch IN:  "GEDB" u32(version=1) u32(num_programs), followed by that many
+ *              complete GEDI programs.
+ *   Batch OUT: "GEDB" u32(version=1) u32(num_programs), followed by one GEDO
+ *              record per program in request order.
  *
  * ret is the opus_encode_float return: >0 packet length, ==1 DTX/CELT-silence
  * TOC-only packet, ==0 DTX no-output (no bytes follow), <0 error code. The Go
@@ -51,6 +55,8 @@
 
 #define INPUT_MAGIC  "GEDI"
 #define OUTPUT_MAGIC "GEDO"
+#define BATCH_MAGIC  "GEDB"
+#define MAX_BATCH 64
 #define MAX_PACKET_BYTES 4000
 
 static int set_binary_stdio(void) {
@@ -100,18 +106,12 @@ static int write_pad(size_t count) {
   return write_exact(z, pad);
 }
 
-int main(void) {
-  if (!set_binary_stdio()) {
-    fprintf(stderr, "set_binary_stdio failed\n");
-    return 1;
-  }
-
-  char magic[4];
-  if (!read_exact(magic, 4) || memcmp(magic, INPUT_MAGIC, 4) != 0) {
+static int run_program(const char magic[4]) {
+  if (memcmp(magic, INPUT_MAGIC, 4) != 0) {
     fprintf(stderr, "bad input magic\n");
     return 1;
   }
-  uint32_t version;
+  uint32_t version = 0;
   if (!read_u32(&version) || version != 1) {
     fprintf(stderr, "bad input version %u\n", version);
     return 1;
@@ -259,5 +259,54 @@ int main(void) {
   free(pkt_buf);
   opus_encoder_destroy(enc);
   free(pcm);
+  return 0;
+}
+
+int main(void) {
+  if (!set_binary_stdio()) {
+    fprintf(stderr, "set_binary_stdio failed\n");
+    return 1;
+  }
+
+  char magic[4];
+  if (!read_exact(magic, 4)) {
+    fprintf(stderr, "truncated input magic\n");
+    return 1;
+  }
+  if (memcmp(magic, INPUT_MAGIC, 4) == 0) return run_program(magic);
+  if (memcmp(magic, BATCH_MAGIC, 4) != 0) {
+    fprintf(stderr, "bad input magic\n");
+    return 1;
+  }
+
+  uint32_t version = 0, num_programs = 0;
+  if (!read_u32(&version) || version != 1) {
+    fprintf(stderr, "bad batch version %u\n", version);
+    return 1;
+  }
+  if (!read_u32(&num_programs)) {
+    fprintf(stderr, "truncated batch count\n");
+    return 1;
+  }
+  if (num_programs == 0 || num_programs > MAX_BATCH) {
+    fprintf(stderr, "bad batch count %u\n", num_programs);
+    return 1;
+  }
+  if (!write_exact(BATCH_MAGIC, 4) || !write_u32(1) || !write_u32(num_programs)) {
+    fprintf(stderr, "write batch header failed\n");
+    return 1;
+  }
+  for (uint32_t i = 0; i < num_programs; i++) {
+    char program_magic[4];
+    if (!read_exact(program_magic, 4)) {
+      fprintf(stderr, "truncated batch program %u magic\n", i);
+      return 1;
+    }
+    if (run_program(program_magic) != 0) return 1;
+  }
+  if (fgetc(stdin) != EOF || ferror(stdin)) {
+    fprintf(stderr, "trailing batch input\n");
+    return 1;
+  }
   return 0;
 }
