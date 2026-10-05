@@ -1104,6 +1104,10 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 		useVBR := e.bitrateMode != ModeCBR
 		equivRate := e.computeEquivRate(e.bitrate, e.streamChannels, int32(frameRate),
 			useVBR, requestedMode, e.complexity, e.packetLoss)
+		// libopus keeps updating voice_ratio from valid analysis in forced modes
+		// because forced CELT still uses it for automatic bandwidth selection.
+		e.autoVoiceRatioFromAnalysis()
+		e.selectAutoBandwidth(requestedMode, e.autoVoiceEst(), equivRate)
 		e.bandwidth = e.autoClampBandwidth(e.bandwidth, requestedMode, equivRate, e.maxRateForFrame(frameSize, cbrMaxDataBytes))
 		bw := e.bandwidth
 		e.lbrrCoded = decideFEC(e.fecEnabled, e.packetLoss, e.lbrrCoded,

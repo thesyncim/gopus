@@ -515,6 +515,25 @@ func (e *Encoder) autoSelectBandwidth(voiceEst, equivRate int32) types.Bandwidth
 	return bandwidth
 }
 
+// selectAutoBandwidth updates the selected bandwidth in the cases where
+// libopus reruns its rate-dependent bandwidth selection. Keep autoBandwidth
+// before max-bandwidth and user-bandwidth clamps so a later relaxed limit can
+// restore the automatic choice.
+func (e *Encoder) selectAutoBandwidth(mode Mode, voiceEst, equivRate int32) {
+	if mode != ModeCELT && !e.first && !e.silkMode.AllowBandwidthSwitch {
+		return
+	}
+
+	e.bandwidth = e.autoSelectBandwidth(voiceEst, equivRate)
+	e.autoBandwidth = e.bandwidth
+	// Prevent any transition to SWB/FB until SILK has switched to WB and turned
+	// off the variable LP filter.
+	if !e.first && mode != ModeCELT && !e.silkMode.InWBModeWithoutVariableLP &&
+		e.bandwidth > types.BandwidthWideband {
+		e.bandwidth = types.BandwidthWideband
+	}
+}
+
 // autoClampBandwidth applies bandwidth clamping rules.
 // Matches libopus opus_encoder.c lines 1629-1684.
 func (e *Encoder) autoClampBandwidth(bandwidth types.Bandwidth, mode Mode, equivRate int32, maxRate int) types.Bandwidth {
@@ -671,17 +690,7 @@ func (e *Encoder) autoModeAndBandwidthDecision(stereoWidth opusVal16, frameSize,
 	// Step 13: Auto bandwidth selection (lines 1583-1627). It runs for CELT-only
 	// frames, on the first frame, and when the last SILK packet reported that
 	// low speech activity allows a bandwidth switch.
-	if mode == ModeCELT || e.first || e.silkMode.AllowBandwidthSwitch {
-		bw := e.autoSelectBandwidth(voiceEst, equivRate)
-		e.bandwidth = bw
-		e.autoBandwidth = bw
-		// Prevent any transition to SWB/FB until the SILK layer has fully
-		// switched to WB and turned the variable LP filter off.
-		if !e.first && mode != ModeCELT && !e.silkMode.InWBModeWithoutVariableLP &&
-			e.bandwidth > types.BandwidthWideband {
-			e.bandwidth = types.BandwidthWideband
-		}
-	}
+	e.selectAutoBandwidth(mode, voiceEst, equivRate)
 
 	// Step 14: Bandwidth clamping (lines 1629-1684).
 	e.bandwidth = e.autoClampBandwidth(e.bandwidth, mode, equivRate, maxRate)
