@@ -11,7 +11,7 @@
  * domain (e.g. OPUS_BANDWIDTH_* codes, OPUS_AUTO=-1000, OPUS_BITRATE_MAX=-1).
  *
  * Wire format (all little-endian):
- *   IN:  "GCTI" u32(version=1)
+ *   IN:  "GCTI" u32(version=1 or 2)
  *              u32(is_decoder)  -- 0=encoder, 1=decoder
  *              u32(sample_rate) u32(channels) u32(application)
  *              u32(frame_size)  -- per-channel samples per OP_PROCESS frame
@@ -19,8 +19,10 @@
  *              bytes(feed_len)  -- decoder OP_PROCESS packet (pad to 4)
  *              u32(num_ops)
  *              [num_ops x u32(op) i32(request) i32(arg)]
- *   OUT: "GCTO" u32(version=1) u32(num_results)
+ *   OUT: "GCTO" u32(version) u32(num_results)
  *              [num_results x i32(ret) i32(value) u32(have_value)]
+ *   Version 2 appends u32(packet_len) bytes(packet_len) pad-to-4 after every
+ *   result, returning bytes only for successful encoder OP_PROCESS operations.
  *
  * The decoder OP_PROCESS packet is supplied by the caller (not self-encoded) so
  * gopus and libopus decode byte-identical input and decode-derived GETs
@@ -124,6 +126,12 @@ static int write_u32(uint32_t v) {
 
 static int write_i32(int32_t v) { return write_u32((uint32_t)v); }
 
+static int write_pad(size_t count) {
+  unsigned char z[3] = {0, 0, 0};
+  size_t pad = (4 - (count % 4)) % 4;
+  return pad == 0 || write_exact(z, pad);
+}
+
 /* Apply one SET request with a single opus_int32 argument. Both encoder and
  * decoder CTL SETs that the harness exercises take exactly one opus_int32, so a
  * single dispatch on the request code suffices. */
@@ -174,7 +182,7 @@ int main(void) {
     return 1;
   }
   uint32_t version;
-  if (!read_u32(&version) || version != 1) {
+  if (!read_u32(&version) || (version != 1 && version != 2)) {
     fprintf(stderr, "bad input version %u\n", version);
     return 1;
   }
@@ -266,7 +274,7 @@ int main(void) {
     }
   }
 
-  if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(1) || !write_u32(num_ops)) {
+  if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(version) || !write_u32(num_ops)) {
     fprintf(stderr, "write header failed\n");
     return 1;
   }
@@ -277,6 +285,7 @@ int main(void) {
   for (uint32_t i = 0; i < num_ops; i++) {
     int32_t ret = 0, value = 0;
     uint32_t have_value = 0;
+    uint32_t packet_len = 0;
     switch (ops[i]) {
       case OP_SET:
         ret = is_decoder ? dec_set(dec, reqs[i], args[i])
@@ -292,9 +301,12 @@ int main(void) {
           ret = opus_decode_float(dec, feed_pkt, feed_len, decoded, MAX_FRAME, 0);
         } else {
           ret = opus_encode_float(enc, pcm, frame, pkt, MAX_PACKET);
+          if (ret > 0) packet_len = (uint32_t)ret;
         }
         break;
       case OP_RESET:
+        /* LBRR_coded belongs to silk_mode before OPUS_ENCODER_RESET_START, so
+         * libopus preserves this FEC-decision history across reset. */
         ret = is_decoder ? opus_decoder_ctl(dec, OPUS_RESET_STATE)
                          : opus_encoder_ctl(enc, OPUS_RESET_STATE);
         break;
@@ -305,6 +317,13 @@ int main(void) {
     if (!write_i32(ret) || !write_i32(value) || !write_u32(have_value)) {
       fprintf(stderr, "write result %u failed\n", i);
       return 1;
+    }
+    if (version >= 2) {
+      if (!write_u32(packet_len) || !write_exact(pkt, packet_len) ||
+          !write_pad(packet_len)) {
+        fprintf(stderr, "write packet result %u failed\n", i);
+        return 1;
+      }
     }
   }
 

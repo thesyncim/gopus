@@ -589,7 +589,6 @@ func (e *Encoder) Reset() {
 	e.prevChannels = 0
 	e.autoBandwidth = types.BandwidthFullband
 	e.first = true
-	e.lbrrCoded = false
 	e.widthMem = StereoWidthMem{}
 	e.toMono = 0
 	if extsupport.DREDRuntime {

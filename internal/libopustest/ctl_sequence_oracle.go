@@ -30,6 +30,9 @@ type CTLResult struct {
 	Ret       int32
 	Value     int32
 	HaveValue bool
+	// Packet contains the encoded packet for OP_PROCESS when CapturePackets is
+	// enabled on the sequence. Other operations and decoder processes return nil.
+	Packet []byte
 }
 
 // CTLSequenceParams configures one oracle run against a single encoder or
@@ -44,7 +47,10 @@ type CTLSequenceParams struct {
 	// same bytes must be decoded by gopus so decode-derived GETs are comparable.
 	// Ignored for the encoder.
 	FeedPacket []byte
-	Ops        []CTLOp
+	// CapturePackets asks the helper to return packet bytes for encoder OP_PROCESS
+	// operations. It adds per-operation packet data to the oracle wire response.
+	CapturePackets bool
+	Ops            []CTLOp
 }
 
 var ctlSequenceHelper HelperCache
@@ -78,7 +84,11 @@ func ProbeCTLSequence(p CTLSequenceParams) ([]CTLResult, error) {
 		return nil, fmt.Errorf("ctl sequence: invalid channels %d", p.Channels)
 	}
 
-	payload := NewOraclePayloadVersion(ctlSequenceInputMagic, 1)
+	version := uint32(1)
+	if p.CapturePackets {
+		version = 2
+	}
+	payload := NewOraclePayloadVersion(ctlSequenceInputMagic, version)
 	dec := uint32(0)
 	if p.IsDecoder {
 		dec = 1
@@ -106,7 +116,7 @@ func ProbeCTLSequence(p CTLSequenceParams) ([]CTLResult, error) {
 		payload.I32(op.Arg)
 	}
 
-	reader, err := RunOracle(binPath, payload.Bytes(), "opus ctl sequence", ctlSequenceOutputMagic)
+	reader, err := RunOracleVersion(binPath, payload.Bytes(), "opus ctl sequence", ctlSequenceOutputMagic, version)
 	if err != nil {
 		return nil, err
 	}
@@ -117,6 +127,16 @@ func ProbeCTLSequence(p CTLSequenceParams) ([]CTLResult, error) {
 		val := reader.I32()
 		have := reader.U32()
 		out[i] = CTLResult{Ret: ret, Value: val, HaveValue: have != 0}
+		if version >= 2 {
+			packetLen := int(reader.U32())
+			if packetLen < 0 || packetLen > 4000 {
+				return nil, fmt.Errorf("ctl sequence: op %d packet length=%d", i, packetLen)
+			}
+			out[i].Packet = append([]byte(nil), reader.Bytes(packetLen)...)
+			if pad := (4 - packetLen%4) % 4; pad > 0 {
+				reader.Bytes(pad)
+			}
+		}
 	}
 	if err := reader.ExpectConsumed(); err != nil {
 		return nil, fmt.Errorf("ctl sequence oracle payload not fully consumed: %w", err)
