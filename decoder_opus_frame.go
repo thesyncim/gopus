@@ -549,6 +549,20 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		if !ok {
 			silkBW = silk.BandwidthWideband
 		}
+		if data == nil && useDecoderPLCState {
+			// A one-byte DTX packet updates the public bandwidth from its TOC,
+			// but libopus opus_decode_frame (src/opus_decoder.c) updates
+			// DecControl.internalSampleRate only for coded data. Public PLC
+			// follows the active SILK rate.
+			switch d.silkDecoder.GetSampleRateKHz() {
+			case 8:
+				silkBW = silk.BandwidthNarrowband
+			case 12:
+				silkBW = silk.BandwidthMediumband
+			case 16:
+				silkBW = silk.BandwidthWideband
+			}
+		}
 		if extsupport.OSCERuntime && data != nil {
 			d.installOSCELACESilkPostfilterHook(mode, silkBW, packetStereoLocal)
 			defer d.clearOSCELACESilkPostfilterHook()
