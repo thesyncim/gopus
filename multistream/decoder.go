@@ -525,7 +525,8 @@ func (d *streamState) decodeSILKWithDecoder(rd *rangecoding.Decoder, frameSize i
 		out32 = d.framePCMFor(frameSize * channels)
 		_, err = d.silkDec.DecodeStereoWithDecoderInto(rd, bw, frameSize, true, out32)
 	case packetStereo && channels == 1:
-		out32, err = d.silkDec.DecodeStereoToMonoWithDecoder(rd, bw, frameSize, true)
+		out32 = d.framePCMFor(frameSize)
+		_, err = d.silkDec.DecodeStereoToMonoWithDecoderInto(rd, bw, frameSize, true, out32)
 	case !packetStereo && channels == 2:
 		out32 = d.framePCMFor(frameSize * channels)
 		_, err = d.silkDec.DecodeMonoToStereoWithDecoderInto(rd, bw, frameSize, true, d.lastPacketStereo, out32)

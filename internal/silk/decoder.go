@@ -327,7 +327,24 @@ func (d *Decoder) SetAPISampleRate(sampleRate int) {
 	default:
 		d.apiSampleRate = 48000
 	}
+	d.ensureStereoResamplerScratch(d.outputSampleRate())
 	d.resamplers = nil
+}
+
+// ensureStereoResamplerScratch keeps room for both resampled channels of the
+// longest SILK packet at the selected API rate. The default 48 kHz allocation
+// already covers the ordinary API rates; native 96 kHz QEXT output needs twice
+// the stereo scratch and grows it once when that rate is selected.
+func (d *Decoder) ensureStereoResamplerScratch(sampleRate int) {
+	if sampleRate <= 0 {
+		return
+	}
+	needed := maxFramesPerPacket * maxFrameLength * sampleRate / (maxFsKHz * 1000) * 2
+	if cap(d.upsampleScratch) < needed {
+		d.upsampleScratch = make([]float32, needed)
+	} else if len(d.upsampleScratch) < needed {
+		d.upsampleScratch = d.upsampleScratch[:needed]
+	}
 }
 
 func (d *Decoder) outputSampleRate() int {

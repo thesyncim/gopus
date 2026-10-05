@@ -501,7 +501,7 @@ func (d *Decoder) applyFECHybridToSILKFade(pcm []float32, frameSize int) error {
 	// stream channel count from the packet TOC, and start band to zero before
 	// decoding the 0xffff silence frame with celt_accum=1.
 	celtBW := celt.BandwidthFromOpusConfig(int(d.fecBandwidth))
-	if !d.fixedAccumulateFECHybridToSILKFade(frameSize, fadeSamples, d.fecStereo, celtBW) {
+	if !d.fixedAccumulateHybridToSILKFade(frameSize, fadeSamples, d.fecStereo, celtBW) {
 		d.markFixedUnhandled()
 	}
 	d.celtDecoder.SetBandwidth(celtBW)

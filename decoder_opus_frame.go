@@ -565,14 +565,11 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 					}
 				}
 			case packetStereoLocal && channels == 1:
-				var silkOut []float32
-				silkOut, err = d.silkDecoder.DecodeStereoToMonoWithDecoder(rd, silkBW, silkDecodeSize, true)
+				silkSamples, err = d.silkDecoder.DecodeStereoToMonoWithDecoderInto(rd, silkBW, silkDecodeSize, true, out)
 				if err == nil {
-					silkSamples = len(silkOut) / channels
 					if frameSize < silkDecodeSize {
 						silkSamples = frameSize
 					}
-					copyFloat32(out, silkOut[:silkSamples*channels])
 				}
 			case !packetStereoLocal && channels == 2:
 				silkSamples, err = d.silkDecoder.DecodeMonoToStereoWithDecoderInto(rd, silkBW, silkDecodeSize, true, d.prevPacketStereo, out)
@@ -690,12 +687,9 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		// Capture the main decode's FinalRange AFTER redundancy flag reads but BEFORE any CELT redundancy decode.
 		// For SILK-only mode, the final range includes all bits read from the range decoder.
 		d.mainDecodeRng = rd.Range()
-		if (!d.haveDecoded || d.prevMode != ModeHybrid) ||
-			(redundancy && celtToSilk && d.prevRedundancy) {
-			// Capture the integer SILK body before a CELT transition fade rewrites
-			// its first 5 ms in the float output buffer.
-			fixedSILKFrame = d.fixedCaptureSILKOutput(out[:audiosize*channels])
-		}
+		// Capture the integer SILK body before a CELT transition fade or
+		// redundancy post-processing rewrites its output buffer.
+		fixedSILKFrame = d.fixedCaptureSILKOutput(out[:audiosize*channels])
 
 		if transition && !redundancy && len(pcmTransition) == 0 {
 			transSize := min(F5, audiosize)
@@ -864,6 +858,9 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		// SILK output.
 		if err := d.celtDecoder.AccumulateFrameWithPacketStereoAtAPIRate(celtSilenceFrame2B[:], F2_5, packetStereoLocal, out); err != nil {
 			return 0, err
+		}
+		if fixedSILKFrame && !d.fixedAccumulateHybridToSILKFade(frameSize, F2_5, packetStereoLocal, celtBW) {
+			d.markFixedUnhandled()
 		}
 	}
 

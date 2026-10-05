@@ -665,28 +665,30 @@ func (d *Decoder) DecodeStereoWithDecoder(
 	return output, nil
 }
 
-// DecodeStereoToMonoWithDecoder decodes a SILK stereo frame to mono using a pre-initialized range decoder.
-func (d *Decoder) DecodeStereoToMonoWithDecoder(
+// DecodeStereoToMonoWithDecoderInto decodes a SILK stereo frame to mono into a
+// caller-owned buffer using a pre-initialized range decoder.
+func (d *Decoder) DecodeStereoToMonoWithDecoderInto(
 	rd *rangecoding.Decoder,
 	bandwidth Bandwidth,
 	frameSizeSamples int,
 	vadFlag bool,
-) ([]float32, error) {
+	output []float32,
+) (int, error) {
 	// Handle bandwidth changes - reset sMid state when sample rate changes
 	d.handleBandwidthChange(bandwidth)
 
 	if bandwidth > BandwidthWideband {
-		return nil, ErrInvalidBandwidth
+		return 0, ErrInvalidBandwidth
 	}
 	if rd == nil {
-		return nil, ErrDecodeFailed
+		return 0, ErrDecodeFailed
 	}
 
 	duration := d.frameDurationFromAPISamples(frameSizeSamples)
 
 	midNative, frameLength, err := d.decodeStereoMidNative(rd, bandwidth, duration, vadFlag)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 
 	framesPerPacket := 0
@@ -694,30 +696,34 @@ func (d *Decoder) DecodeStereoToMonoWithDecoder(
 		framesPerPacket = len(midNative) / frameLength
 	}
 	resampler := d.GetResamplerForChannel(bandwidth, 0)
-	output := make([]float32, 0, frameSizeSamples)
+	outputOffset := 0
+	config := GetBandwidthConfig(bandwidth)
 	for f := 0; f < framesPerPacket; f++ {
 		start := f * frameLength
 		end := start + frameLength
 		if start < 0 || end > len(midNative) || frameLength == 0 {
 			break
 		}
-		frame := midNative[start:end]
-
-		resamplerInput := make([]float32, frameLength)
-		resamplerInput[0] = float32(d.stereo.sMid[1]) / 32768.0
-		if frameLength > 1 {
-			for i := 0; i < frameLength-1; i++ {
-				resamplerInput[i+1] = float32(frame[i]) / 32768.0
+		resamplerInput := d.BuildMonoResamplerInputInt16(midNative[start:end])
+		frameOutputLen := len(resamplerInput) * d.outputSampleRate() / config.SampleRate
+		frameOutput := output[outputOffset:]
+		copyToOutput := len(frameOutput) >= frameOutputLen
+		if !copyToOutput {
+			if frameOutputLen > cap(d.upsampleScratch) {
+				return outputOffset, ErrDecodeFailed
 			}
+			frameOutput = d.upsampleScratch[:frameOutputLen]
 		}
-		d.updateMonoHistoryFromInt16(frame)
-
-		output = append(output, resampler.Process(resamplerInput)...)
+		written := resampler.ProcessInt16Into(resamplerInput, frameOutput)
+		if !copyToOutput {
+			written = copy(output[outputOffset:], frameOutput[:written])
+		}
+		outputOffset += written
 	}
 
 	d.finalizeSuccessfulDecode(frameSizeSamples, 1)
 
-	return output, nil
+	return outputOffset, nil
 }
 
 // DecodeMonoToStereoWithDecoder decodes a mono SILK frame to stereo using a pre-initialized range decoder.
