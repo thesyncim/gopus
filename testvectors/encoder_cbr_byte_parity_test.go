@@ -26,6 +26,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/encoder"
@@ -53,6 +54,8 @@ const (
 )
 
 var cbrOracleHelperCache libopustest.HelperCache
+
+var cbrOracleOutputCache sync.Map
 
 func cbrEncoderOraclePath() (string, error) {
 	return cbrOracleHelperCache.Path(func() (string, error) {
@@ -111,6 +114,8 @@ const (
 	cbrFeatureARMPresumeDotprod  uint32 = 1 << 14
 )
 
+// cbrOracleOutput slices are shared by the exact-input cache; callers treat
+// Packets and FinalRanges as read-only.
 type cbrOracleOutput struct {
 	LibopusVersion string
 	ArchMask       uint32
@@ -628,6 +633,11 @@ func cbrPCMIdentity(pcm []float32) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+type cbrOracleCacheKey struct {
+	path  string
+	input string
+}
+
 // runCBROracleEncode calls the libopus CBR encoder oracle with the same
 // quantized PCM as the Go encoder. The helper passes its input float32 values
 // directly to opus_encode_float without applying another quantization step.
@@ -639,11 +649,16 @@ func runCBROracleEncode(oraclePath string, tc cbrTestCase, pcm []float32) (cbrOr
 		uint32(tc.channels), uint32(tc.bitrate),
 		uint32(tc.frameSize), 10, numFrames, quantPCM,
 	)
-	out, err := libopustest.RunHelper(oraclePath, input)
-	if err != nil {
-		return cbrOracleOutput{}, fmt.Errorf("oracle run: %w", err)
-	}
-	return parseCBROracleOutput(out)
+	key := cbrOracleCacheKey{path: oraclePath, input: string(input)}
+	candidate := sync.OnceValues(func() (cbrOracleOutput, error) {
+		out, err := libopustest.RunHelper(oraclePath, input)
+		if err != nil {
+			return cbrOracleOutput{}, fmt.Errorf("oracle run: %w", err)
+		}
+		return parseCBROracleOutput(out)
+	})
+	cached, _ := cbrOracleOutputCache.LoadOrStore(key, candidate)
+	return cached.(func() (cbrOracleOutput, error))()
 }
 
 // reportCBRByteDiff reports the first N mismatching frames with byte diffs.
