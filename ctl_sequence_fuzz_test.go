@@ -73,6 +73,10 @@ const (
 	reqGetIgnoreExtensions       = 4059
 )
 
+// reqSetForceMode mirrors OPUS_SET_FORCE_MODE_REQUEST from src/opus_private.h.
+// The curated encoder transition test uses this private libopus control.
+const reqSetForceMode = 11002
+
 // libopus argument-domain constants used by the generator.
 const (
 	cOpusAuto       = -1000
@@ -107,6 +111,8 @@ func ctlReqName(req int32) string {
 	switch int(req) {
 	case reqSetApplication:
 		return "SET_APPLICATION"
+	case reqSetForceMode:
+		return "SET_FORCE_MODE"
 	case reqGetApplication:
 		return "GET_APPLICATION"
 	case reqSetBitrate:
@@ -273,6 +279,21 @@ func applyEncoderSet(enc *Encoder, req, arg int32) int32 {
 			return cOpusBadArg
 		}
 		return gopusErrToCode(enc.SetApplication(app))
+	case reqSetForceMode:
+		var mode EncoderMode
+		switch arg {
+		case cOpusAuto:
+			mode = EncoderModeAuto
+		case libopustest.OpusForceModeSILKOnly:
+			mode = EncoderModeSILK
+		case libopustest.OpusForceModeHybrid:
+			mode = EncoderModeHybrid
+		case libopustest.OpusForceModeCELTOnly:
+			mode = EncoderModeCELT
+		default:
+			return cOpusBadArg
+		}
+		return gopusErrToCode(enc.SetMode(mode))
 	case reqSetBitrate:
 		return gopusErrToCode(enc.SetBitrate(int(arg)))
 	case reqSetMaxBandwidth:

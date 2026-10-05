@@ -8,8 +8,6 @@ import (
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
-const reqSetForceMode = 11002
-
 func TestEncoderForcedChannelTransitionLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 	tests := []struct {
@@ -61,14 +59,7 @@ func TestEncoderForcedChannelTransitionLibopus(t *testing.T) {
 				got := libopustest.CTLResult{}
 				switch op.Op {
 				case libopustest.CTLOpSet:
-					if op.Request == reqSetForceMode {
-						if err := enc.SetMode(tt.mode); err != nil {
-							t.Fatalf("SET force mode: %v", err)
-						}
-						got.Ret = cOpusOK
-					} else {
-						got.Ret = applyEncoderSet(enc, op.Request, op.Arg)
-					}
+					got.Ret = applyEncoderSet(enc, op.Request, op.Arg)
 				case libopustest.CTLOpProcess:
 					n, err := enc.Encode(pcm, packetBuf)
 					if err != nil {
@@ -121,6 +112,26 @@ func TestEncoderForcedChannelTransitionLibopus(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestEncoderSetForceModeInvalidValuesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	ops := []libopustest.CTLOp{
+		{Op: libopustest.CTLOpSet, Request: reqSetForceMode, Arg: cOpusAuto},
+		{Op: libopustest.CTLOpSet, Request: reqSetForceMode, Arg: -1001},
+		{Op: libopustest.CTLOpSet, Request: reqSetForceMode, Arg: 0},
+		{Op: libopustest.CTLOpSet, Request: reqSetForceMode, Arg: 999},
+		{Op: libopustest.CTLOpSet, Request: reqSetForceMode, Arg: 1003},
+	}
+	oracle, err := libopustest.ProbeCTLSequence(libopustest.CTLSequenceParams{
+		SampleRate: 48000, Channels: 2, Application: cAppAudio, Ops: ops,
+	})
+	if err != nil {
+		libopustest.HelperUnavailable(t, "encoder force-mode CTL", err)
+		return
+	}
+	got := runEncoderCTLProgram(t, 48000, 2, ApplicationAudio, ops)
+	compareCTLResults(t, "force mode invalid argument parity", ops, got, oracle)
 }
 
 func encoderChannelTransitionOps(forceMode, bandwidth int32) []libopustest.CTLOp {
