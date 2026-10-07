@@ -31,15 +31,19 @@ type PacketInfo struct {
 // trailing padding are reported separately. It returns an error for truncated,
 // malformed, overlong, or over-duration packets.
 func ParsePacket(data []byte) (PacketInfo, error) {
+	return parsePacketInto(data, nil)
+}
+
+// parsePacketInto shares framing validation between ParsePacket and the
+// repacketizer. A supplied scratch array receives frame lengths; with no
+// scratch, it allocates FrameSizes at the same validated points as ParsePacket.
+func parsePacketInto(data []byte, scratch *[maxRepacketizerFrames]int) (PacketInfo, error) {
 	if len(data) < 1 {
 		return PacketInfo{}, ErrPacketTooShort
 	}
 
 	toc := ParseTOC(data[0])
-	info := PacketInfo{
-		TOC:       toc,
-		TotalSize: len(data),
-	}
+	info := PacketInfo{TOC: toc, TotalSize: len(data)}
 
 	switch toc.FrameCode {
 	case 0:
@@ -48,7 +52,8 @@ func ParsePacket(data []byte) (PacketInfo, error) {
 			return PacketInfo{}, ErrInvalidPacket
 		}
 		info.FrameCount = 1
-		info.FrameSizes = []int{len(data) - 1}
+		info.FrameSizes = packetFrameSizes(scratch, info.FrameCount)
+		info.FrameSizes[0] = len(data) - 1
 
 	case 1:
 		// Code 1: Two equal-sized frames
@@ -61,7 +66,8 @@ func ParsePacket(data []byte) (PacketInfo, error) {
 			return PacketInfo{}, ErrInvalidPacket
 		}
 		info.FrameCount = 2
-		info.FrameSizes = []int{frameSize, frameSize}
+		info.FrameSizes = packetFrameSizes(scratch, info.FrameCount)
+		info.FrameSizes[0], info.FrameSizes[1] = frameSize, frameSize
 
 	case 2:
 		// Code 2: Two frames with different sizes
@@ -81,7 +87,8 @@ func ParsePacket(data []byte) (PacketInfo, error) {
 			return PacketInfo{}, ErrInvalidPacket
 		}
 		info.FrameCount = 2
-		info.FrameSizes = []int{frame1Len, frame2Len}
+		info.FrameSizes = packetFrameSizes(scratch, info.FrameCount)
+		info.FrameSizes[0], info.FrameSizes[1] = frame1Len, frame2Len
 
 	case 3:
 		// Code 3: Arbitrary number of frames
@@ -91,12 +98,12 @@ func ParsePacket(data []byte) (PacketInfo, error) {
 		frameCountByte := data[1]
 		vbr := (frameCountByte & 0x80) != 0
 		hasPadding := (frameCountByte & 0x40) != 0
-		m := int(frameCountByte & 0x3F)
+		frameCount := int(frameCountByte & 0x3F)
 
-		if m == 0 || m > 48 {
+		if frameCount == 0 || frameCount > maxRepacketizerFrames {
 			return PacketInfo{}, ErrInvalidFrameCount
 		}
-		if toc.FrameSize*m > maxRepacketizerDuration48k {
+		if toc.FrameSize*frameCount > maxRepacketizerDuration48k {
 			return PacketInfo{}, ErrInvalidPacket
 		}
 
@@ -121,15 +128,14 @@ func ParsePacket(data []byte) (PacketInfo, error) {
 				}
 			}
 		}
-
-		info.FrameCount = m
+		info.FrameCount = frameCount
+		info.FrameSizes = packetFrameSizes(scratch, frameCount)
 		info.Padding = padding
-		info.FrameSizes = make([]int, m)
 
 		if vbr {
 			// VBR: Parse each frame length (except last)
 			totalFrameLen := 0
-			for i := 0; i < m-1; i++ {
+			for i := 0; i < frameCount-1; i++ {
 				frameLen, bytesRead, err := parseFrameLength(data, offset)
 				if err != nil {
 					return PacketInfo{}, err
@@ -146,7 +152,7 @@ func ParsePacket(data []byte) (PacketInfo, error) {
 			if lastFrameLen > maxOpusFrameBytes {
 				return PacketInfo{}, ErrInvalidPacket
 			}
-			info.FrameSizes[m-1] = lastFrameLen
+			info.FrameSizes[frameCount-1] = lastFrameLen
 		} else {
 			// CBR: Parse single frame length, all frames are same size
 			// For CBR, no frame lengths are encoded. All frames share the
@@ -155,23 +161,27 @@ func ParsePacket(data []byte) (PacketInfo, error) {
 			if frameDataLen < 0 {
 				return PacketInfo{}, ErrInvalidPacket
 			}
-			if m == 0 {
-				return PacketInfo{}, ErrInvalidFrameCount
-			}
-			if frameDataLen%m != 0 {
+			if frameDataLen%frameCount != 0 {
 				return PacketInfo{}, ErrInvalidPacket
 			}
-			frameLen := frameDataLen / m
+			frameLen := frameDataLen / frameCount
 			if frameLen > maxOpusFrameBytes {
 				return PacketInfo{}, ErrInvalidPacket
 			}
-			for i := range m {
+			for i := range frameCount {
 				info.FrameSizes[i] = frameLen
 			}
 		}
 	}
 
 	return info, nil
+}
+
+func packetFrameSizes(scratch *[maxRepacketizerFrames]int, frameCount int) []int {
+	if scratch == nil {
+		return make([]int, frameCount)
+	}
+	return scratch[:frameCount]
 }
 
 // validatePacketFraming checks the same packet-size constraints as ParsePacket

@@ -252,6 +252,30 @@ func TestRepacketizerByteExactMatchesLibopus(t *testing.T) {
 	}
 }
 
+func TestPacketUnpadMalformedExtensionMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	packet := mustDecodeHex(t, "4b4102112233ffff")
+	tc := repacketizerOracleCase{
+		name:      "unpad_opaque_malformed_extension",
+		packets:   [][]byte{packet},
+		begin:     0,
+		end:       1,
+		maxlen:    64,
+		padNewLen: len(packet), // PacketPad is a no-op, so the oracle unpads the input directly.
+	}
+	want, err := probeLibopusRepacketizer([]repacketizerOracleCase{tc})
+	if err != nil {
+		libopustest.HelperUnavailable(t, "repacketizer", err)
+	}
+	got := runRepacketizerGopus(tc)
+	if want[0].unpadRet != int32(len([]byte{0x48, 0x11, 0x22, 0x33})) {
+		t.Fatalf("libopus PacketUnpad ret=%d, want 4", want[0].unpadRet)
+	}
+	if got.unpadRet != want[0].unpadRet || !bytes.Equal(got.unpadBytes, want[0].unpadBytes) {
+		t.Fatalf("PacketUnpad=%x (ret=%d), libopus=%x (ret=%d)", got.unpadBytes, got.unpadRet, want[0].unpadBytes, want[0].unpadRet)
+	}
+}
+
 func TestMalformedPacketExtensionErrorsMatchLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 
@@ -472,6 +496,7 @@ func repacketizerOraclecasesAppendSingle(cases []repacketizerOracleCase) []repac
 func repacketizerOracleCases() []repacketizerOracleCase {
 	var cases []repacketizerOracleCase
 	cases = repacketizerOraclecasesAppendSingle(cases)
+	largeExtensionPacket := packetWithLargeLongExtension(4096)
 
 	// CELT 10ms config (18) supports up to 12 frames in 120ms (480 samples each).
 	// SILK 20ms config (1) supports up to 6 frames. Use small frame sizes.
@@ -605,6 +630,30 @@ func repacketizerOracleCases() []repacketizerOracleCase {
 			maxlen:    512,
 			padNewLen: 150,
 		},
+		repacketizerOracleCase{
+			name:      "pad_noncanonical_two_frame_vbr",
+			packets:   [][]byte{code3VBRPacket(18, false, []int{12, 12}, 5)},
+			maxlen:    512,
+			padNewLen: len(code3VBRPacket(18, false, []int{12, 12}, 5)) + 29,
+		},
+		repacketizerOracleCase{
+			name:      "pad_48_frame_vbr",
+			packets:   [][]byte{code3VBRPacket(16, false, packet48VBRFrameSizes(), 6)},
+			maxlen:    512,
+			padNewLen: len(code3VBRPacket(16, false, packet48VBRFrameSizes(), 6)) + 43,
+		},
+		repacketizerOracleCase{
+			name:      "pad_with_packet_extension",
+			packets:   [][]byte{{0x4b, 0x41, 0x06, 0x11, 0x22, 0x33, 0x0b, 0xaa, 0x50, 0xde, 0xad, 0xbe}},
+			maxlen:    512,
+			padNewLen: 16,
+		},
+		repacketizerOracleCase{
+			name:      "pad_with_large_packet_extension",
+			packets:   [][]byte{largeExtensionPacket},
+			maxlen:    len(largeExtensionPacket) + 128,
+			padNewLen: len(largeExtensionPacket) + 43,
+		},
 	)
 
 	// buffer-too-small: maxlen smaller than required output.
@@ -640,4 +689,31 @@ func repacketizerOracleCases() []repacketizerOracleCase {
 	)
 
 	return cases
+}
+
+func packet48VBRFrameSizes() []int {
+	sizes := make([]int, maxRepacketizerFrames)
+	for i := range sizes {
+		sizes[i] = 1
+	}
+	sizes[len(sizes)-1] = 2
+	return sizes
+}
+
+func packetWithLargeLongExtension(payloadLen int) []byte {
+	extensionLen := payloadLen + 1 // one byte for the long-extension ID
+	packet := []byte{GenerateTOC(18, false, 3), 0x41}
+	remainingPadding := extensionLen
+	for remainingPadding > 254 {
+		packet = append(packet, 255)
+		remainingPadding -= 254
+	}
+	packet = append(packet, byte(remainingPadding))
+	extension := make([]byte, extensionLen)
+	extension[0] = 0x50
+	for i := 0; i < payloadLen; i++ {
+		extension[i+1] = byte(i*13 + 7)
+	}
+	packet = append(packet, 0x11, 0x22, 0x33)
+	return append(packet, extension...)
 }
