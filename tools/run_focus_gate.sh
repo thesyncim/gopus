@@ -315,6 +315,8 @@ gate_core_oracles_parity() {
 }
 
 gate_build_contract() {
+	python3 "$(dirname "${BASH_SOURCE[0]}")/test_run_simd_safety_matrix.py"
+	python3 "$(dirname "${BASH_SOURCE[0]}")/test_run_go_test_runnable.py"
 	run_go_test_json . -run "$build_contract_root" -count=1
 	run_go_test_json ./testvectors -run "$build_contract_testvectors" -count=1
 }

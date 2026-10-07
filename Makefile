@@ -159,7 +159,7 @@ update-type-parity-baseline:
 # Focused byte-parity lane for the current CELT stereo payload drift. This is
 # intentionally evidence-only: do not weaken fixture thresholds to make it pass.
 test-byte-parity-focus:
-	$(RUNNABLE_PARITY) ./testvectors -run '^TestEncoderVariantProfileParityAgainstLibopusFixture/cases/CELT-FB-20ms-stereo-128k-' -count=1 -v
+	$(RUNNABLE_PARITY) -run '^TestEncoderVariantProfileParityAgainstLibopusFixture/cases/CELT-FB-20ms-stereo-128k-' -count=1 -v -- ./testvectors
 
 # Official RFC 6716 / RFC 8251 test-vector conformance gate: decode each
 # testvectorNN.bit with gopus and validate against the reference decoded output
@@ -167,7 +167,7 @@ test-byte-parity-focus:
 # libopus tests/run_vectors.sh). Vectors are fetched into the gitignored cache by
 # ensure-testvectors; opus_compare comes from the pinned libopus build.
 test-rfc-conformance: ensure-libopus ensure-testvectors
-	$(RUNNABLE_PARITY) ./testvectors -run '^TestRFCConformanceOpusCompare$$' -count=1 -v
+	$(RUNNABLE_PARITY) -run '^TestRFCConformanceOpusCompare$$' -count=1 -v -- ./testvectors
 
 # Fuzz targets per package. test-fuzz-smoke runs this set briefly on every push;
 # test-fuzz-safety runs it (plus the never-panic and libopus-differential

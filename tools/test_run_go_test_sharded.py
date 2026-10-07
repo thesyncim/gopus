@@ -1,6 +1,7 @@
 """Focused tests for the deterministic Go test sharder."""
 
 import json
+import os
 import pathlib
 import shlex
 import subprocess
@@ -13,15 +14,31 @@ from run_go_test_sharded import test_selection_args
 
 
 FAKE_GO = r'''import json
+import os
 import re
 import sys
 
 args = sys.argv[1:]
+with open(os.environ["FAKE_GO_LOG"], "a", encoding="utf-8") as log:
+    log.write(json.dumps(args) + "\n")
 packages = [item for item in args if item.startswith("example.org/")]
 names = {
     "example.org/project": ["TestAlpha", "TestBeta", "FuzzPacket"],
     "example.org/project/other": ["TestAlpha", "ExampleRoundTrip"],
 }
+
+if args[0] == "list":
+    if os.environ.get("FAKE_GO_LIST_MODE") == "fail":
+        print("example.org/project")
+        print("list failed", file=sys.stderr)
+        sys.exit(23)
+    patterns = [item for item in args[1:] if item.startswith("example.org/") or item.startswith("./")]
+    if "./..." in patterns:
+        packages = list(names)
+    else:
+        packages = [item for item in patterns if item in names]
+    print("\n".join(packages))
+    sys.exit(0)
 
 def emit(action, package, test=None, output=None):
     event = {"Action": action, "Package": package}
@@ -77,14 +94,21 @@ class RunGoTestShardedTest(unittest.TestCase):
                     directory,
                     "--report",
                     str(report),
+                    "--go-list-arg=-tags",
+                    "--go-list-arg=gopus_dred",
                     "--test-arg=-json",
                     "--test-arg=-count=1",
                     "--test-arg=-timeout=25m",
                     "--package=example.org/project",
                     "--package=example.org/project/other",
                 ]
-                result = subprocess.run(command, text=True, capture_output=True, check=False)
+                env = dict(os.environ, FAKE_GO_LOG=str(root / f"{stem}.calls.jsonl"))
+                result = subprocess.run(command, text=True, capture_output=True, check=False, env=env)
                 self.assertEqual(result.returncode, 0, result.stderr)
+                calls = [json.loads(line) for line in (root / f"{stem}.calls.jsonl").read_text().splitlines()]
+                self.assertEqual(calls[0], [
+                    "list", "-tags", "gopus_dred", "example.org/project", "example.org/project/other",
+                ])
                 (root / f"{stem}.jsonl").write_text(result.stdout)
                 (root / f"{stem}.exit").write_text("0\n")
 
@@ -109,6 +133,59 @@ class RunGoTestShardedTest(unittest.TestCase):
                 ("example.org/project/other", "ExampleRoundTrip"),
             })
 
+    def test_default_inventory_discovers_packages_with_build_tags(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            fake_go = root / "fake_go.py"
+            fake_go.write_text(FAKE_GO)
+            calls_path = root / "calls.jsonl"
+            command = [
+                sys.executable,
+                str(pathlib.Path(__file__).with_name("run_go_test_sharded.py").resolve()),
+                "--go=" + shlex.join([sys.executable, str(fake_go)]),
+                "--shard=0/1",
+                "--root",
+                directory,
+                "--report",
+                str(root / "inventory.json"),
+                "--go-list-arg=-tags",
+                "--go-list-arg=gopus_dred",
+                "--test-arg=-tags",
+                "--test-arg=gopus_dred",
+            ]
+            env = dict(os.environ, FAKE_GO_LOG=str(calls_path))
+            result = subprocess.run(command, text=True, capture_output=True, check=False, env=env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            calls = [json.loads(line) for line in calls_path.read_text().splitlines()]
+            self.assertEqual(calls[0], ["list", "-tags", "gopus_dred", "./..."])
+            self.assertIn("example.org/project", calls[1])
+            self.assertIn("example.org/project/other", calls[1])
+
+    def test_package_discovery_failure_does_not_run_tests(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            fake_go = root / "fake_go.py"
+            fake_go.write_text(FAKE_GO)
+            calls_path = root / "calls.jsonl"
+            command = [
+                sys.executable,
+                str(pathlib.Path(__file__).with_name("run_go_test_sharded.py").resolve()),
+                "--go=" + shlex.join([sys.executable, str(fake_go)]),
+                "--shard=0/1",
+                "--root",
+                directory,
+                "--report",
+                str(root / "inventory.json"),
+                "--test-arg=-tags",
+                "--test-arg=gopus_dred",
+            ]
+            env = dict(os.environ, FAKE_GO_LOG=str(calls_path), FAKE_GO_LIST_MODE="fail")
+            result = subprocess.run(command, text=True, capture_output=True, check=False, env=env)
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("list failed", result.stderr)
+            self.assertIn("exit=23", result.stderr)
+            self.assertEqual(len(calls_path.read_text().splitlines()), 1)
+
     def test_rejects_filtered_runs_instead_of_changing_their_selection(self):
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
@@ -124,9 +201,15 @@ class RunGoTestShardedTest(unittest.TestCase):
                 "--test-arg=-run=^TestAlpha$",
                 "--package=example.org/project",
             ]
-            result = subprocess.run(command, text=True, capture_output=True, check=False)
-            self.assertEqual(result.returncode, 2)
-            self.assertIn("unset GOPUS_TEST_SHARD", result.stderr)
+            for flag in ("-run", "-skip", "-test.run", "-test.skip", "-test.bench"):
+                with self.subTest(flag=flag):
+                    filtered_command = [
+                        f"--test-arg={flag}=^TestAlpha$" if item.startswith("--test-arg=") else item
+                        for item in command
+                    ]
+                    result = subprocess.run(filtered_command, text=True, capture_output=True, check=False)
+                    self.assertEqual(result.returncode, 2)
+                    self.assertIn("unset GOPUS_TEST_SHARD", result.stderr)
 
 
 if __name__ == "__main__":
