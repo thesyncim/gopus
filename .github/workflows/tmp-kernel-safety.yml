@@ -13,7 +13,7 @@ env:
   LIBOPUS_VERSION: "1.6.1"
 
 jobs:
-  simd-haar:
+  detail:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -23,27 +23,14 @@ jobs:
           go-version-file: go.mod
           cache: true
       - run: make ensure-libopus
-      - name: Haar and kernel tests with GOEXPERIMENT=simd
+      - name: residual failures in detail
         run: |
           set +e
-          RE="$(grep -o "^CELT_KERNEL_RE='[^']*'" tools/run_simd_safety_matrix.sh | sed "s/^CELT_KERNEL_RE='//;s/'$//")"
-          echo "--- simd v1 (baseline libopus simd tree)"
-          GOEXPERIMENT=simd GOAMD64=v1 go test ./internal/celt -run "^TestHaar1|${RE}" -count=1 -v 2>&1 | grep -E '^(--- |ok|FAIL|PASS)|SKIP|haar1_exact' | head -40
-          echo "--- simd v3 paired"
-          GOEXPERIMENT=simd GOAMD64=v3 GOPUS_LIBOPUS_AMD64_TARGET=v3 go test ./internal/celt -run "^TestHaar1|${RE}" -count=1 -v 2>&1 | grep -E '^(--- |ok|FAIL|PASS)|SKIP|haar1_exact' | head -40
-          echo "--- simd v3 unpaired"
-          GOEXPERIMENT=simd GOAMD64=v3 go test ./internal/celt -run "^TestHaar1" -count=1 -v 2>&1 | grep -E '^(--- |ok|FAIL|PASS)|SKIP|haar1_exact' | head -40
-  paired-sweep:
-    runs-on: ubuntu-latest
-    timeout-minutes: 80
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-          cache: true
-      - run: make ensure-libopus
-      - name: paired v3 celt and silk, fixed-point/optional references skipped
-        run: |
-          set +e
-          GOAMD64=v3 GOPUS_LIBOPUS_AMD64_TARGET=v3 go test ./internal/celt ./internal/silk -count=1 -timeout 60m -skip 'Fixed|QEXT|Custom|DRED|OSCE' 2>&1 | grep -E '^(--- FAIL|FAIL|ok|panic)|^    --- FAIL' | cut -c1-200 | head -100
+          C='^(TestConcealPeriodicPLCMatchesLibopus|TestCombFilterInPlaceMatchesReference|TestNoiseFloorMatchesLibopusFloat|TestTripleInnerProdMatchesSeparateCeltInnerProd)$'
+          S='^(TestSILKFindLTPFLPMatchesLibopusOracle|TestSILKCorrelationMatrixVectorMatchesLibopusOracle)$'
+          for mode in "v1:" "v3:v3"; do
+            lvl="${mode%%:*}"; tgt="${mode##*:}"
+            echo "######## GOAMD64=$lvl target=$tgt"
+            GOAMD64=$lvl GOPUS_LIBOPUS_AMD64_TARGET=$tgt go test ./internal/celt -run "$C" -count=1 -v 2>&1 | grep -vE '^=== (RUN|PAUSE|CONT)' | cut -c1-260 | head -40
+            GOAMD64=$lvl GOPUS_LIBOPUS_AMD64_TARGET=$tgt go test ./internal/silk -run "$S" -count=1 -v 2>&1 | grep -vE '^=== (RUN|PAUSE|CONT)' | cut -c1-260 | head -30
+          done
