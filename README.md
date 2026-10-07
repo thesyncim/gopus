@@ -204,6 +204,43 @@ explicitly: libopus defaults to automatic selection. `Bitrate()` reports the
 configured target, including `BitrateAuto`/`BitrateMax`, rather than libopus's
 effective bitrate.
 
+### Voice activity
+
+`VAD` and `SpeechDetector` score mono PCM frame by frame without an encoder.
+Each call takes exactly 10 or 20 ms of samples, advances the detector's state,
+and returns a score rather than a decision: choose the threshold and handle turn
+timing in your application. Neither is safe for concurrent use, and `Reset` starts
+a new stream. Construction can allocate; analysis calls do not.
+
+- `VAD` runs the SILK voice detector at 8, 12, or 16 kHz and returns activity in
+  Q8 (0–255). It follows level against an adaptive noise estimate.
+- `SpeechDetector` runs the neural analysis inside the Opus encoder (libopus
+  `activity_probability`) at 16, 24, or 48 kHz and returns a probability in
+  [0, 1]. It scores spectral and temporal structure instead of level, so steady
+  noise, hum, and clicks score low. Short bursts such as coughs, and other people
+  talking, can score high.
+
+```go
+det, err := gopus.NewSpeechDetector(16000)
+if err != nil {
+	log.Fatal(err)
+}
+
+frame := make([]int16, 320) // 20 ms at 16 kHz; fill from your audio source
+probability, err := det.AnalyzeInt16(frame)
+if err != nil {
+	log.Fatal(err)
+}
+talking := probability >= 0.5
+```
+
+The speech probability comes from the encoder's analysis code and matches libopus
+for the same input. Its newest analysis window ends 10 ms before the newest
+sample, and the first ten windows (about 200 ms) after construction or `Reset` are
+warm-up. A window of exactly zero samples scores 0; the encoder repeats its
+previous estimate there. A 10 ms frame completes a window on every second call and
+repeats the previous result in between.
+
 ## Examples
 
 Start with a complete encode/decode using reusable buffers:
