@@ -33,6 +33,8 @@ func NewRepacketizer() *Repacketizer {
 func (r *Repacketizer) Reset() {
 	r.toc = 0
 	r.frameSize = 0
+	clear(r.frames)
+	clear(r.paddings)
 	r.frames = r.frames[:0]
 	r.paddings = r.paddings[:0]
 	r.padFrames = r.padFrames[:0]
@@ -53,13 +55,23 @@ func (r *Repacketizer) Cat(packet []byte) error {
 		return ErrInvalidPacket
 	}
 
-	info, frames, padding, paddingFrameCount, err := parsePacketFramesAndPadding(packet)
+	var frameSizes [maxRepacketizerFrames]int
+	info, err := parsePacketInto(packet, &frameSizes)
 	if err != nil {
 		return err
 	}
-	if len(frames) == 0 {
+	if info.Padding > len(packet) {
 		return ErrInvalidPacket
 	}
+	if info.FrameCount == 0 {
+		return ErrInvalidPacket
+	}
+	paddingBytes := packet[len(packet)-info.Padding:]
+	frameBytes := 0
+	for _, frameSize := range info.FrameSizes {
+		frameBytes += frameSize
+	}
+	frameOffset := len(packet) - info.Padding - frameBytes
 
 	if len(r.frames) == 0 {
 		r.toc = packet[0]
@@ -68,7 +80,7 @@ func (r *Repacketizer) Cat(packet []byte) error {
 		return ErrInvalidPacket
 	}
 
-	totalFrames := len(r.frames) + len(frames)
+	totalFrames := len(r.frames) + info.FrameCount
 	if totalFrames > maxRepacketizerFrames {
 		return ErrInvalidPacket
 	}
@@ -76,19 +88,25 @@ func (r *Repacketizer) Cat(packet []byte) error {
 		return ErrInvalidPacket
 	}
 
-	for i, frame := range frames {
+	paddingFrameCount := 0
+	if info.Padding > 0 {
+		paddingFrameCount = info.FrameCount
+	}
+	for i, frameSize := range info.FrameSizes {
+		frame := packet[frameOffset : frameOffset+frameSize]
 		owned := make([]byte, len(frame))
 		copy(owned, frame)
 		r.frames = append(r.frames, owned)
-		if i == 0 && len(padding) > 0 {
-			ownedPadding := make([]byte, len(padding))
-			copy(ownedPadding, padding)
+		if i == 0 && len(paddingBytes) > 0 {
+			ownedPadding := make([]byte, len(paddingBytes))
+			copy(ownedPadding, paddingBytes)
 			r.paddings = append(r.paddings, ownedPadding)
 			r.padFrames = append(r.padFrames, paddingFrameCount)
 		} else {
 			r.paddings = append(r.paddings, nil)
 			r.padFrames = append(r.padFrames, 0)
 		}
+		frameOffset += frameSize
 	}
 
 	return nil

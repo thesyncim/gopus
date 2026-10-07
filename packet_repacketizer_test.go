@@ -188,6 +188,7 @@ func TestRepacketizerPreservesPacketExtensions(t *testing.T) {
 	if err := rp.Cat(packetAExt); err != nil {
 		t.Fatalf("cat(packetAExt): %v", err)
 	}
+	clear(packetAExt)
 	if err := rp.Cat(packetB); err != nil {
 		t.Fatalf("cat(packetB): %v", err)
 	}
