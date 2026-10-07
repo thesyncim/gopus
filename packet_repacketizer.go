@@ -33,6 +33,8 @@ func NewRepacketizer() *Repacketizer {
 func (r *Repacketizer) Reset() {
 	r.toc = 0
 	r.frameSize = 0
+	clear(r.frames)
+	clear(r.paddings)
 	r.frames = r.frames[:0]
 	r.paddings = r.paddings[:0]
 	r.padFrames = r.padFrames[:0]
@@ -53,13 +55,23 @@ func (r *Repacketizer) Cat(packet []byte) error {
 		return ErrInvalidPacket
 	}
 
-	info, frames, padding, paddingFrameCount, err := parsePacketFramesAndPadding(packet)
+	var frameSizes [maxRepacketizerFrames]int
+	info, err := parsePacketInto(packet, &frameSizes)
 	if err != nil {
 		return err
 	}
-	if len(frames) == 0 {
+	if info.Padding > len(packet) {
 		return ErrInvalidPacket
 	}
+	if info.FrameCount == 0 {
+		return ErrInvalidPacket
+	}
+	paddingBytes := packet[len(packet)-info.Padding:]
+	frameBytes := 0
+	for _, frameSize := range info.FrameSizes {
+		frameBytes += frameSize
+	}
+	frameOffset := len(packet) - info.Padding - frameBytes
 
 	if len(r.frames) == 0 {
 		r.toc = packet[0]
@@ -68,7 +80,7 @@ func (r *Repacketizer) Cat(packet []byte) error {
 		return ErrInvalidPacket
 	}
 
-	totalFrames := len(r.frames) + len(frames)
+	totalFrames := len(r.frames) + info.FrameCount
 	if totalFrames > maxRepacketizerFrames {
 		return ErrInvalidPacket
 	}
@@ -76,19 +88,25 @@ func (r *Repacketizer) Cat(packet []byte) error {
 		return ErrInvalidPacket
 	}
 
-	for i, frame := range frames {
+	paddingFrameCount := 0
+	if info.Padding > 0 {
+		paddingFrameCount = info.FrameCount
+	}
+	for i, frameSize := range info.FrameSizes {
+		frame := packet[frameOffset : frameOffset+frameSize]
 		owned := make([]byte, len(frame))
 		copy(owned, frame)
 		r.frames = append(r.frames, owned)
-		if i == 0 && len(padding) > 0 {
-			ownedPadding := make([]byte, len(padding))
-			copy(ownedPadding, padding)
+		if i == 0 && len(paddingBytes) > 0 {
+			ownedPadding := make([]byte, len(paddingBytes))
+			copy(ownedPadding, paddingBytes)
 			r.paddings = append(r.paddings, ownedPadding)
 			r.padFrames = append(r.padFrames, paddingFrameCount)
 		} else {
 			r.paddings = append(r.paddings, nil)
 			r.padFrames = append(r.padFrames, 0)
 		}
+		frameOffset += frameSize
 	}
 
 	return nil
@@ -134,20 +152,87 @@ func PacketPad(data []byte, length, newLen int) error {
 	}
 	data = data[:newLen]
 
-	src := make([]byte, length)
-	copy(src, data[:length])
-
-	_, frames, padding, paddingFrameCount, err := parsePacketFramesAndPadding(src)
+	var frameSizes [maxRepacketizerFrames]int
+	var frames [maxRepacketizerFrames][]byte
+	_, frameCount, padding, err := parsePacketFramesInto(data[:length], &frameSizes, &frames)
 	if err != nil {
 		return err
 	}
 
-	extensions, err := parsePacketExtensionList(padding, paddingFrameCount)
+	var paddingBytes []byte
+	if padding > 0 {
+		paddingBytes = data[length-padding : length]
+	}
+	extensionCount, err := countPacketExtensions(paddingBytes, frameCount)
 	if err != nil {
 		return ErrInternalError
 	}
+	if extensionCount == 0 {
+		return packetPadWithoutExtensions(data, length, newLen, data[0]&0xFC, padding, frameSizes[:frameCount], frames[:frameCount])
+	}
 
-	_, err = buildRepacketizedPacketWithOptions(src[0]&0xFC, frames, data, newLen, true, extensions)
+	// Extension-bearing packets use a snapshot because the rebuilt header can
+	// overlap the packet's original frame payloads.
+	src := make([]byte, length)
+	copy(src, data[:length])
+	frameBytes := 0
+	for _, size := range frameSizes[:frameCount] {
+		frameBytes += size
+	}
+	srcOffset := length - padding - frameBytes
+	framesWithExtensions := frames[:frameCount]
+	for i, size := range frameSizes[:frameCount] {
+		framesWithExtensions[i] = src[srcOffset : srcOffset+size]
+		srcOffset += size
+	}
+	if padding > 0 {
+		paddingBytes = src[length-padding:]
+	}
+
+	extensions := make([]packetExtensionData, extensionCount)
+	extensionCount, err = parsePacketExtensions(paddingBytes, frameCount, extensions)
+	if err != nil {
+		return ErrInternalError
+	}
+	extensions = extensions[:extensionCount]
+
+	_, err = buildRepacketizedPacketWithOptions(src[0]&0xFC, framesWithExtensions, data, newLen, true, extensions)
+	return err
+}
+
+// packetPadWithoutExtensions relocates the contiguous frame payload with Go's
+// overlap-safe copy before rebuilding the code 3 framing in the same buffer.
+func packetPadWithoutExtensions(data []byte, packetLen, newLen int, tocBase byte, padding int, frameSizes []int, frames [][]byte) error {
+	frameBytes := 0
+	vbr := false
+	for i, size := range frameSizes {
+		frameBytes += size
+		if i > 0 && size != frameSizes[0] {
+			vbr = true
+		}
+	}
+
+	lengthBytes := 0
+	if vbr {
+		for _, size := range frameSizes[:len(frameSizes)-1] {
+			lengthBytes += frameLengthBytes(size)
+		}
+	}
+	baseLen := 2 + lengthBytes + frameBytes
+	if newLen < baseLen {
+		return ErrBufferTooSmall
+	}
+	paddingAmount := newLen - baseLen
+	payloadStart := 2 + lengthBytes + paddingLengthBytes(paddingAmount)
+	sourceStart := packetLen - padding - frameBytes
+	copy(data[payloadStart:payloadStart+frameBytes], data[sourceStart:sourceStart+frameBytes])
+
+	offset := payloadStart
+	for i, size := range frameSizes {
+		frames[i] = data[offset : offset+size]
+		offset += size
+	}
+	_, err := buildRepacketizedPacketWithOptions(tocBase, frames, data, newLen, true, nil)
 	return err
 }
 
@@ -159,15 +244,14 @@ func PacketUnpad(data []byte, length int) (int, error) {
 		return 0, ErrInvalidArgument
 	}
 
-	src := make([]byte, length)
-	copy(src, data[:length])
-
-	_, frames, err := parsePacketFrames(src)
+	var frameSizes [maxRepacketizerFrames]int
+	var frames [maxRepacketizerFrames][]byte
+	_, frameCount, _, err := parsePacketFramesInto(data[:length], &frameSizes, &frames)
 	if err != nil {
 		return 0, err
 	}
 
-	return buildRepacketizedPacket(src[0]&0xFC, frames, data[:length])
+	return buildRepacketizedPacket(data[0]&0xFC, frames[:frameCount], data[:length])
 }
 
 func parseSelfDelimitedPacket(data []byte) (tocBase byte, frames [][]byte, consumed int, err error) {
@@ -390,10 +474,29 @@ func parsePacketFrames(data []byte) (PacketInfo, [][]byte, error) {
 	}
 
 	frames := make([][]byte, info.FrameCount)
+	if err := fillPacketFrameSlices(data, info, frames); err != nil {
+		return PacketInfo{}, nil, err
+	}
+	return info, frames, nil
+}
+
+func parsePacketFramesInto(data []byte, frameSizes *[maxRepacketizerFrames]int, frames *[maxRepacketizerFrames][]byte) (toc TOC, frameCount, padding int, err error) {
+	info, err := parsePacketInto(data, frameSizes)
+	if err != nil {
+		return TOC{}, 0, 0, err
+	}
+	toc, frameCount, padding = info.TOC, info.FrameCount, info.Padding
+	if err := fillPacketFrameSlices(data, info, frames[:frameCount]); err != nil {
+		return TOC{}, 0, 0, err
+	}
+	return toc, frameCount, padding, nil
+}
+
+func fillPacketFrameSlices(data []byte, info PacketInfo, frames [][]byte) error {
 	switch info.TOC.FrameCode {
 	case 0:
 		if len(data) < 1+info.FrameSizes[0] {
-			return PacketInfo{}, nil, ErrInvalidPacket
+			return ErrInvalidPacket
 		}
 		frames[0] = data[1 : 1+info.FrameSizes[0]]
 	case 1:
@@ -401,7 +504,7 @@ func parsePacketFrames(data []byte) (PacketInfo, [][]byte, error) {
 		for i := 0; i < info.FrameCount; i++ {
 			frameLen := info.FrameSizes[i]
 			if offset+frameLen > len(data) {
-				return PacketInfo{}, nil, ErrInvalidPacket
+				return ErrInvalidPacket
 			}
 			frames[i] = data[offset : offset+frameLen]
 			offset += frameLen
@@ -409,20 +512,20 @@ func parsePacketFrames(data []byte) (PacketInfo, [][]byte, error) {
 	case 2:
 		frame1Len, bytesRead, err := parseFrameLength(data, 1)
 		if err != nil {
-			return PacketInfo{}, nil, err
+			return err
 		}
 		headerLen := 1 + bytesRead
 		if frame1Len != info.FrameSizes[0] {
-			return PacketInfo{}, nil, ErrInvalidPacket
+			return ErrInvalidPacket
 		}
 		if headerLen+info.FrameSizes[0]+info.FrameSizes[1] > len(data) {
-			return PacketInfo{}, nil, ErrInvalidPacket
+			return ErrInvalidPacket
 		}
 		frames[0] = data[headerLen : headerLen+info.FrameSizes[0]]
 		frames[1] = data[headerLen+info.FrameSizes[0] : headerLen+info.FrameSizes[0]+info.FrameSizes[1]]
 	case 3:
 		if len(data) < 2 {
-			return PacketInfo{}, nil, ErrPacketTooShort
+			return ErrPacketTooShort
 		}
 		frameCountByte := data[1]
 		vbr := (frameCountByte & 0x80) != 0
@@ -433,7 +536,7 @@ func parsePacketFrames(data []byte) (PacketInfo, [][]byte, error) {
 		if hasPadding {
 			for {
 				if offset >= len(data) {
-					return PacketInfo{}, nil, ErrPacketTooShort
+					return ErrPacketTooShort
 				}
 				padByte := int(data[offset])
 				offset++
@@ -452,7 +555,7 @@ func parsePacketFrames(data []byte) (PacketInfo, [][]byte, error) {
 			for i := 0; i < info.FrameCount-1; i++ {
 				_, bytesRead, err := parseFrameLength(data, offset)
 				if err != nil {
-					return PacketInfo{}, nil, err
+					return err
 				}
 				offset += bytesRead
 			}
@@ -463,16 +566,16 @@ func parsePacketFrames(data []byte) (PacketInfo, [][]byte, error) {
 		for i := 0; i < info.FrameCount; i++ {
 			frameLen := info.FrameSizes[i]
 			if frameLen < 0 || frameOffset+frameLen > frameDataEnd {
-				return PacketInfo{}, nil, ErrInvalidPacket
+				return ErrInvalidPacket
 			}
 			frames[i] = data[frameOffset : frameOffset+frameLen]
 			frameOffset += frameLen
 		}
 	default:
-		return PacketInfo{}, nil, ErrInvalidPacket
+		return ErrInvalidPacket
 	}
 
-	return info, frames, nil
+	return nil
 }
 
 func parsePacketFramesAndPadding(data []byte) (PacketInfo, [][]byte, []byte, int, error) {

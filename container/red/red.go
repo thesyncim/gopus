@@ -96,6 +96,7 @@ func ParseInto(buf []byte, primaryPayloadType byte, dst []Block) (primary []byte
 	}
 	var hdrs [MaxDepth]hdr
 	n := 0
+	redPayloadLen := 0
 
 	pos := 0
 	for {
@@ -128,26 +129,35 @@ func ParseInto(buf []byte, primaryPayloadType byte, dst []Block) (primary []byte
 			return nil, nil, errTooManyBlocks
 		}
 		hdrs[n] = hdr{payloadType: pt, timestampOffset: offset, length: length}
+		redPayloadLen += length
 		n++
 		pos += 4
 	}
 
+	remaining := len(buf) - pos
+	if redPayloadLen > remaining {
+		return nil, nil, errTruncatedRedPayload
+	}
+	if redPayloadLen == remaining {
+		return nil, nil, errMissingPrimary
+	}
+
 	blocks = dst[:0]
+	if n > 0 {
+		if cap(dst) < n {
+			blocks = make([]Block, n)
+		} else {
+			blocks = dst[:n]
+		}
+	}
 	for i := 0; i < n; i++ {
 		h := hdrs[i]
-		if pos+h.length > len(buf) {
-			return nil, nil, errTruncatedRedPayload
-		}
-		blocks = append(blocks, Block{
+		blocks[i] = Block{
 			PayloadType:     h.payloadType,
 			TimestampOffset: h.timestampOffset,
 			Payload:         buf[pos : pos+h.length],
-		})
+		}
 		pos += h.length
-	}
-
-	if pos >= len(buf) {
-		return nil, nil, errMissingPrimary
 	}
 	return buf[pos:], blocks, nil
 }
@@ -306,6 +316,9 @@ func AppendHistory(history []Frame, payload []byte, timestamp uint32, maxDepth i
 	var buf []byte
 	if len(history) >= maxDepth {
 		buf = history[len(history)-1].Payload
+		if len(history) > maxDepth {
+			clear(history[maxDepth:])
+		}
 		history = history[:maxDepth]
 	} else {
 		history = append(history, Frame{})
@@ -345,9 +358,15 @@ func NewDecoder(primaryPayloadType byte) *Decoder {
 // it has enough capacity for the packet's blocks.
 func (d *Decoder) Parse(buf []byte) (primary []byte, blocks []Block, err error) {
 	primary, blocks, err = ParseInto(buf, d.pt, d.blocks[:0])
-	if err == nil {
-		d.blocks = blocks
+	if err != nil {
+		clear(d.blocks[:cap(d.blocks)])
+		d.blocks = d.blocks[:0]
+		return nil, nil, err
 	}
+	if len(blocks) < len(d.blocks) {
+		clear(blocks[len(blocks):len(d.blocks)])
+	}
+	d.blocks = blocks
 	return primary, blocks, err
 }
 
@@ -394,5 +413,6 @@ func (e *Encoder) Encode(primary []byte, timestamp uint32) (payload []byte, redu
 // by an earlier Encode remains valid until the next Encode reuses the output
 // buffer.
 func (e *Encoder) Reset() {
+	clear(e.history)
 	e.history = e.history[:0]
 }

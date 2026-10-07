@@ -22,8 +22,8 @@ This README describes `master`, which requires Go 1.27 or newer:
 go get github.com/thesyncim/gopus@master
 ```
 
-For the published release, use `@v0.2.1` and its
-[versioned documentation](https://github.com/thesyncim/gopus/tree/v0.2.1).
+For the published release, use `@v0.2.2` and its
+[versioned documentation](https://github.com/thesyncim/gopus/tree/v0.2.2).
 
 ## Quick start
 
@@ -463,11 +463,11 @@ paired benchmark samples for both revisions share one runner.
 
 ## Trust And Verification
 
-Released version: `v0.2.1`. The API is pre-v1.
+Released version: `v0.2.2`. The API is pre-v1.
 
 `v0.1.0` is retracted: it has no published GitHub Release.
 Latest release evidence: attached to the
-[v0.2.1 release](https://github.com/thesyncim/gopus/releases/tag/v0.2.1).
+[v0.2.2 release](https://github.com/thesyncim/gopus/releases/tag/v0.2.2).
 
 Required branch checks:
 

@@ -18,8 +18,9 @@ var (
 	// instead of rejecting a nonzero value; checksum mismatches return ErrBadCRC.
 	ErrInvalidPage = errors.New("ogg: invalid page structure")
 
-	// ErrInvalidHeader indicates an Opus header (OpusHead or OpusTags) is malformed.
-	// This includes wrong magic signature, unsupported version, or truncated data.
+	// ErrInvalidHeader indicates an Opus header (OpusHead or OpusTags) is malformed
+	// or exceeds the supported comment-header size. This includes wrong magic
+	// signature, unsupported version, or truncated data.
 	ErrInvalidHeader = errors.New("ogg: invalid Opus header")
 
 	// ErrBadCRC indicates the page CRC checksum does not match the computed value.
@@ -31,9 +32,10 @@ var (
 	// truncated page framing is reported separately.
 	ErrUnexpectedEOS = errors.New("ogg: unexpected end of stream")
 
-	// ErrPacketTooLarge indicates that ReadPacketInto consumed a packet whose
-	// length exceeds len(dst). The packet is consumed even though the method
-	// returns n == 0 and this error.
+	// ErrPacketTooLarge indicates that ReadPacket or SeekGranule encountered a
+	// packet larger than 61,440 octets per coded stream, or that ReadPacketInto
+	// encountered a packet larger than len(dst). The packet is consumed even
+	// though the method returns no packet and this error.
 	ErrPacketTooLarge = errors.New("ogg: packet too large for buffer")
 
 	// ErrNotSeekable indicates the reader does not support seeking.

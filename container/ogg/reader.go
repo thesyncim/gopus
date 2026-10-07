@@ -44,12 +44,16 @@ type Reader struct {
 // readerBufferSize is the size of the internal read buffer.
 const readerBufferSize = 64 * 1024 // 64KB
 
+const maxOpusPacketSizePerStream = 61_440 // RFC 7845 §6's expected packet size.
+
 // NewReader returns a Reader for r after parsing the OpusHead and OpusTags
 // headers from the initial logical bitstream. It requires a BOS page containing
 // OpusHead followed by OpusTags pages with the same serial number; pages from
 // other logical bitstreams are skipped. Split OpusTags pages must carry the
 // continuation flag and consecutive sequence numbers. An EOS page before
 // OpusTags completes is invalid; an EOS OpusTags page produces a reader at EOF.
+// OpusTags packets larger than 120 MiB are rejected to bound header memory use;
+// RFC 7845 §5.2 permits rejecting comment headers above this size.
 // Page lengths and CRCs are checked while reading, and nonzero Ogg page
 // versions return ErrInvalidPage.
 // It returns ErrNilReader for a nil reader, ErrInvalidPage or
@@ -134,6 +138,9 @@ func NewReader(r io.Reader) (*Reader, error) {
 		if page.IsEOS() && !completed {
 			return nil, ErrInvalidPage
 		}
+		if !opusTagsSizeWithinLimit(len(tagsData), len(page.Payload)) {
+			return nil, ErrInvalidHeader
+		}
 		tagsData = append(tagsData, page.Payload...)
 		if completed {
 			or.headerEOS = page.IsEOS()
@@ -161,13 +168,14 @@ func NewReader(r io.Reader) (*Reader, error) {
 
 // ReadPacket returns the next Opus packet and its granule position, reassembling
 // packets that span pages. The returned packet is an independent copy that the
-// caller may retain or modify. Pages from other logical bitstreams are skipped.
+// caller may retain or modify. Packets larger than 61,440 octets per coded
+// stream return ErrPacketTooLarge. Pages from other logical bitstreams are skipped.
 // Incomplete packets caused by missing pages are discarded.
 // It returns io.EOF when the selected stream is exhausted or no more packet
 // data can be read; an unterminated trailing packet can also end with io.EOF.
 // Page framing, CRC, and underlying read errors are returned to the caller.
 func (or *Reader) ReadPacket() (packet []byte, granulePos uint64, err error) {
-	out, granule, err := or.nextPacket(or.pktScratch[:0], -1)
+	out, granule, err := or.nextPacket(or.pktScratch[:0], or.maxPacketSize())
 	if err != nil {
 		return nil, 0, err
 	}
@@ -177,10 +185,12 @@ func (or *Reader) ReadPacket() (packet []byte, granulePos uint64, err error) {
 
 // ReadPacketInto writes the next Opus packet into dst and returns its length and
 // granule position. len(dst), rather than cap(dst), is the size limit; the
-// method does not grow dst or write beyond its length. If the packet is larger,
-// it discards the excess without allocating packet storage, consumes the packet,
-// and returns n == 0, granulePos == 0, and ErrPacketTooLarge. Pages from other
-// logical bitstreams are skipped, and io.EOF indicates stream exhaustion.
+// method does not grow dst or write beyond its length. Unlike ReadPacket and
+// SeekGranule, it can read larger packets when the caller supplies enough
+// storage. If the packet exceeds len(dst), it discards the excess without
+// allocating packet storage, consumes the packet, and returns n == 0,
+// granulePos == 0, and ErrPacketTooLarge. Pages from other logical bitstreams
+// are skipped, and io.EOF indicates stream exhaustion.
 func (or *Reader) ReadPacketInto(dst []byte) (n int, granulePos uint64, err error) {
 	out, granule, err := or.nextPacket(dst[:0], len(dst))
 	if err != nil {
@@ -189,17 +199,16 @@ func (or *Reader) ReadPacketInto(dst []byte) (n int, granulePos uint64, err erro
 	return len(out), granule, nil
 }
 
-// nextPacket appends the next packet's bytes to dst[:0] and returns the result
-// along with its granule position. A negative limit allows dst to grow; otherwise
-// packets larger than limit are consumed without growing dst and return
-// ErrPacketTooLarge. It walks the lacing table across pages, skipping other
-// logical streams, dropping abandoned continuations, and clamping truncated
-// pages.
+// nextPacket appends the next packet's bytes to dst[:0] up to limit and returns
+// the result with its granule position. Packets larger than limit are consumed
+// without growing dst and return ErrPacketTooLarge. It walks the lacing table
+// across pages, skips other logical streams, drops abandoned continuations, and
+// clamps truncated pages.
 func (or *Reader) nextPacket(dst []byte, limit int) ([]byte, uint64, error) {
 	if or.hasPush {
 		or.hasPush = false
 		or.granulePos = or.pushbackG
-		if limit >= 0 && len(or.pushback) > limit {
+		if len(or.pushback) > limit {
 			return dst[:0], 0, ErrPacketTooLarge
 		}
 		return append(dst[:0], or.pushback...), or.pushbackG, nil
@@ -230,7 +239,7 @@ func (or *Reader) nextPacket(dst []byte, limit int) ([]byte, uint64, error) {
 			if packetHeaderLen < len(packetHeader) {
 				packetHeaderLen += copy(packetHeader[packetHeaderLen:], or.page.Payload[or.payOff:or.payOff+seg])
 			}
-			if limit >= 0 && seg > limit-len(dst) {
+			if seg > limit-len(dst) {
 				tooLarge = true
 			}
 			if !tooLarge {
@@ -283,6 +292,14 @@ func (or *Reader) nextPacket(dst []byte, limit int) ([]byte, uint64, error) {
 		}
 		return dst, granule, nil
 	}
+}
+
+func (or *Reader) maxPacketSize() int {
+	streams := 1
+	if or.Header != nil && or.Header.StreamCount > 0 {
+		streams = int(or.Header.StreamCount)
+	}
+	return maxOpusPacketSizePerStream * streams
 }
 
 // advancePage loads the next page of this logical stream and reports whether
@@ -494,7 +511,8 @@ func (or *Reader) packetGranule() uint64 {
 // the first packet whose computed granule position is at least target. On
 // success, the next ReadPacket or ReadPacketInto returns that packet; repeated
 // calls start the scan again from the first audio page. It returns ErrNotSeekable
-// if the source does not implement io.ReadSeeker, io.EOF if no packet reaches
+// if the source does not implement io.ReadSeeker, ErrPacketTooLarge when a
+// scanned packet exceeds the per-stream size limit, io.EOF if no packet reaches
 // target, and propagates seek or read errors.
 func (or *Reader) SeekGranule(target uint64) error {
 	if or.rs == nil {
@@ -523,7 +541,7 @@ func (or *Reader) SeekGranule(target uint64) error {
 	or.pendingErr = nil
 
 	for {
-		out, granule, err := or.nextPacket(or.pktScratch[:0], -1)
+		out, granule, err := or.nextPacket(or.pktScratch[:0], or.maxPacketSize())
 		if err != nil {
 			return err
 		}

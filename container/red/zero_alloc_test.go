@@ -165,6 +165,25 @@ func BenchmarkParse(b *testing.B) {
 	_ = dst
 }
 
+func BenchmarkDecoderParse(b *testing.B) {
+	history := make([]Frame, MaxDepth)
+	for i := range history {
+		history[i] = Frame{Timestamp: uint32(i * 960), Payload: make([]byte, 80)}
+	}
+	p, _ := Build(make([]byte, 120), MaxDepth*960, history, MaxDepth, 960, 111)
+	dec := NewDecoder(111)
+	if _, _, err := dec.Parse(p); err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, _, err := dec.Parse(p); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 func BenchmarkBuild(b *testing.B) {
 	hist := zaHistory()
 	primary := make([]byte, 120)
