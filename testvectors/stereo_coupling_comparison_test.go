@@ -203,29 +203,23 @@ func TestStereoCouplingTestvector07(t *testing.T) {
 			monoCount++
 		}
 		pcm, err := decodeInt16(stereoDec, pkt.Data)
-
 		if err != nil {
-			if i < 10 {
-				t.Logf("Packet %d decode error: %v (stereo=%v)", i, err, pktTOC.Stereo)
-			}
-			// Use zeros
-			zeros := make([]int16, pktTOC.FrameSize*2)
-			allDecoded = append(allDecoded, zeros...)
-			continue
+			t.Fatalf("packet %d decode failed (stereo=%v): %v", i, pktTOC.Stereo, err)
 		}
-
 		allDecoded = append(allDecoded, pcm...)
 	}
 
 	t.Logf("Decoded: %d samples (mono packets: %d, stereo packets: %d)",
 		len(allDecoded), monoCount, stereoCount)
 
-	// Compare with reference
-	compareLen := min(len(refSamples), len(allDecoded))
+	// The RFC .dec reference contains the full packet-duration decode.
+	if len(allDecoded) != len(refSamples) {
+		t.Fatalf("decoded sample count=%d, reference sample count=%d", len(allDecoded), len(refSamples))
+	}
 
-	// Compute quality metrics
+	// Compute quality metrics over the complete, sample-aligned stream.
 	var signalPower, errorPower float64
-	for i := 0; i < compareLen; i++ {
+	for i := range refSamples {
 		ref := float64(refSamples[i])
 		dec := float64(allDecoded[i])
 		signalPower += ref * ref

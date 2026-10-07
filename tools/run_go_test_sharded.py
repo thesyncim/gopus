@@ -116,8 +116,11 @@ def discover_tests(
     return sorted(inventory)
 
 
-def runnable_packages(go_command: list[str], env: dict[str, str], root: pathlib.Path) -> list[str]:
-    command = go_command + ["list", "./..."]
+def runnable_packages(
+    go_command: list[str], env: dict[str, str], root: pathlib.Path,
+    list_args: list[str], packages: list[str],
+) -> list[str]:
+    command = go_command + ["list"] + list_args + packages
     completed = subprocess.run(command, cwd=root, env=env, text=True,
                                capture_output=True, check=False)
     if completed.returncode:
@@ -164,6 +167,7 @@ def main() -> int:
     parser.add_argument("--shard", required=True, help="zero-based INDEX/TOTAL")
     parser.add_argument("--report", type=pathlib.Path)
     parser.add_argument("--test-arg", action="append", default=[])
+    parser.add_argument("--go-list-arg", action="append", default=[])
     parser.add_argument("--package", action="append", default=[])
     args = parser.parse_args()
 
@@ -175,7 +179,10 @@ def main() -> int:
         env = os.environ.copy()
         env.update(parse_go_env(args.go_work_env))
         test_args = test_selection_args(args.test_arg)
-        packages = args.package or runnable_packages(go_command, env, args.root)
+        package_patterns = args.package or ["./..."]
+        packages = runnable_packages(
+            go_command, env, args.root, args.go_list_arg, package_patterns
+        )
         inventory = discover_tests(go_command, env, test_args, packages, args.root)
     except (ValueError, RuntimeError) as exc:
         print(f"go test sharding: {exc}", file=sys.stderr)
