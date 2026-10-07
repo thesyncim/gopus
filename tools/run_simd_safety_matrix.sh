@@ -19,65 +19,80 @@ run_lane() {
   "$@"
 }
 
+run_amd64_lane() {
+  local target="$1"
+  local label="$2"
+  shift 2
+
+  run_lane "$label" env "GOPUS_LIBOPUS_AMD64_TARGET=${target}" "$@"
+}
+
+run_arm64_lane() {
+  local label="$1"
+  shift
+
+  run_lane "$label" env -u GOPUS_LIBOPUS_AMD64_TARGET "$@"
+}
+
 host_arch="$(GOWORK=off go env GOARCH)"
 
 case "${host_arch}" in
   amd64)
     for goamd64 in v1 v3; do
-      run_lane "amd64 ${goamd64} source contract" \
-        env GOWORK=off GOAMD64="${goamd64}" go test . -run "${ROOT_KERNEL_RE}" -count=1
-      run_lane "amd64 ${goamd64} celt kernel parity" \
-        env GOWORK=off GOAMD64="${goamd64}" go test ./internal/celt -run "${CELT_KERNEL_RE}" -count=1
-      run_lane "amd64 ${goamd64} silk kernel parity" \
-        env GOWORK=off GOAMD64="${goamd64}" go test ./internal/silk -run "${SILK_KERNEL_RE}" -count=1
-      run_lane "amd64 ${goamd64} dnnmath kernel parity" \
-        env GOWORK=off GOAMD64="${goamd64}" go test ./internal/dnnmath -run "${DNN_ASM_RE}" -count=1
-      run_lane "amd64 ${goamd64} nosimd kernel references" \
-        env GOWORK=off GOAMD64="${goamd64}" go test -tags=nosimd . ./internal/celt ./internal/silk ./internal/dnnmath -run "${ROOT_KERNEL_RE}|${CELT_KERNEL_RE}|${SILK_KERNEL_RE}|${DNN_ASM_RE}" -count=1
-      run_lane "amd64 ${goamd64} celt kernel fuzz smoke" \
-        env GOWORK=off GOAMD64="${goamd64}" go test ./internal/celt -run '^$' -fuzz FuzzCELTKernelsMatchReference -fuzztime "${ASM_FUZZTIME}" -count=1
-      run_lane "amd64 ${goamd64} silk kernel fuzz smoke" \
-        env GOWORK=off GOAMD64="${goamd64}" go test ./internal/silk -run '^$' -fuzz FuzzSilkKernelsMatchReference -fuzztime "${ASM_FUZZTIME}" -count=1
-      run_lane "amd64 ${goamd64} dnnmath kernel fuzz smoke" \
-        env GOWORK=off GOAMD64="${goamd64}" go test ./internal/dnnmath -run '^$' -fuzz FuzzReciprocalEstimate32FiniteAndBounded -fuzztime "${ASM_FUZZTIME}" -count=1
-      run_lane "amd64 ${goamd64} parity" \
-        env GOWORK=off GOAMD64="${goamd64}" GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
+      run_amd64_lane "${goamd64}" "amd64 ${goamd64} source contract" \
+        GOWORK=off GOAMD64="${goamd64}" go test . -run "${ROOT_KERNEL_RE}" -count=1
+      run_amd64_lane "${goamd64}" "amd64 ${goamd64} celt kernel parity" \
+        GOWORK=off GOAMD64="${goamd64}" go test ./internal/celt -run "${CELT_KERNEL_RE}" -count=1
+      run_amd64_lane "${goamd64}" "amd64 ${goamd64} silk kernel parity" \
+        GOWORK=off GOAMD64="${goamd64}" go test ./internal/silk -run "${SILK_KERNEL_RE}" -count=1
+      run_amd64_lane "${goamd64}" "amd64 ${goamd64} dnnmath kernel parity" \
+        GOWORK=off GOAMD64="${goamd64}" go test ./internal/dnnmath -run "${DNN_ASM_RE}" -count=1
+      run_amd64_lane "${goamd64}" "amd64 ${goamd64} nosimd kernel references" \
+        GOWORK=off GOAMD64="${goamd64}" go test -tags=nosimd . ./internal/celt ./internal/silk ./internal/dnnmath -run "${ROOT_KERNEL_RE}|${CELT_KERNEL_RE}|${SILK_KERNEL_RE}|${DNN_ASM_RE}" -count=1
+      run_amd64_lane "${goamd64}" "amd64 ${goamd64} celt kernel fuzz smoke" \
+        GOWORK=off GOAMD64="${goamd64}" go test ./internal/celt -run '^$' -fuzz FuzzCELTKernelsMatchReference -fuzztime "${ASM_FUZZTIME}" -count=1
+      run_amd64_lane "${goamd64}" "amd64 ${goamd64} silk kernel fuzz smoke" \
+        GOWORK=off GOAMD64="${goamd64}" go test ./internal/silk -run '^$' -fuzz FuzzSilkKernelsMatchReference -fuzztime "${ASM_FUZZTIME}" -count=1
+      run_amd64_lane "${goamd64}" "amd64 ${goamd64} dnnmath kernel fuzz smoke" \
+        GOWORK=off GOAMD64="${goamd64}" go test ./internal/dnnmath -run '^$' -fuzz FuzzReciprocalEstimate32FiniteAndBounded -fuzztime "${ASM_FUZZTIME}" -count=1
+      run_amd64_lane "${goamd64}" "amd64 ${goamd64} parity" \
+        GOWORK=off GOAMD64="${goamd64}" GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
           go test ./testvectors -run "${PARITY_RE}" -count=1
-      run_lane "amd64 ${goamd64} nosimd parity" \
-        env GOWORK=off GOAMD64="${goamd64}" GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
+      run_amd64_lane "${goamd64}" "amd64 ${goamd64} nosimd parity" \
+        GOWORK=off GOAMD64="${goamd64}" GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
           go test -tags=nosimd ./testvectors -run "${PARITY_RE}" -count=1
     done
     ;;
   arm64)
-    run_lane "arm64 package vet" \
-      env GOWORK=off go vet . ./internal/celt ./internal/silk ./internal/dnnmath
-    run_lane "linux/arm64 package vet" \
-      env GOWORK=off GOOS=linux GOARCH=arm64 go vet . ./internal/celt ./internal/silk ./internal/dnnmath
-    run_lane "arm64 opt-in tone LPC package vet" \
-      env GOWORK=off go vet -tags=gopus_neon_tone_lpc_corr ./internal/celt
-    run_lane "linux/arm64 opt-in tone LPC package vet" \
-      env GOWORK=off GOOS=linux GOARCH=arm64 go vet -tags=gopus_neon_tone_lpc_corr ./internal/celt
-    run_lane "arm64 source contract" \
-      env GOWORK=off go test . -run "${ROOT_KERNEL_RE}" -count=1
-    run_lane "arm64 celt kernel parity" \
-      env GOWORK=off go test ./internal/celt -run "${CELT_KERNEL_RE}" -count=1
-    run_lane "arm64 silk kernel parity" \
-      env GOWORK=off go test ./internal/silk -run "${SILK_KERNEL_RE}" -count=1
-    run_lane "arm64 dnnmath kernel parity" \
-      env GOWORK=off go test ./internal/dnnmath -run "${DNN_ASM_RE}" -count=1
-    run_lane "arm64 nosimd kernel references" \
-      env GOWORK=off go test -tags=nosimd . ./internal/celt ./internal/silk ./internal/dnnmath -run "${ROOT_KERNEL_RE}|${CELT_KERNEL_RE}|${SILK_KERNEL_RE}|${DNN_ASM_RE}" -count=1
-    run_lane "arm64 celt kernel fuzz smoke" \
-      env GOWORK=off go test ./internal/celt -run '^$' -fuzz FuzzCELTKernelsMatchReference -fuzztime "${ASM_FUZZTIME}" -count=1
-    run_lane "arm64 silk kernel fuzz smoke" \
-      env GOWORK=off go test ./internal/silk -run '^$' -fuzz FuzzSilkKernelsMatchReference -fuzztime "${ASM_FUZZTIME}" -count=1
-    run_lane "arm64 dnnmath kernel fuzz smoke" \
-      env GOWORK=off go test ./internal/dnnmath -run '^$' -fuzz FuzzReciprocalEstimate32FiniteAndBounded -fuzztime "${ASM_FUZZTIME}" -count=1
-    run_lane "arm64 parity" \
-      env GOWORK=off GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
+    run_arm64_lane "arm64 package vet" \
+      GOWORK=off go vet . ./internal/celt ./internal/silk ./internal/dnnmath
+    run_arm64_lane "linux/arm64 package vet" \
+      GOWORK=off GOOS=linux GOARCH=arm64 go vet . ./internal/celt ./internal/silk ./internal/dnnmath
+    run_arm64_lane "arm64 opt-in tone LPC package vet" \
+      GOWORK=off go vet -tags=gopus_neon_tone_lpc_corr ./internal/celt
+    run_arm64_lane "linux/arm64 opt-in tone LPC package vet" \
+      GOWORK=off GOOS=linux GOARCH=arm64 go vet -tags=gopus_neon_tone_lpc_corr ./internal/celt
+    run_arm64_lane "arm64 source contract" \
+      GOWORK=off go test . -run "${ROOT_KERNEL_RE}" -count=1
+    run_arm64_lane "arm64 celt kernel parity" \
+      GOWORK=off go test ./internal/celt -run "${CELT_KERNEL_RE}" -count=1
+    run_arm64_lane "arm64 silk kernel parity" \
+      GOWORK=off go test ./internal/silk -run "${SILK_KERNEL_RE}" -count=1
+    run_arm64_lane "arm64 dnnmath kernel parity" \
+      GOWORK=off go test ./internal/dnnmath -run "${DNN_ASM_RE}" -count=1
+    run_arm64_lane "arm64 nosimd kernel references" \
+      GOWORK=off go test -tags=nosimd . ./internal/celt ./internal/silk ./internal/dnnmath -run "${ROOT_KERNEL_RE}|${CELT_KERNEL_RE}|${SILK_KERNEL_RE}|${DNN_ASM_RE}" -count=1
+    run_arm64_lane "arm64 celt kernel fuzz smoke" \
+      GOWORK=off go test ./internal/celt -run '^$' -fuzz FuzzCELTKernelsMatchReference -fuzztime "${ASM_FUZZTIME}" -count=1
+    run_arm64_lane "arm64 silk kernel fuzz smoke" \
+      GOWORK=off go test ./internal/silk -run '^$' -fuzz FuzzSilkKernelsMatchReference -fuzztime "${ASM_FUZZTIME}" -count=1
+    run_arm64_lane "arm64 dnnmath kernel fuzz smoke" \
+      GOWORK=off go test ./internal/dnnmath -run '^$' -fuzz FuzzReciprocalEstimate32FiniteAndBounded -fuzztime "${ASM_FUZZTIME}" -count=1
+    run_arm64_lane "arm64 parity" \
+      GOWORK=off GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
         go test ./testvectors -run "${PARITY_RE}" -count=1
-    run_lane "arm64 nosimd parity" \
-      env GOWORK=off GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
+    run_arm64_lane "arm64 nosimd parity" \
+      GOWORK=off GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
         go test -tags=nosimd ./testvectors -run "${PARITY_RE}" -count=1
     ;;
   *)
