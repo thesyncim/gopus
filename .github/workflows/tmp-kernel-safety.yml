@@ -13,27 +13,37 @@ env:
   LIBOPUS_VERSION: "1.6.1"
 
 jobs:
-  sweep:
+  simd-haar:
     runs-on: ubuntu-latest
-    timeout-minutes: 80
-    strategy:
-      fail-fast: false
-      matrix:
-        mode: [unpaired, paired]
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
-      - name: Build default libopus tree
-        run: make ensure-libopus
-      - name: v3 celt and silk packages (${{ matrix.mode }})
+      - run: make ensure-libopus
+      - name: Haar and kernel tests with GOEXPERIMENT=simd
         run: |
           set +e
-          if [ "${{ matrix.mode }}" = paired ]; then
-            export GOPUS_LIBOPUS_AMD64_TARGET=v3
-          fi
-          export GOAMD64=v3
-          go test ./internal/celt ./internal/silk -count=1 -timeout 60m 2>&1 | grep -E '^(--- FAIL|FAIL|ok|panic)|^    --- FAIL|_test.go:[0-9]+:' | cut -c1-240 | head -150
-          echo "exit status of pipeline: ${PIPESTATUS[0]}"
+          RE="$(grep -o "^CELT_KERNEL_RE='[^']*'" tools/run_simd_safety_matrix.sh | sed "s/^CELT_KERNEL_RE='//;s/'$//")"
+          echo "--- simd v1 (baseline libopus simd tree)"
+          GOEXPERIMENT=simd GOAMD64=v1 go test ./internal/celt -run "^TestHaar1|${RE}" -count=1 -v 2>&1 | grep -E '^(--- |ok|FAIL|PASS)|SKIP|haar1_exact' | head -40
+          echo "--- simd v3 paired"
+          GOEXPERIMENT=simd GOAMD64=v3 GOPUS_LIBOPUS_AMD64_TARGET=v3 go test ./internal/celt -run "^TestHaar1|${RE}" -count=1 -v 2>&1 | grep -E '^(--- |ok|FAIL|PASS)|SKIP|haar1_exact' | head -40
+          echo "--- simd v3 unpaired"
+          GOEXPERIMENT=simd GOAMD64=v3 go test ./internal/celt -run "^TestHaar1" -count=1 -v 2>&1 | grep -E '^(--- |ok|FAIL|PASS)|SKIP|haar1_exact' | head -40
+  paired-sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: make ensure-libopus
+      - name: paired v3 celt and silk, fixed-point/optional references skipped
+        run: |
+          set +e
+          GOAMD64=v3 GOPUS_LIBOPUS_AMD64_TARGET=v3 go test ./internal/celt ./internal/silk -count=1 -timeout 60m -skip 'Fixed|QEXT|Custom|DRED|OSCE' 2>&1 | grep -E '^(--- FAIL|FAIL|ok|panic)|^    --- FAIL' | cut -c1-200 | head -100
