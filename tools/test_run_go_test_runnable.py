@@ -150,6 +150,18 @@ class RunGoTestRunnableTest(unittest.TestCase):
                     "test", "-short", "github.com/thesyncim/gopus/testvectors", "-args", "-test.v",
                 ])
 
+    def test_missing_value_flags_fail_before_package_discovery(self):
+        for args in (["-tags", "--", "./testvectors"], ["-run", "--", "./testvectors"],
+                     ["-benchtime", "--", "./testvectors"],
+                     ["-cpuprofile", "--", "./testvectors"],
+                     ["-test.run", "--", "./testvectors"]):
+            for shell in bash_commands():
+                with self.subTest(shell=shell, args=args):
+                    result, calls = self.run_wrapper(shell, list(args))
+                    self.assertEqual(result.returncode, 2)
+                    self.assertIn("requires a value", result.stderr)
+                    self.assertEqual(calls, [])
+
     def test_go_list_failure_propagates_and_never_runs_go_test(self):
         for shell in bash_commands():
             with self.subTest(shell=shell):

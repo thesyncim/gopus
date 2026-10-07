@@ -91,13 +91,19 @@ class SimdSafetyMatrixEnvironmentTests(unittest.TestCase):
         result, calls = self.run_matrix("arm64", inherited_target="v3")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(len(calls), 14)
+        go_commands = []
         for args in calls:
+            self.assertIn("go", args)
+            go_commands.append(args[args.index("go") + 1])
             self.assertGreaterEqual(len(args), 2, args)
             self.assertEqual(args[:2], ["-u", "GOPUS_LIBOPUS_AMD64_TARGET"], args)
             self.assertFalse(
                 any(arg.startswith("GOPUS_LIBOPUS_AMD64_TARGET=") for arg in args),
                 args,
             )
+
+        self.assertEqual(go_commands.count("test"), 10)
+        self.assertEqual(go_commands.count("vet"), 4)
 
 
 if __name__ == "__main__":

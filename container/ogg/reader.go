@@ -11,6 +11,7 @@ type Reader struct {
 	Tags          *OpusTags // Parsed comment header (set after NewReader)
 	granulePos    uint64    // Granule position of the last consumed packet
 	eos           bool      // End-of-stream page consumed
+	headerEOS     bool      // The selected stream ends on the OpusTags page
 	serial        uint32    // Stream serial number
 	audioOffset   int64     // Stream offset of the first audio page for seekable inputs
 	audioSequence uint32    // Sequence number of the first audio page
@@ -47,8 +48,10 @@ const readerBufferSize = 64 * 1024 // 64KB
 // headers from the initial logical bitstream. It requires a BOS page containing
 // OpusHead followed by OpusTags pages with the same serial number; pages from
 // other logical bitstreams are skipped. Split OpusTags pages must carry the
-// continuation flag and consecutive sequence numbers. Page lengths and CRCs
-// are checked while reading, and nonzero Ogg page versions return ErrInvalidPage.
+// continuation flag and consecutive sequence numbers. An EOS page before
+// OpusTags completes is invalid; an EOS OpusTags page produces a reader at EOF.
+// Page lengths and CRCs are checked while reading, and nonzero Ogg page
+// versions return ErrInvalidPage.
 // It returns ErrNilReader for a nil reader, ErrInvalidPage or
 // ErrBadCRC for invalid page framing or checksums,
 // ErrInvalidHeader for malformed Opus headers, and propagates errors from r. If
@@ -73,6 +76,9 @@ func NewReader(r io.Reader) (*Reader, error) {
 	}
 
 	if !page.IsBOS() {
+		return nil, ErrInvalidPage
+	}
+	if page.IsEOS() {
 		return nil, ErrInvalidPage
 	}
 
@@ -125,8 +131,12 @@ func NewReader(r io.Reader) (*Reader, error) {
 				break
 			}
 		}
+		if page.IsEOS() && !completed {
+			return nil, ErrInvalidPage
+		}
 		tagsData = append(tagsData, page.Payload...)
 		if completed {
+			or.headerEOS = page.IsEOS()
 			break
 		}
 	}
@@ -144,6 +154,7 @@ func NewReader(r io.Reader) (*Reader, error) {
 	}
 	or.audioSequence = lastSequence + 1
 	or.audioHistoryKnown = true
+	or.eos = or.headerEOS
 
 	return or, nil
 }
@@ -494,7 +505,7 @@ func (or *Reader) SeekGranule(target uint64) error {
 	}
 
 	or.granulePos = 0
-	or.eos = false
+	or.eos = or.headerEOS
 	or.lastAudioPageGranule = 0
 	or.haveAudioPageGranule = false
 	or.seenAudioPacket = false

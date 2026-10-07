@@ -201,9 +201,15 @@ class RunGoTestShardedTest(unittest.TestCase):
                 "--test-arg=-run=^TestAlpha$",
                 "--package=example.org/project",
             ]
-            result = subprocess.run(command, text=True, capture_output=True, check=False)
-            self.assertEqual(result.returncode, 2)
-            self.assertIn("unset GOPUS_TEST_SHARD", result.stderr)
+            for flag in ("-run", "-skip", "-test.run", "-test.skip", "-test.bench"):
+                with self.subTest(flag=flag):
+                    filtered_command = [
+                        f"--test-arg={flag}=^TestAlpha$" if item.startswith("--test-arg=") else item
+                        for item in command
+                    ]
+                    result = subprocess.run(filtered_command, text=True, capture_output=True, check=False)
+                    self.assertEqual(result.returncode, 2)
+                    self.assertIn("unset GOPUS_TEST_SHARD", result.stderr)
 
 
 if __name__ == "__main__":

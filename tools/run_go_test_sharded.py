@@ -54,7 +54,9 @@ def test_selection_args(args: list[str]) -> list[str]:
     while i < len(args):
         arg = args[i]
         option, equals, value = arg.partition("=")
-        if option in {"-run", "-bench", "-fuzz", "-list", "-args", "-exec"}:
+        if option.startswith("-test."):
+            option = "-" + option.removeprefix("-test.")
+        if option in {"-run", "-skip", "-bench", "-fuzz", "-list", "-args", "-exec"}:
             raise ValueError(
                 f"GOPUS_TEST_SHARD does not accept filtered test runs ({option}); "
                 "unset GOPUS_TEST_SHARD for focused test commands"

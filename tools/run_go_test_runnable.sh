@@ -74,12 +74,19 @@ fi
 # These build options can change the files or packages selected by go list.
 list_args=()
 for ((i = 0; i < test_arg_count; i++)); do
-  case "${test_args[i]}" in
+  option="${test_args[i]}"
+  if [[ "${option}" == -test.* ]]; then
+    option="-${option#-test.}"
+  fi
+  case "${option}" in
     -tags|-overlay|-modfile|-compiler)
       if ((i + 1 < test_arg_count)); then
         next_index=$((i + 1))
         list_args+=("${test_args[i]}" "${test_args[next_index]}")
         i=$((i + 1))
+      else
+        echo "error: ${test_args[i]} requires a value before package discovery" >&2
+        exit 2
       fi
       ;;
     -tags=*|-overlay=*|-modfile=*|-compiler=*|-race=*|-msan=*|-asan=*)
@@ -91,11 +98,17 @@ for ((i = 0; i < test_arg_count; i++)); do
     # Skip separate values for common go test and go build flags. Otherwise a
     # value such as `-coverprofile -tags=gopus_dred` could be mistaken for a
     # package-selection flag and change the package inventory.
-    -run|-bench|-fuzz|-skip|-count|-parallel|-timeout|-cpu|-list|-coverprofile|\
-    -coverpkg|-outputdir|-exec|-o|-C|-p|-pkgdir|-toolexec|-gcflags|-asmflags|\
-    -ldflags|-gccgoflags|-buildmode|-mod)
+    -run|-bench|-benchtime|-fuzz|-fuzztime|-fuzzminimizetime|-skip|-shuffle|\
+    -count|-parallel|-timeout|-cpu|\
+    -list|-coverprofile|-covermode|-coverpkg|-outputdir|-exec|-o|-C|-p|\
+    -pkgdir|-toolexec|-gcflags|-asmflags|-ldflags|-gccgoflags|-buildmode|-mod|\
+    -installsuffix|-vet|-pgo|-blockprofile|-blockprofilerate|-cpuprofile|\
+    -memprofile|-memprofilerate|-mutexprofile|-mutexprofilefraction|-trace)
       if ((i + 1 < test_arg_count)); then
         i=$((i + 1))
+      else
+        echo "error: ${test_args[i]} requires a value before package discovery" >&2
+        exit 2
       fi
       ;;
   esac

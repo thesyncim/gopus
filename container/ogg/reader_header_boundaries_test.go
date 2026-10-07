@@ -79,6 +79,68 @@ func TestNewReaderSkipsOtherStreamsDuringHeaders(t *testing.T) {
 	}
 }
 
+func TestNewReaderStopsOnEOSAfterOpusTags(t *testing.T) {
+	const serial = 0x3846
+	head := DefaultOpusHead(48000, 1).Encode()
+	tags := DefaultOpusTags().Encode()
+	audio := []byte{0xf8, 0x11}
+	stream := readerBoundaryPacketPage(serial, 0, PageFlagBOS, 0, head)
+	stream = append(stream, readerBoundaryPacketPage(serial, 1, PageFlagEOS, 0, tags)...)
+	stream = append(stream, readerBoundaryPacketPage(serial, 2, 0, 960, audio)...)
+
+	r, err := NewReader(bytes.NewReader(stream))
+	if err != nil {
+		t.Fatalf("NewReader: %v", err)
+	}
+	if !r.EOF() {
+		t.Fatal("EOF() = false after EOS on the complete OpusTags page")
+	}
+	if packet, _, err := r.ReadPacket(); !errors.Is(err, io.EOF) || len(packet) != 0 {
+		t.Fatalf("ReadPacket after header EOS = (%x, %v), want (empty, io.EOF)", packet, err)
+	}
+	if err := r.SeekGranule(0); !errors.Is(err, io.EOF) {
+		t.Fatalf("SeekGranule after header EOS = %v, want io.EOF", err)
+	}
+	if !r.EOF() {
+		t.Fatal("EOF() = false after seeking a stream ended on the OpusTags page")
+	}
+}
+
+func TestNewReaderRejectsEOSBeforeOpusTagsCompletes(t *testing.T) {
+	const serial = 0x3848
+	head := DefaultOpusHead(48000, 1).Encode()
+	tags := (&OpusTags{Vendor: strings.Repeat("v", 700)}).Encode()
+	tests := []struct {
+		name  string
+		pages [][]byte
+	}{
+		{
+			name: "OpusHead EOS",
+			pages: [][]byte{
+				readerBoundaryPacketPage(serial, 0, PageFlagBOS|PageFlagEOS, 0, head),
+			},
+		},
+		{
+			name: "incomplete OpusTags EOS",
+			pages: [][]byte{
+				readerBoundaryPacketPage(serial, 0, PageFlagBOS, 0, head),
+				readerBoundaryPage(serial, 1, PageFlagEOS, 0, []byte{255}, tags[:255]),
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var stream []byte
+			for _, page := range tc.pages {
+				stream = append(stream, page...)
+			}
+			if _, err := NewReader(bytes.NewReader(stream)); !errors.Is(err, ErrInvalidPage) {
+				t.Fatalf("NewReader error = %v, want ErrInvalidPage", err)
+			}
+		})
+	}
+}
+
 func TestOggMultiplexedHeadersMatchOpusdec(t *testing.T) {
 	if !checkOpusenc() || !checkOpusdec() {
 		t.Skip("opusenc/opusdec (opus-tools) not available")
