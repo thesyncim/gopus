@@ -276,3 +276,21 @@ func ExampleDecoder_DecodeWithFEC() {
 	// recovered 960 samples
 	// decoded 960 samples
 }
+
+func ExampleSpeechDetector_AnalyzeInt16() {
+	det, err := gopus.NewSpeechDetector(16000)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// One 20 ms frame of 16 kHz mono PCM. Real audio replaces the zeros.
+	frame := make([]int16, 320)
+	probability, err := det.AnalyzeInt16(frame)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Compare against a threshold of your choosing; exact digital silence scores 0.
+	fmt.Printf("speech probability %.2f\n", probability)
+	// Output: speech probability 0.00
+}

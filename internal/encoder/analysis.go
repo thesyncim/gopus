@@ -501,6 +501,10 @@ type TonalityAnalysisState struct {
 	// analyzer lookahead (libopus "info").
 	Info [DetectSize]AnalysisInfo
 
+	// silentWindow reports whether the latest completed analysis window was
+	// digital silence, for which the Info ring repeats the previous entry.
+	silentWindow bool
+
 	// Scratch buffers for zero-allocation analysis
 	scratchMono        []float32
 	scratchDownsampled []float32
@@ -693,6 +697,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		nextWritePos = 0
 	}
 	isSilence := s.analysisIsDigitalSilence()
+	s.silentWindow = isSilence
 	s.analysisPrepareFFTInput()
 	s.analysisShiftInput()
 	remaining := len24 - (AnalysisBufSize - memFill)
