@@ -7,6 +7,13 @@ import (
 
 const maxDecodedChannelCount = 255
 
+const maxOpusTagsSize = 125_829_120 // RFC 7845 §5.2 permits rejecting larger comment headers.
+
+func opusTagsSizeWithinLimit(currentSize, additionalSize int) bool {
+	return currentSize >= 0 && additionalSize >= 0 && currentSize <= maxOpusTagsSize &&
+		additionalSize <= maxOpusTagsSize-currentSize
+}
+
 func decodedChannelCount(streams, coupled uint8) int {
 	return int(streams) + int(coupled)
 }
@@ -365,9 +372,13 @@ func (t *OpusTags) Encode() []byte {
 //
 // It returns ErrInvalidHeader when data is too short, lacks the "OpusTags"
 // magic, or declares a vendor, comment count, or comment length that extends
-// past the end of data. RFC 7845 permits unspecified trailing data after the
-// declared comments; ParseOpusTags preserves it without interpreting it.
+// past the end of data, or exceeds this package's 120 MiB comment-header bound.
+// RFC 7845 permits unspecified trailing data after the declared comments;
+// ParseOpusTags preserves it without interpreting it.
 func ParseOpusTags(data []byte) (*OpusTags, error) {
+	if !opusTagsSizeWithinLimit(0, len(data)) {
+		return nil, ErrInvalidHeader
+	}
 	// Minimum size: 8 (magic) + 4 (vendor len) + 4 (comment count) = 16
 	if len(data) < 16 {
 		return nil, ErrInvalidHeader

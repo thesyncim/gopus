@@ -148,9 +148,11 @@ func TestWriteFinalPacketSpanningPages(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewReader: %v", err)
 			}
-			got, granule, err := r.ReadPacket()
+			got := make([]byte, size)
+			n, granule, err := r.ReadPacketInto(got)
+			got = got[:n]
 			if err != nil || !bytes.Equal(got, packet) || granule != 123 {
-				t.Fatalf("ReadPacket = (%d bytes, granule %d, err %v), want packet of %d bytes at granule 123", len(got), granule, err, size)
+				t.Fatalf("ReadPacketInto = (%d bytes, granule %d, err %v), want packet of %d bytes at granule 123", len(got), granule, err, size)
 			}
 		})
 	}
