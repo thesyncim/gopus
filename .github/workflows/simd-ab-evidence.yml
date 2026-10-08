@@ -145,7 +145,7 @@ jobs:
 
       - name: Upload native evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: linux-amd64-simd-ab-${{ github.event.pull_request.head.sha }}-${{ inputs.name }}
           path: |

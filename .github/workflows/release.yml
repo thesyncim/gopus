@@ -120,7 +120,7 @@ jobs:
 
       - name: Upload evidence bundle on failure (diagnosis)
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: release-evidence-failed-${{ steps.meta.outputs.tag }}
           path: reports/release/
@@ -152,7 +152,7 @@ jobs:
           echo "summary=${tagged_summary}" >> "$GITHUB_OUTPUT"
 
       - name: Upload release evidence artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: release-evidence-${{ steps.meta.outputs.tag }}
           path: |
