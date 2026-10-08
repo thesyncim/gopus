@@ -177,7 +177,7 @@ jobs:
 
       - name: Upload GOAMD64 kernel evidence
         if: always() && (inputs.task == 'goamd64-kernel-audit' || inputs.task == 'goamd64-analyzer-benchmark')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: goamd64-kernels-${{ github.run_id }}
           path: ${{ runner.temp }}/goamd64-evidence
@@ -191,7 +191,7 @@ jobs:
 
       - name: Upload GOAMD64 benchmark evidence
         if: always() && inputs.task == 'goamd64-benchmark'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: goamd64-benchmark-${{ github.run_id }}
           path: ${{ runner.temp }}/goamd64-benchmark
@@ -205,7 +205,7 @@ jobs:
 
       - name: Upload matching-lane analyzer timings
         if: always() && inputs.task == 'goamd64-analyzer-benchmark'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: goamd64-analyzer-benchmark-${{ github.run_id }}
           path: ${{ runner.temp }}/goamd64-analyzer-benchmark
@@ -213,7 +213,7 @@ jobs:
 
       - name: Upload release evidence artifact
         if: always() && (!inputs.task || inputs.task == 'release-evidence')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: release-evidence-${{ github.run_id }}
           path: reports/release/**
