@@ -4,7 +4,7 @@ go 1.27.0
 
 require (
 	github.com/pion/interceptor v0.1.37
-	github.com/pion/rtp v1.8.12
+	github.com/pion/rtp v1.10.5
 	github.com/pion/webrtc/v4 v4.0.12
 	github.com/thesyncim/gopus v0.0.0-00010101000000-000000000000
 )
