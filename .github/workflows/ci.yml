@@ -643,7 +643,7 @@ jobs:
 
       - name: Download complete native evidence
         if: always()
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           pattern: linux-amd64-simd-ab-${{ github.event.pull_request.head.sha }}-*
           path: ${{ runner.temp }}/simd-ab-workers
