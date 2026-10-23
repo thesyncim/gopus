@@ -94,7 +94,16 @@ func TestDecodeBitMatchesLogpReference(t *testing.T) {
 				want.val -= s
 				want.rng = r - s
 			}
-			want.normalize()
+			// Keep the literal ec_dec_normalize reference independent of the
+			// production helper used by DecodeBit.
+			for want.rng <= EC_CODE_BOT {
+				want.nbitsTotal += EC_SYM_BITS
+				want.rng <<= EC_SYM_BITS
+				sym := uint32(want.rem)
+				want.rem = int32(want.readByte())
+				sym = (sym<<EC_SYM_BITS | uint32(want.rem)) >> (EC_SYM_BITS - EC_CODE_EXTRA)
+				want.val = ((want.val << EC_SYM_BITS) + (EC_SYM_MAX &^ sym)) & (EC_CODE_TOP - 1)
+			}
 			if b := got.DecodeBit(logp); b != ret {
 				t.Fatalf("iter %d: bit %d, want %d", iter, b, ret)
 			}
