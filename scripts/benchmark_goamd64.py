@@ -40,6 +40,10 @@ DECODE_TOOL_ARGS = (
     "-cases=aggregate", "-paths=all", "-benchtime=250ms", "-count=3", "-format=tsv",
     "-max-gopus-allocs-per-op=0",
 )
+SHORT_FRAME_PROFILES = (
+    ("celt-5ms-encode", "BenchmarkEncoderEncode_RestrictedCELT5msChirpCBRStreamAfterReset"),
+    ("celt-2_5ms-decode", "BenchmarkCELTShortFrameDecode/CELT/mono/48k/2_5ms"),
+)
 
 
 class RunFailure(RuntimeError):
@@ -497,6 +501,59 @@ class Runner:
                 })
                 self.save()
 
+    def run_short_frame_profiles(self) -> None:
+        # These diagnostics follow every timing sample. The direct comparison
+        # tools have no package-local default.pgo; disabling PGO here keeps the
+        # root test package's default.pgo out of these profiles too.
+        target, mode = "v3", "simd"
+        directory = self.artifact / target / "profiles"
+        directory.mkdir(parents=True, exist_ok=True)
+        binary = directory / "simd-short-frame-nopgo.test"
+        env = self.mode_env(target, mode)
+        self.checked_run("build-v3-simd-short-frame-profile", self.candidate,
+                         self.go_command(self.candidate, [
+                             "test", "-c", "-pgo=off", "-tags", "gopus_libopus_bench",
+                             "-o", str(binary), ".",
+                         ]), env, rel(self.artifact, directory / "build.log"))
+        info = self.checked_run("version-v3-simd-short-frame-profile", self.candidate,
+                                self.go_command(self.candidate, ["version", "-m", str(binary)]),
+                                env, rel(self.artifact, directory / "build-info.txt"))
+        errors = validate_binary_build_info(
+            info.read_text(errors="replace"), target, mode, self.manifest["metadata"].get("go_toolchain"))
+        if errors:
+            raise RunFailure(f"short-frame profile build is invalid: {'; '.join(errors)}")
+        atomic_json(directory / "provenance.json", {
+            "source_commit": self.git_commit(self.candidate), "target": target, "mode": mode,
+            "pgo": "off", "binary": binary.name, "binary_sha256": sha256(binary),
+            "benchmarks": dict(SHORT_FRAME_PROFILES),
+            "timing_note": "CPU profiling is diagnostic and runs after the unprofiled timing matrix.",
+            "allocation_note": "Unprofiled setup requires zero allocations. Profiled measurements include profiler overhead.",
+        })
+        for workload, benchmark in SHORT_FRAME_PROFILES:
+            profile = directory / f"{workload}.cpu"
+            selector = "/".join(f"^{part}$" for part in benchmark.split("/"))
+            for phase, duration, flags in (("setup", "1x", []),
+                                            ("profile", "5s", [f"-test.cpuprofile={profile}"])):
+                output = self.checked_run(f"{phase}-v3-simd-{workload}", self.candidate,
+                                          [str(binary), "-test.run=^$", "-test.bench", selector,
+                                           f"-test.benchtime={duration}", "-test.count=1", "-test.cpu=1",
+                                           "-test.benchmem", *flags],
+                                          env, rel(self.artifact, directory / f"{workload}-{phase}.log"))
+                rows = [line.split() for line in output.read_text(errors="replace").splitlines()
+                        if line.startswith(benchmark)]
+                if len(rows) != 1 or rows[0][0] not in {benchmark, f"{benchmark}-1"}:
+                    raise RunFailure(f"{workload} {phase} requires one benchmark row; see {output}")
+                if phase == "setup" and rows[0][-4:] != ["0", "B/op", "0", "allocs/op"]:
+                    raise RunFailure(f"{workload} unprofiled setup allocates; see {output}")
+            if not profile.is_file() or profile.stat().st_size == 0:
+                raise RunFailure(f"missing CPU profile: {profile}")
+            for label, options in (("top", ["-top"]),
+                                   ("list", ["-list", "github.com/thesyncim/gopus"])):
+                self.checked_run(f"pprof-v3-simd-{workload}-{label}", self.candidate,
+                                 self.go_command(self.candidate, [
+                                     "tool", "pprof", *options, str(binary), str(profile),
+                                 ]), env, rel(self.artifact, directory / f"{workload}.{label}.txt"))
+
     def run_all(self) -> int:
         self.save()
         try:
@@ -515,6 +572,7 @@ class Runner:
             self.vectors()
             self.run_e2e_rounds()
             self.run_c_benchmarks()
+            self.run_short_frame_profiles()
             self.manifest["status"] = "complete" if not self.manifest["errors"] else "failed"
             self.save()
         except RunFailure as exc:
