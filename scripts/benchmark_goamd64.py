@@ -221,7 +221,9 @@ class Runner:
             "cc_target": cc_target.stdout.strip(), "cc_version": cc_version[0] if cc_version else "unknown",
             "go_version": go_version, "go_toolchain": go_toolchain, "go_cache": cache,
             "baseline_commit": self.git_commit(self.baseline), "candidate_commit": self.git_commit(self.candidate),
-            "pgo_profiles": {"baseline": self.pgo_profiles(self.baseline), "candidate": self.pgo_profiles(self.candidate)},
+            "pgo_policy": "Each checkout explicitly supplies its root default.pgo to every Go build, including comparison tools and diagnostic profiles.",
+            "pgo_comparison": "Revisions are measured as shipped; differing profile hashes include both source and PGO changes in baseline/candidate ratios.",
+            "pgo_profiles": {"baseline": [self.pgo_profile(self.baseline)], "candidate": [self.pgo_profile(self.candidate)]},
             "ambient_go_settings_cleared": {key: os.environ.get(key, "") for key in ("GOFLAGS", "GOOS", "GOARCH", "GOAMD64")},
             "round_orders": self.round_orders(),
             "timing_note": "Go binaries and C archives are prepared before timing; each paired-C tool compiles its helper before its own measurements.",
@@ -236,12 +238,16 @@ class Runner:
         return result.stdout.strip()
 
     @staticmethod
-    def pgo_profiles(root: pathlib.Path) -> list[dict[str, Any]]:
-        output = []
-        for path in sorted(root.glob("*.pgo")):
-            if path.is_file():
-                output.append({"path": path.name, "sha256": sha256(path), "bytes": path.stat().st_size})
-        return output
+    def pgo_profile(root: pathlib.Path) -> dict[str, Any]:
+        path = root / "default.pgo"
+        if not path.is_file() or path.stat().st_size == 0:
+            raise RunFailure(f"missing PGO profile: {path}")
+        return {"path": path.name, "sha256": sha256(path), "bytes": path.stat().st_size}
+
+    @staticmethod
+    def pgo_flag(root: pathlib.Path) -> str:
+        # Auto only finds the main package's profile, so tools/* need this path.
+        return f"-pgo={root / 'default.pgo'}"
 
     @staticmethod
     def round_orders() -> dict[str, list[str]]:
@@ -322,7 +328,7 @@ class Runner:
                 env = self.build_env(root, target, mode)
                 tags = ["-tags", "nosimd"] if mode == "nosimd" else []
                 binary = self.artifact / target / "binaries" / f"{arm}-root.test"
-                cmd = self.go_command(root, ["test", "-c", "-pgo=auto", *tags, "-o", str(binary), "."])
+                cmd = self.go_command(root, ["test", "-c", self.pgo_flag(root), *tags, "-o", str(binary), "."])
                 self.checked_run(f"build-{target}-{arm}-root", root, cmd, env,
                                  f"{target}/build/{arm}-root-build.log")
                 self.record_binary(f"{target}/{arm}/root", root, target, mode or "oldasm", binary)
@@ -331,7 +337,7 @@ class Runner:
                 tags = ["-tags", "nosimd"] if mode == "nosimd" else []
                 for tool in ("encoderbenchcmp", "testvectorbenchcmp"):
                     binary = self.artifact / target / "binaries" / f"{mode}-{tool}"
-                    cmd = self.go_command(self.candidate, ["build", "-pgo=auto", *tags, "-o", str(binary), f"./tools/{tool}"])
+                    cmd = self.go_command(self.candidate, ["build", self.pgo_flag(self.candidate), *tags, "-o", str(binary), f"./tools/{tool}"])
                     self.checked_run(f"build-{target}-{mode}-{tool}", self.candidate, cmd, env,
                                      f"{target}/build/{mode}-{tool}-build.log")
                     self.record_binary(f"{target}/{mode}/{tool}", self.candidate, target, mode, binary)
@@ -350,6 +356,7 @@ class Runner:
         self.manifest["binaries"][key] = {
             "path": rel(self.artifact, binary), "version_m": rel(self.artifact, info_path),
             "target": target, "mode": mode, "source_commit": self.git_commit(cwd),
+            "pgo_profile": self.pgo_profile(cwd),
         }
         self.save()
 
@@ -380,7 +387,7 @@ class Runner:
                 for spec in exact_suite_specs(mode):
                     out = f"{target}/exact/{mode}/{spec['name']}.jsonl"
                     cmd = self.go_command(self.candidate, [
-                        "test", "-json", "-count=1", "-timeout=10m", *tags,
+                        "test", "-json", self.pgo_flag(self.candidate), "-count=1", "-timeout=10m", *tags,
                         "-run", spec["selector"], spec["package"],
                     ])
                     code, stdout, stderr = self.run(f"exact-{target}-{mode}-{spec['name']}", self.candidate,
@@ -423,7 +430,7 @@ class Runner:
                 tags = ["-tags", "nosimd"] if mode == "nosimd" else []
                 out = f"{target}/contract/{mode}/{spec['name']}.jsonl"
                 cmd = self.go_command(self.candidate, [
-                    "test", "-json", "-count=1", "-timeout=10m", *tags,
+                    "test", "-json", self.pgo_flag(self.candidate), "-count=1", "-timeout=10m", *tags,
                     "-run", spec["selector"], spec["package"],
                 ])
                 code, stdout, stderr = self.run(
@@ -502,17 +509,16 @@ class Runner:
                 self.save()
 
     def run_short_frame_profiles(self) -> None:
-        # These diagnostics follow every timing sample. The direct comparison
-        # tools have no package-local default.pgo; disabling PGO here keeps the
-        # root test package's default.pgo out of these profiles too.
+        # These diagnostics follow every timing sample and use the same PGO
+        # input as the candidate's end-to-end and direct-libopus comparison tools.
         target, mode = "v3", "simd"
         directory = self.artifact / target / "profiles"
         directory.mkdir(parents=True, exist_ok=True)
-        binary = directory / "simd-short-frame-nopgo.test"
+        binary = directory / "simd-short-frame-pgo.test"
         env = self.mode_env(target, mode)
         self.checked_run("build-v3-simd-short-frame-profile", self.candidate,
                          self.go_command(self.candidate, [
-                             "test", "-c", "-pgo=off", "-tags", "gopus_libopus_bench",
+                             "test", "-c", self.pgo_flag(self.candidate), "-tags", "gopus_libopus_bench",
                              "-o", str(binary), ".",
                          ]), env, rel(self.artifact, directory / "build.log"))
         info = self.checked_run("version-v3-simd-short-frame-profile", self.candidate,
@@ -524,7 +530,8 @@ class Runner:
             raise RunFailure(f"short-frame profile build is invalid: {'; '.join(errors)}")
         atomic_json(directory / "provenance.json", {
             "source_commit": self.git_commit(self.candidate), "target": target, "mode": mode,
-            "pgo": "off", "binary": binary.name, "binary_sha256": sha256(binary),
+            "pgo": self.pgo_flag(self.candidate), "pgo_profile": self.pgo_profile(self.candidate),
+            "binary": binary.name, "binary_sha256": sha256(binary),
             "benchmarks": dict(SHORT_FRAME_PROFILES),
             "timing_note": "CPU profiling is diagnostic and runs after the unprofiled timing matrix.",
             "allocation_note": "Unprofiled setup requires zero allocations. Profiled measurements include profiler overhead.",

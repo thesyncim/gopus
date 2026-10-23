@@ -64,6 +64,7 @@ class AnalyzerRunner(Runner):
             profiles = self.manifest["metadata"]["pgo_profiles"]
             if profiles["baseline"] != profiles["candidate"]:
                 raise RunFailure("baseline and candidate PGO profiles differ")
+            self.manifest["metadata"]["pgo_comparison"] = "Baseline and candidate use identical root default.pgo content."
             for revision, root in (("baseline", self.baseline), ("candidate", self.candidate)):
                 status = self.checked_run(f"source-status-{revision}", root,
                                           ["git", "status", "--porcelain", "--untracked-files=no"],
@@ -103,7 +104,7 @@ class AnalyzerRunner(Runner):
                         binary = self.artifact / "binaries" / f"{revision}-{mode}-{group}.test"
                         binary.parent.mkdir(parents=True, exist_ok=True)
                         self.checked_run(f"build-{key}", root, self.go_command(root, [
-                            "test", "-c", "-pgo=auto", *tags, "-o", str(binary), package,
+                            "test", "-c", self.pgo_flag(root), *tags, "-o", str(binary), package,
                         ]), env, f"build/{revision}-{mode}-{group}.log")
                         self.record_binary(key, root, "v3", mode, binary)
             pairs = [(revision, mode) for mode in MODES for revision in ("baseline", "candidate")]

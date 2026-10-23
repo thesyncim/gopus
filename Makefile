@@ -36,7 +36,8 @@ PGO_FILE ?= default.pgo
 PGO_FLAG ?= -pgo=$(PGO_FILE)
 PGO_GENERATE_FLAG ?= -pgo=off
 PGO_REPORT_PROFILE ?= $(PGO_FILE)
-PGO_BENCH ?= ^Benchmark(DecoderDecode_CELT|DecoderDecodeInt16|DecoderDecode_Stereo|EncoderEncode_CallerBuffer|EncoderEncodeInt16|EncoderEncode_Restricted(CELT|CELT5ms|SILK)CBRStreamAfterReset)$$
+PGO_BENCH ?= ^Benchmark(DecoderDecode_(CELT|SILK|Hybrid|PLC|Stereo)|DecoderDecodeInt16|EncoderEncode_(CallerBuffer|VoIP|Restricted(CELT|CELT5ms|CELT5msChirp|SILK)CBRStreamAfterReset)|EncoderEncodeInt16|CELTShortFrameDecode)$$
+PGO_TAGS ?= gopus_libopus_bench
 PGO_PKG ?= .
 PGO_BENCHTIME ?= 20s
 PGO_COUNT ?= 1
@@ -663,7 +664,7 @@ build-nopgo:
 
 # Regenerate default.pgo from representative public encode/decode hot-path benchmarks
 pgo-generate:
-	$(GO_WORK_ENV) $(GO) test $(PGO_GENERATE_FLAG) -run='^$$' -bench='$(PGO_BENCH)' -benchtime=$(PGO_BENCHTIME) -count=$(PGO_COUNT) -cpuprofile $(PGO_FILE) $(PGO_PKG)
+	$(GO_WORK_ENV) $(GO) test $(PGO_GENERATE_FLAG) -tags=$(PGO_TAGS) -run='^$$' -bench='$(PGO_BENCH)' -benchtime=$(PGO_BENCHTIME) -count=$(PGO_COUNT) -cpuprofile $(PGO_FILE) $(PGO_PKG)
 
 # Refresh default.pgo then build with PGO enabled
 pgo-build: pgo-generate build
