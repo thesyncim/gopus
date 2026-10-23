@@ -1,0 +1,6 @@
+encoderbenchcmp-workload-manifest	goos=darwin	goarch=arm64	goamd64=	target=
+encoderbenchcmp-workload	name=CELT-FB-20ms-stereo-128k	variant=am_multisine_v1	frame_size=960	channels=2	samples=96000	sha256_float32le=dfd125729ce0aa472c2d1c99f04dbb7f86948585098e7d42ba79e48edff24e65
+encoderbenchcmp-workload	name=CELT-FB-5ms-mono-64k	variant=chirp_sweep_v1	frame_size=240	channels=1	samples=48000	sha256_float32le=85a19597b35e57d338522e36d2b287aeaece974be8cc05e5dbfd7ea1e84b2561
+encoderbenchcmp-workload	name=SILK-WB-20ms-mono-32k	variant=speech_like_v1	frame_size=960	channels=1	samples=48000	sha256_float32le=36c2c50b2cac1850ac44963b5b27aa4251c3c3420878c7495ca356de832576b1
+encoderbenchcmp-workload	name=Hybrid-FB-20ms-mono-64k	variant=speech_like_v1	frame_size=960	channels=1	samples=48000	sha256_float32le=36c2c50b2cac1850ac44963b5b27aa4251c3c3420878c7495ca356de832576b1
+encoderbenchcmp-workload	name=Hybrid-FB-20ms-stereo-96k	variant=speech_like_v1	frame_size=960	channels=2	samples=96000	sha256_float32le=d5d3cc865a9215a52825e3ca388918dc2dc0194fadb794d3087b72692eea7bf3

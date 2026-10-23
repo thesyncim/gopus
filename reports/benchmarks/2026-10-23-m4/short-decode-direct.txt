@@ -1,0 +1,34 @@
+--- direct before ---
+=== RUN   TestScoreboardInterleaved
+PERF TIER: simd-go-vs-simd-libopus (libopus: libopus SIMD (opus-1.6.1-simd, --enable-rtcd --enable-intrinsics)) GOMAXPROCS=1 rounds=15 passes=3 instances=3
+SB decode CELT/mono/8k/2_5ms       go       1166 c       1228 g/l 0.950 round-med 0.945 aa-go 1.009 aa-c 1.004
+SB decode CELT/mono/16k/2_5ms      go       1480 c       1560 g/l 0.949 round-med 0.949 aa-go 1.014 aa-c 1.008
+SB decode CELT/mono/24k/2_5ms      go       1645 c       1765 g/l 0.932 round-med 0.946 aa-go 1.015 aa-c 1.031
+SB decode CELT/mono/48k/2_5ms      go       1833 c       1920 g/l 0.955 round-med 0.952 aa-go 1.013 aa-c 1.014
+SB decode CELT/stereo/8k/2_5ms     go       1854 c       2038 g/l 0.910 round-med 0.916 aa-go 1.019 aa-c 1.005
+SB decode CELT/stereo/16k/2_5ms    go       2448 c       2632 g/l 0.930 round-med 0.943 aa-go 1.030 aa-c 1.012
+SB decode CELT/stereo/24k/2_5ms    go       2597 c       2858 g/l 0.909 round-med 0.935 aa-go 1.010 aa-c 1.016
+SB decode CELT/stereo/48k/2_5ms    go       3171 c       3205 g/l 0.990 round-med 1.014 aa-go 1.027 aa-c 1.012
+SUMMARY decode n=8 median 0.941 geomean 0.940 min 0.909 max 0.990
+SUMMARY decode CELT   n=8 min 0.909 median 0.941 max 0.990
+SUMMARY decode A/A instance spread-1 median 0.013 max 0.031
+WORST10 decode CELT/stereo/48k/2_5ms 0.990, CELT/mono/48k/2_5ms 0.955, CELT/mono/8k/2_5ms 0.950, CELT/mono/16k/2_5ms 0.949, CELT/mono/24k/2_5ms 0.932, CELT/stereo/16k/2_5ms 0.930, CELT/stereo/8k/2_5ms 0.910, CELT/stereo/24k/2_5ms 0.909
+--- PASS: TestScoreboardInterleaved (3.40s)
+PASS
+--- direct after ---
+=== RUN   TestScoreboardInterleaved
+PERF TIER: simd-go-vs-simd-libopus (libopus: libopus SIMD (opus-1.6.1-simd, --enable-rtcd --enable-intrinsics)) GOMAXPROCS=1 rounds=15 passes=3 instances=3
+SB decode CELT/mono/8k/2_5ms       go       1162 c       1228 g/l 0.946 round-med 0.943 aa-go 1.003 aa-c 1.004
+SB decode CELT/mono/16k/2_5ms      go       1428 c       1515 g/l 0.942 round-med 0.944 aa-go 1.003 aa-c 1.015
+SB decode CELT/mono/24k/2_5ms      go       1579 c       1695 g/l 0.931 round-med 0.936 aa-go 1.002 aa-c 1.001
+SB decode CELT/mono/48k/2_5ms      go       1822 c       1910 g/l 0.954 round-med 0.949 aa-go 1.001 aa-c 1.018
+SB decode CELT/stereo/8k/2_5ms     go       1841 c       2068 g/l 0.891 round-med 0.913 aa-go 1.009 aa-c 1.009
+SB decode CELT/stereo/16k/2_5ms    go       2442 c       2630 g/l 0.929 round-med 0.928 aa-go 1.018 aa-c 1.009
+SB decode CELT/stereo/24k/2_5ms    go       2588 c       2820 g/l 0.918 round-med 0.928 aa-go 1.006 aa-c 1.005
+SB decode CELT/stereo/48k/2_5ms    go       3193 c       3228 g/l 0.989 round-med 0.994 aa-go 1.004 aa-c 1.013
+SUMMARY decode n=8 median 0.937 geomean 0.937 min 0.891 max 0.989
+SUMMARY decode CELT   n=8 min 0.891 median 0.937 max 0.989
+SUMMARY decode A/A instance spread-1 median 0.005 max 0.018
+WORST10 decode CELT/stereo/48k/2_5ms 0.989, CELT/mono/48k/2_5ms 0.954, CELT/mono/8k/2_5ms 0.946, CELT/mono/16k/2_5ms 0.942, CELT/mono/24k/2_5ms 0.931, CELT/stereo/16k/2_5ms 0.929, CELT/stereo/24k/2_5ms 0.918, CELT/stereo/8k/2_5ms 0.891
+--- PASS: TestScoreboardInterleaved (2.95s)
+PASS

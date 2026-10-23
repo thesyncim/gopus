@@ -1,0 +1,24 @@
+{
+  "codec_revision": "fd287c213cdebac0885bf1fff42df96489faaf68",
+  "date": "2026-10-23",
+  "cpu": "Apple M4 Max",
+  "go": "go1.27.0",
+  "goos": "darwin",
+  "goarch": "arm64",
+  "gomaxprocs": 1,
+  "pgo": "off",
+  "c_compiler": "Apple clang version 21.0.0 (clang-2100.1.1.101)",
+  "libopus": "1.6.1",
+  "c_builds": {
+    "scalar": {
+      "configure": "$ ./configure --enable-static --disable-shared --disable-asm --disable-rtcd --disable-intrinsics",
+      "cflags": "CFLAGS='-O3 -DNDEBUG -fno-tree-vectorize -fno-tree-slp-vectorize -fvisibility=hidden -D_FORTIFY_SOURCE=2 -W -Wall -Wextra -Wcast-align -Wnested-externs -Wshadow -Wstrict-prototypes'",
+      "archive_sha256": "c4f9299ff4198d508156041df934de12fe5e4d92513314bc60d59ceea2c463f1"
+    },
+    "simd": {
+      "configure": "$ ./configure --enable-static --disable-shared --enable-rtcd --enable-intrinsics",
+      "cflags": "CFLAGS='-O3 -DNDEBUG -fvisibility=hidden -D_FORTIFY_SOURCE=2 -W -Wall -Wextra -Wcast-align -Wnested-externs -Wshadow -Wstrict-prototypes'",
+      "archive_sha256": "f90365a6a67f24d5db4d77639b73e33783c119efae600400faf0bee4e7929faa"
+    }
+  }
+}

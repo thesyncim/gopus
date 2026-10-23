@@ -1,0 +1,200 @@
+{
+  "scope": "Native Apple M4 Max darwin/arm64, Go 1.27.0, GOEXPERIMENT=simd, GOMAXPROCS=1, pgo=off according to build setup, caller-buffer CELT short-frame decode; same compiled source except alloc_decode_std.go overlay.",
+  "method": "Six alternating invocations: before, after, after, before, before, after. Each invocation measures eight cases twice at 500ms. Every operation decodes400packets; medians reported per packet.",
+  "all_public_samples_zero_bytes_and_allocations": true,
+  "public_sample_count": 96,
+  "public_after_before_geomean": 0.9905624218501684,
+  "rows": [
+    {
+      "case": "CELT/mono/8k/2_5ms",
+      "before_ns_per_packet": 1220.5175,
+      "after_ns_per_packet": 1208.1525,
+      "change_percent": -1.0130948552560692,
+      "samples_before": [
+        1231.1625,
+        1233.175,
+        1204.7775,
+        1207.51,
+        1222.4775,
+        1218.5575
+      ],
+      "samples_after": [
+        1210.535,
+        1231.1525,
+        1205.86,
+        1210.445,
+        1201.8375,
+        1196.4925
+      ]
+    },
+    {
+      "case": "CELT/mono/16k/2_5ms",
+      "before_ns_per_packet": 1502.5349999999999,
+      "after_ns_per_packet": 1505.335,
+      "change_percent": 0.18635173223919832,
+      "samples_before": [
+        1539.5125,
+        1550.0925,
+        1489.6825,
+        1490.6475,
+        1500.05,
+        1505.02
+      ],
+      "samples_after": [
+        1647.96,
+        1741.0525,
+        1504.195,
+        1506.475,
+        1477.52,
+        1480.445
+      ]
+    },
+    {
+      "case": "CELT/mono/24k/2_5ms",
+      "before_ns_per_packet": 1679.995,
+      "after_ns_per_packet": 1662.22375,
+      "change_percent": -1.0578156482608403,
+      "samples_before": [
+        1696.045,
+        1677.0875,
+        1649.2025,
+        1651.7075,
+        1728.035,
+        1682.9025
+      ],
+      "samples_after": [
+        1675.7875,
+        1659.9475,
+        1676.0125,
+        1664.5,
+        1642.95,
+        1651.4775
+      ]
+    },
+    {
+      "case": "CELT/mono/48k/2_5ms",
+      "before_ns_per_packet": 1937.6887499999998,
+      "after_ns_per_packet": 1916.2675,
+      "change_percent": -1.1055052056218928,
+      "samples_before": [
+        2040.245,
+        1935.33,
+        1909.3325,
+        1928.3625,
+        1940.0475,
+        1941.795
+      ],
+      "samples_after": [
+        1926.885,
+        1903.3225,
+        1907.68,
+        1924.855,
+        1884.6625,
+        1930.5575
+      ]
+    },
+    {
+      "case": "CELT/stereo/8k/2_5ms",
+      "before_ns_per_packet": 1960.4724999999999,
+      "after_ns_per_packet": 1927.2649999999999,
+      "change_percent": -1.6938518647927947,
+      "samples_before": [
+        1939.415,
+        1943.425,
+        1973.195,
+        1985.185,
+        1973.2525,
+        1947.75
+      ],
+      "samples_after": [
+        1930.4575,
+        1903.11,
+        1924.0725,
+        1915.01,
+        1961.235,
+        1945.54
+      ]
+    },
+    {
+      "case": "CELT/stereo/16k/2_5ms",
+      "before_ns_per_packet": 2584.15625,
+      "after_ns_per_packet": 2532.67125,
+      "change_percent": -1.9923330874439205,
+      "samples_before": [
+        2658.465,
+        2667.475,
+        2599.025,
+        2538.73,
+        2569.2875,
+        2569.095
+      ],
+      "samples_after": [
+        2507.44,
+        2506.1125,
+        2533.8525,
+        2531.49,
+        2620.72,
+        2609.755
+      ]
+    },
+    {
+      "case": "CELT/stereo/24k/2_5ms",
+      "before_ns_per_packet": 2715.5162499999997,
+      "after_ns_per_packet": 2705.24625,
+      "change_percent": -0.37819696346871323,
+      "samples_before": [
+        2765.55,
+        2699.1325,
+        2703.15,
+        2718.5975,
+        2780.7025,
+        2712.435
+      ],
+      "samples_after": [
+        2678.3625,
+        2721.7425,
+        2689.125,
+        2688.1825,
+        2721.3675,
+        2737.72
+      ]
+    },
+    {
+      "case": "CELT/stereo/48k/2_5ms",
+      "before_ns_per_packet": 3310.6487500000003,
+      "after_ns_per_packet": 3294.82875,
+      "change_percent": -0.4778519617945065,
+      "samples_before": [
+        3275.1025,
+        3325.04,
+        3296.2575,
+        3359.9825,
+        3336.2075,
+        3241.8925
+      ],
+      "samples_after": [
+        3306.51,
+        3283.1475,
+        3257.885,
+        3260.235,
+        3308.99,
+        3374.51
+      ]
+    }
+  ],
+  "direct_c_before": {
+    "cases": 8,
+    "geomean_g_over_c": 0.94,
+    "min": 0.909,
+    "max": 0.99
+  },
+  "direct_c_after": {
+    "cases": 8,
+    "geomean_g_over_c": 0.937,
+    "min": 0.891,
+    "max": 0.989,
+    "aa_median_spread": 0.005,
+    "aa_max_spread": 0.018
+  },
+  "decision": "Keep candidate for simplicity: choose invariant allocation row once and track last boosted band in existing boost branch. Small public timing changes are noise-sensitive; no broad performance claim. Direct-C result applies only to eight native ARM64 short CELT cases, not AMD64 or whole codec."
+}
