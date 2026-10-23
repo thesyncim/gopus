@@ -119,11 +119,11 @@ func TestHybridFrameSizes(t *testing.T) {
 // TestHybridReset verifies reset clears state properly.
 func TestHybridReset(t *testing.T) {
 	d := NewDecoder(1)
-	d.prevPacketStereo = true
+	d.silkDecoder.SetInternalStereo(true)
 	d.Reset()
 
-	if d.prevPacketStereo {
-		t.Error("prevPacketStereo = true after reset, want false")
+	if d.silkDecoder.InternalStereo() {
+		t.Error("SILK internal stereo = true after reset, want false")
 	}
 }
 

@@ -31,6 +31,29 @@ artifact_root="$3"
 mkdir -p "$artifact_root"
 artifact_root="$(cd "$artifact_root" && pwd)"
 overall_status=0
+baseline_pgo="$baseline_root/default.pgo"
+candidate_pgo="$candidate_root/default.pgo"
+# Explicit paths apply the same profile to root tests and tools/* main packages.
+python3 - "$baseline_pgo" "$candidate_pgo" "$artifact_root/pgo-profiles.json" <<'PY_PGO'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+profiles = {}
+for side, source in zip(("baseline", "candidate"), sys.argv[1:3]):
+    path = Path(source)
+    data = path.read_bytes()
+    if not data:
+        raise SystemExit(f"empty PGO profile: {path}")
+    profiles[side] = {"path": str(path), "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)}
+Path(sys.argv[3]).write_text(json.dumps({
+    "policy": "Each checkout explicitly supplies its root default.pgo to Go builds, including comparison tools and diagnostic profiles.",
+    "comparison": "Revisions are measured as shipped; differing profile hashes include both source and PGO changes in baseline/candidate ratios.",
+    "profiles": profiles,
+}, indent=2, sort_keys=True) + "\n")
+PY_PGO
+if [[ $? -ne 0 ]]; then exit 1; fi
 timing_file="$artifact_root/phase-timings.tsv"
 printf 'phase\telapsed_s\texit\n' > "$timing_file"
 {
@@ -224,7 +247,7 @@ for mode in "${modes[@]}"; do
     fi
     run_json_phase "candidate-$mode-$osce_phase" \
       run_in_checkout "$candidate_root" \
-      "${run_env[@]}" GOPUS_TRACE_OSCE_LACE=1 go test -json -tags "${osce_features}${feature_scalar_tag}" \
+      "${run_env[@]}" GOPUS_TRACE_OSCE_LACE=1 go test -pgo="$candidate_pgo" -json -tags "${osce_features}${feature_scalar_tag}" \
       . ./internal/osce/... ./multistream ./internal/libopustest ./internal/celt ./internal/dnnmath ./internal/silk \
       -run "^Test(OSCEAutomaticLossRecoveryMatchesSelectedLibopus|DecoderOSCELACECrossFadeTransition|DecoderOSCELACEHybridTransitionMatchesSelectedLibopus|StreamOSCECELTMarkPreservesSILKState|OSCEModelReloadPreservesActiveStateMatchesLibopus|OSCEFECMissingPrefixThenLBRRUsesResetChannelState|OSCEFECTinyLBRRUsesMainModelLossPath|OSCEFECFallbackPreservesClassicalLossHistory|DecoderOSCELACEGetterReportsEffectiveComplexityGate|StreamOSCELACEComplexityEnablePrecedence|MultistreamOSCEComplexityLifecycleMatchesSelectedLibopus|MultistreamOSCEExplicitLACEOverridePrecedence|DREDHistory.*|DecoderDecodePLCAppliesNeuralConcealmentWhenReady|DecoderDecodeNilConsumesMultistreamDREDNeural.*|MSDREDDormancy_.*|MSPerStreamDREDQueue.*|DecodeDREDCarrierHistoryCodecStateMatchesLibopus|DecoderDREDFECPLCUpdatesMatchLibopusHistory|DecoderNoSidecarDeepPLC.*|MultistreamMainModelNeuralPLC.*|DecoderStateSnapshotPreservesIntegerLowBits|OSCE(EndToEndSampleParity|LACEForward|NoLACEForward|BWE(RawSignalNet|ForwardPass|CrossFade))|BWE(FeatureFFTMatchesLibopus|VariableSequenceStateMatchesSelectedLibopus|ProcessDoesNotAllocateAfterWarmup)|FNetConv1UsesSelectedDNNLinearKernel|LACEAndNoLACEFeatureStateMatchesLibopusRawBits|X86SGEMVScalarRemainderMatchesSelectedLibopus|MultistreamDecoderOSCE|StreamOSCE|MultistreamReferenceFeaturePairing|CurrentPublicAPIHelperConfig|PublicDNNReferenceIdentityUsesBuilderStampContract|DNNHelperIncludesPinnedSourceRootAfterBuildConfig|DNNFeatureBuild|DNNCompilerTarget|DNNVectorActivationsMatchSelectedLibopusOracle|DNNVectorActivationSweepMatchesSelectedLibopusOracle|CGEMV8x4MatchesSelectedLibopus|ComputeLinearInt8MatchesSelectedLibopus|AntiCollapseVsLibopus${osce_extra_selector})" \
       -count=1 -timeout=10m
@@ -235,21 +258,21 @@ for mode in "${modes[@]}"; do
     output="$artifact_root/candidate-$mode-$package_name.test"
     run_phase "build-candidate-$mode-$package_name" \
       run_in_checkout "$candidate_root" \
-      "${build_env[@]}" go test "${build_args[@]}" -c -pgo=auto -o "$output" "./$package"
+      "${build_env[@]}" go test "${build_args[@]}" -c -pgo="$candidate_pgo" -o "$output" "./$package"
   done
 
   root_test_binary="$artifact_root/candidate-$mode-root.test"
   run_phase "build-candidate-$mode-root" \
     run_in_checkout "$candidate_root" \
-    "${build_env[@]}" go test "${build_args[@]}" -c -pgo=auto -o "$root_test_binary" .
+    "${build_env[@]}" go test "${build_args[@]}" -c -pgo="$candidate_pgo" -o "$root_test_binary" .
 
   if [[ "$mode" == simd ]]; then
     run_phase build-candidate-simd-encoder \
       run_in_checkout "$candidate_root" \
-      "${build_env[@]}" go test -c -pgo=auto -o "$artifact_root/candidate-simd-encoder.test" ./internal/encoder
+      "${build_env[@]}" go test -c -pgo="$candidate_pgo" -o "$artifact_root/candidate-simd-encoder.test" ./internal/encoder
     run_phase build-candidate-simd-dnnmath \
       run_in_checkout "$candidate_root" \
-      "${build_env[@]}" go test -c -pgo=auto -o "$artifact_root/candidate-simd-dnnmath.test" ./internal/dnnmath
+      "${build_env[@]}" go test -c -pgo="$candidate_pgo" -o "$artifact_root/candidate-simd-dnnmath.test" ./internal/dnnmath
     # Native AVX2 hosts cannot detect an illegal AVX2 instruction on the AVX
     # fallback path. CPU emulation exercises those paths without a C helper,
     # whose subprocess would otherwise run against the host CPU features.
@@ -293,14 +316,14 @@ for mode in "${modes[@]}"; do
   # Exact union of the original selectors, sharing package/helper setup.
   run_json_phase "candidate-$mode-standard-correctness-and-cbr-batch" \
     run_in_checkout "$candidate_root" \
-    "${run_env[@]}" go test -json "${oracle_build_args[@]}" \
+    "${run_env[@]}" go test -pgo="$candidate_pgo" -json "${oracle_build_args[@]}" \
     ./internal/celt . ./multistream ./internal/encoder ./testvectors ./internal/dnnmath ./internal/dred/rdovae ./internal/libopustest ./internal/opusmath \
     -run '(^(TestApplyDeemphasis.*MatchesLibopus|TestDeemphasisMatchesLibopus|TestDeemphasisSilenceTransitionsAndDownsampleStateMatchLibopus|TestCELTPLCStagesMatchLibopusC|TestCELTPLCFIRMatchesLibopus|TestCELTPLCIIRMatchesLibopus|TestCombFilterConstantBodyHistorySeamMatchesLibopus|TestCombFilterRampedHistorySeamMatchesLibopus|TestCombFilterConstSSEOrderZeroAllocs|TestPitchSearchNearTieMatchesSelectedLibopus|TestExpRotationMatchesLibopusFloatPath|TestPatchTransientHistoryStrideMatchesLibopus|TestPVQProjectionRoundingMatchesLibopus|TestOpPVQSearchFloatHighKNearTieResidual|TestCELTStereoIthetaQ30MatchesLibopus|TestHaar1Transform)$)|(^(TestCELTSilenceDecodeMatchesLibopusFloatBits|TestCELTReceivedSilenceHistoryMatchesLibopus|TestHotPathAllocsDecodeSilenceTransitions|TestHotPathAllocsMultistreamDecode|TestMultistreamCallerBuffer.*|TestMultistreamModeTransitionsWarmZeroAllocs)$)|(^(TestPaddedStreamMatchesLibopusRepacketizer|TestMultistream(CBRDTXMatchesLibopus|EncodeBudgetMatchesLibopus|EncodeTooSmallPreservesState|SelfDelimitedBudgetFramingWarmZeroAllocs)|TestSurroundTransientHistoryStrideMatchesLibopus|TestSurroundPVQProjectionRoundingMatchesLibopus|TestSurroundLowSpaceFinalRangeMatchesLibopus|TestSurroundLowSpaceThenRealFrameMatchesLibopus|TestLowSpacePacketPreservesInputHighPassState|TestProjectionDemixing(Float|Int16)MatchesLibopusMatrixOracle|TestProjectionAnalysisMatchesLibopus|TestInitialStereoToMonoMatchesLibopus|TestProjectionInitialMonoDecisionMatchesLibopus|TestStereoFadeMatchesLibopus|TestStereoWidthComputation|TestHPCutoffMatchesLibopus|TestClampRedundancyBytesAfterSilkMatchesLibopusFormula)$)|(^(TestSub48NativeEncodeParity|TestEncodeStatefulDTXRunFuzz|TestStereoFadeTransitionPacketMatchesLibopus|TestLowDelayApplicationControlsMatchLibopus)$)|(^TestDecodeWithFEC(MultiFrameSILK|SideReset)MatchesLibopus$)|(^TestLowDelayCrossModeParity$)|(^TestDecodeDifferentialEncodeThenDecode$)|(^(TestHybridToSILKFadeRequiresDecodedHistoryMatchesLibopus|TestTransitionPLCStageGainMatchesLibopus|TestCELTTransitionPLCStageHasInnerAndOuterGainChecks|TestCELTTransitionFadeReplaysMatchedLibopus|TestFloatPLCUsesCELTAfterRedundancySequence|TestTransitionFullSequenceMatchesLibopus|TestTransitionPreviousCELTPLCStageMatchesLibopus|TestSILKToCELTTransitionPLCMatchesLibopus|TestSILKPLCDurationChangesMatchLibopus|TestMultistreamSurroundDecodeDifferentialFuzz|TestMultistreamDiscreteDecodeDifferentialFuzz|TestProjectionDecodeDifferentialFuzz|TestMultistreamGopusEncodedDecodeDifferentialFuzz|TestProjectionDecodeIntoPrefilledBuffer|TestCELTActualRotationPacketsMatchLibopus)$)|(^Test(DNNVectorActivationsMatchSelectedLibopusOracle|RDOVAECGEMV8x4MatchesSelectedLibopusOracle|RDOVAESGEMVMatchesSelectedLibopusOracle|RDOVAESparseFloatLinearMatchesSelectedLibopusOracle|RDOVAEIntegerLinearBiasMatchesSelectedLibopusOracle|RDOVAEIntegerInputQuantizerMatchesSelectedLibopusOracle)$)|(^TestEncoderCBRPairedOracleExact$)|(^Test(CurrentPublicAPIHelperConfig|PublicDNNReferenceIdentityUsesBuilderStampContract|DNNHelperIncludesPinnedSourceRootAfterBuildConfig|DNNFeatureBuild|DNNCompilerTarget))|(^TestFloat32ToInt(16.*MatchesLibopus.*|24MatchesLibopus)$)|(^TestProjectionDecodeHigherOrderAndGainMatchesLibopus$)|(^TestProjection(ShortMixingMatchesLibopus|EncodeInt16.*|Int16PacketRangeMatchesLibopus|Int16FullRangeMatchesLibopus)$)|(^Test(SurroundEncodeMatchesLibopusByteExact|SurroundEncodeUnconstrainedVBRMatchesLibopus|SurroundEncodeComplexityMatchesLibopus|ProjectionDecodeMatchesLibopus|ProjectionDecodePerStreamModeClassification)$)|(^Test(PLCModeAfterCELTRedundancyAcrossFormatsMatchesLibopus|DTXByteExactParity_.*|DecodeWithFECNoLBRR.*|DecodeWithFECOverlongNoLBRRRequestMatchesLibopus)$)'"|$exact_audit_selector" \
     -count=1 -timeout=25m
 
   run_json_phase "candidate-$mode-root-stateful-mono-transition" \
     run_in_checkout "$candidate_root" \
-    "${run_env[@]}" go test -json "${build_args[@]}" . \
+    "${run_env[@]}" go test -pgo="$candidate_pgo" -json "${build_args[@]}" . \
     -run '^TestEncodeStatefulTransitionFuzz$/^xfr_auto_ch1_(40|60)ms_(24000|32000|48000|64000)bps_vbr[012]_cx5_fecfalse_dtx(true|false)$' \
     -count=1 -timeout=10m
 
@@ -312,74 +335,74 @@ for mode in "${modes[@]}"; do
   # Feature helpers select the same scalar/SIMD reference as the Go build.
   run_json_phase "candidate-$mode-custom-mode-parity" \
     run_in_checkout "$candidate_root" \
-    "${run_env[@]}" go test -json -tags "gopus_custom_modes${feature_scalar_tag}" \
+    "${run_env[@]}" go test -pgo="$candidate_pgo" -json -tags "gopus_custom_modes${feature_scalar_tag}" \
     ./internal/celt/custom -count=1 -timeout=10m
 
   run_json_phase "candidate-$mode-custom-qext-mode-parity" \
     run_in_checkout "$candidate_root" \
-    "${run_env[@]}" go test -json -tags "gopus_custom_modes,gopus_qext${feature_scalar_tag}" \
+    "${run_env[@]}" go test -pgo="$candidate_pgo" -json -tags "gopus_custom_modes,gopus_qext${feature_scalar_tag}" \
     ./internal/celt/custom -count=1 -timeout=10m
 
   run_json_phase "candidate-$mode-fixed-custom-mode-parity" \
     run_in_checkout "$candidate_root" \
-    "${run_env[@]}" go test -json -tags "gopus_custom_modes,gopus_fixed_point${feature_scalar_tag}" \
+    "${run_env[@]}" go test -pgo="$candidate_pgo" -json -tags "gopus_custom_modes,gopus_fixed_point${feature_scalar_tag}" \
     ./internal/celt/custom \
     -run '^(TestCustomSignalling(DefaultAndRawMatchLibopus|FiniteBitrateMatchesLibopus|ConstructorDefaultsMatchLibopus|ChannelTransitionsMatchLibopus|HeaderLMEndBandAndPaddingMatchLibopus|RejectedHeaderPreservesDecoderState|EndBandCommitsBeforePacketErrors|EndBandSurvivesRawToggleAndReset)|TestCustomSignalled(DecodeFloatWarmZeroAllocs|VBRInputAPIsWarmZeroAllocs)|TestOracleParity(StandardModes|NonStandardModes|NonStandardStereo)|TestOracleWideBand(Mode|Stateful)Parity|TestFixedCustom(Standard.*|Scaled.*|Wide.*|DynamicModesSupported|FloatToRes.*|EncodeRejects.*))$' \
     -count=1 -timeout=10m
 
   run_json_phase "candidate-$mode-fixed-custom-qext-mode-parity" \
     run_in_checkout "$candidate_root" \
-    "${run_env[@]}" go test -json -tags "gopus_custom_modes,gopus_fixed_point,gopus_qext${feature_scalar_tag}" \
+    "${run_env[@]}" go test -pgo="$candidate_pgo" -json -tags "gopus_custom_modes,gopus_fixed_point,gopus_qext${feature_scalar_tag}" \
     ./internal/celt/custom ./internal/fixedpoint ./internal/celt \
     -run '^(TestCustomSignalling(DefaultAndRawMatchLibopus|FiniteBitrateMatchesLibopus|ConstructorDefaultsMatchLibopus|ChannelTransitionsMatchLibopus|HeaderLMEndBandAndPaddingMatchLibopus|RejectedHeaderPreservesDecoderState|EndBandCommitsBeforePacketErrors|EndBandSurvivesRawToggleAndReset)|TestCustomSignalled(QEXTPaddingMatchesLibopus|DecodeFloatWarmZeroAllocs|VBRInputAPIsWarmZeroAllocs)|TestOracleParityStandardModes|TestQEXTModePresenceMatchesLibopus|TestFixedCustom(Standard.*|QEXT(EncoderParity|EncoderZeroAlloc|DynamicStatefulParity|DynamicZeroAlloc|2048SafeSequence|EncoderBudgetAndLMParity)|FloatToRes.*|EncodeRejects.*)|TestQEXTCustomMDCTMatchesSelectedLibopus)$' \
     -count=1 -timeout=10m
 
   run_json_phase "candidate-$mode-qext-custom-mode-presence" \
     run_in_checkout "$candidate_root" \
-    "${run_env[@]}" go test -json -tags "gopus_custom_modes,gopus_qext${feature_scalar_tag}" \
+    "${run_env[@]}" go test -pgo="$candidate_pgo" -json -tags "gopus_custom_modes,gopus_qext${feature_scalar_tag}" \
     ./internal/celt -run '^TestQEXTModePresenceMatchesLibopus$' -count=1 -timeout=10m
 
   run_json_phase "candidate-$mode-qext-stateful-parity" \
     run_in_checkout "$candidate_root" \
-    "${run_env[@]}" go test -json -tags "gopus_qext${feature_scalar_tag}" . ./internal/celt ./internal/encoder ./internal/libopustest ./multistream ./testvectors \
+    "${run_env[@]}" go test -pgo="$candidate_pgo" -json -tags "gopus_qext${feature_scalar_tag}" . ./internal/celt ./internal/encoder ./internal/libopustest ./multistream ./testvectors \
     -run '(^Test(QEXT(Stateful|ActiveStereoDecode|ReceivedSilence|Decode96kOracle|96kAutoChannelTransitionsMatchLibopus|Native96PLCPitchPeriodMatchesSelectedReference|FirstLossPublicPLCMatchesSelectedReference)|Native96k(Decode|IntegerDecode|MixedInteger)|HD96kPublicFinalRangeMatchesLibopus))|(^Test(SelectedSIMDPLCRawAutocorrMatchesArchive|QEXTBandEnergyMatchesSelectedLibopus|AlgQuantQEXTRefinementMatchesLibopusAtFloatRoundingBoundary|AlgQuantQEXTSearchMatchesLibopusAtPVQCorrectionBoundary)$)|(^Test(HD96kAutoCELTRawTraceMatchesSelectedLibopus|HD96kNativeEncodeMainPayloadParity|HD96kFramingByteParityMatchesLibopus|HD96kFramingExtensionRoundtrip|NativeHD96kFloatCELTInputMatchesSelectedLibopus|PublicQEXTNative96(ShortCELT|Hybrid10ms)MatchesSelectedReference|PublicQEXTHybridNative96TransitionsMatchSelectedFloatReference)$)|(^Test(ConcealPeriodicPLCMatchesLibopus|PeriodicPLCSynthesisStagesMatchLibopusBits|PeriodicPLCEnergyMatchesLibopusVectorRemainders|CELTPVQBandsGridMatchesLibopus|AntiCollapseVsLibopus)$)|(^Test(CurrentPublicAPIHelperConfig|DecodeDifferential(EncodeThenDecode|Malformed)|CELTMonoRecoveryAfterLongGap|CELTReceivedSilenceHistory|EncodeDifferential(LongFrames|LowComplexity)|EncodeStateful(Transition|DTX)|Sub48NativeEncode|LowDelayApplicationControls|MultistreamCallerBuffer|Public(Explicit)?MultistreamInt16|DecodeGainModeTransition|LibopusCELTTraceMatchesReferenceDecodeWindow))|(^Test(QEXTExtensionBandsContentMatchesLibopusOracle|HD96kMDCTMatchesLibopusQEXT|CELTStereoIthetaQ30MatchesLibopus|Haar1Transform|QEXTSynthesisStagesMatchSelectedLibopus)$)|(^Test(SurroundEncodeMatchesLibopusByteExact|SurroundEncodeUnconstrainedVBRMatchesLibopus|SurroundEncodeComplexityMatchesLibopus|ProjectionDecodeMatchesLibopus|ProjectionDecodePerStreamModeClassification)$)'"|$exact_audit_selector" -count=1 -timeout=10m
 
   # Exact union of the original selectors, sharing package/helper setup.
   run_json_phase "candidate-$mode-fixed-point-correctness-batch" \
     run_in_checkout "$candidate_root" \
-    "${run_env[@]}" go test -json -tags "gopus_fixed_point,gopus_libopus_oracle${feature_scalar_tag}" \
+    "${run_env[@]}" go test -pgo="$candidate_pgo" -json -tags "gopus_fixed_point,gopus_libopus_oracle${feature_scalar_tag}" \
     . ./internal/silk ./internal/encoder ./internal/celt ./internal/libopustest ./multistream ./testvectors ./internal/fixedpoint ./internal/opusmath \
     -run '(^Test(CELTAllocTrimAnalysisParity|CELTAllocTrimAnalysisQCONST32RoundingBoundary|TransientAnalysisMatchesLibopusFixed|PatchTransientDecisionMatchesLibopusFixed|PrefilterAnalysisMatchesLibopusFixed)$)|(^TestEncoderCBRPairedOracleExact$)|(^TestSILKFixedRes24API48kCBRSequenceMatchesLibopus$)|(^TestFixedOuterCBRInputPreprocessMatchesLibopus$)|(^Test(DecodeDifferentialFixedPoint|DecoderFixedPoint|DecodeWithFEC|HotPathAllocsDecode|DecodeMalformedVBRPreservesSelectedLibopusState|DecodeMalformedRawCSequenceWitnessPreservesState))|(^Test(Public.*SILK|PacketEncoderEncodeZeroAlloc))|(^(TestPublicFixedShortEncodeMatchesLibopus|TestPublicFixedVoIPShortCELTMatchesLibopus|TestPublicFixedShortExpertFrameDurationMatchesLibopus|TestPublicFixedLongCELTPacketsMatchLibopus|TestPublicFixedInputAPIsShareQ8History|TestPublicFixedVoIPInputAPIsShareQ8History|TestPublicFixedStereoWidthFadeMatchesLibopus|TestPublicFixedSILKHybridInputAPIsMatchLibopus|TestPublicFixedSILKHybridRatesDurationsAndDownmixMatchLibopus|TestPublicFixedSILKHybridModeTransitionsMatchLibopus|TestPublicFixedAutoSILKHybridSequencesMatchLibopus|TestPublicFixedAutoCELTSequenceMatchesLibopus|TestPublicCELTEncodeFixedByteExact|TestPublicCELTEncodeFixedRateByteExact|TestOpusEncodeFixedCELTByteExact|TestOpusEncodeFixedCELTFloatInputSingleFrameByteExact|TestOpusEncodeFixedSILKHybridMatchedFloatInputByteExact|TestFixedPointTonalityAnalysisStagesMatchLibopus|TestEncodeDifferentialFuzzFixedPoint|TestFixedCBRRawTailMatchesLibopus|TestFixedStereoPrefilterThresholdMatchesLibopus|TestFixedOuterOpusEncodeRawInt16MatchesLibopus|TestFixedOuterOpusEncodeRecordsPreserveCalls|TestFixedHPCutoffResMatchesLibopus|TestFixedVoIPHPCutoffResetAndLowSpaceState|TestVoIPHPCutoffResetMatchesFreshEncoder|TestLowSpacePacketPreservesInputHighPassState|TestFixedDCRejectQ8MatchesLibopus|TestAllocationNonpositiveBudgetMatchesFixedLibopus|TestFixedCELTEnergyMaskFloatBoundaryConversion|TestPublicFixedCELTEnergyMaskAndLFEControlsMatchOracle|TestPublicFixedCELTEnergyMaskResetLifetimeMatchesOracle|TestPublicFixedCELTQ24MaskMatchesOracle|TestPublicFixedLFEMatchesOracle|TestPublicFixedShortFrameSILKRequestFallsBackToCELTOracle)$)|(^(TestCELTHybridEncodeWithECSeededOracle|TestCELTResetClearsEnergyMaskOracle|TestAmp2Log2Oracle)$)|(^Test(FixedCELTOracleHelpersUsePairedReference|MultistreamReferenceFeaturePairing)$)|(^(TestFixedPointPhaseInversionControlMatchesLibopus|TestDecoderFixedPointRedundancyCodedOutputChannelParity|TestFixedMultistreamDecodeFloat32MatchesSelectedLibopus|TestFixedMultistreamDecodeFloat32PLCRecoveryMatchesSelectedLibopus|TestMultistreamDecodeFixedPointGainMatchesLibopus|TestMultistreamFixedCELT.*|TestFixedPublicMultistreamHybridDecodeToInt16MatchesSelectedLibopus|TestProjectionDecodeInt24MatchesLibopus|TestProjectionFixed(PLCSequenceMatchesLibopus|DecodeBufferPreflightPreservesState|DecodeIntoPLCZeroAllocs))$)|(^TestFloat32ToInt(16.*MatchesLibopus.*|24MatchesLibopus)$)|(^TestProjectionDecodeHigherOrderAndGainMatchesLibopus$)|(^TestProjection(ShortMixingMatchesLibopus|EncodeInt16.*|Int16PacketRangeMatchesLibopus|Int16FullRangeMatchesLibopus)$)|(^Test(FixedStereoWidthAndModeThresholdMatchesLibopus|ProjectionEncodeDifferentialFuzz|FixedMultistreamHybridLowRateMatchesSelectedLibopus|FixedHybridToCELTTransitionMatchesLibopus|FixedPLCUsesCELTAfterRedundancySequence|MultistreamFixedHybridPLCRecoveryMatchesLibopus|FixedHybridMultiframeInt24MatchesLibopusAndZeroAllocs|FixedProjectionHybridRedundancyMatchesLibopusInt24|MultistreamModeTransitionsWarmZeroAllocs|DecoderQEXT.*|MultistreamSurroundDecodeDifferentialFuzz|MultistreamDiscreteDecodeDifferentialFuzz|ProjectionDecodeDifferentialFuzz|MultistreamGopusEncodedDecodeDifferentialFuzz|ProjectionDecodePerStreamModeClassification)$)|(^Test(SurroundEncodeMatchesLibopusByteExact|SurroundEncodeUnconstrainedVBRMatchesLibopus|SurroundEncodeComplexityMatchesLibopus|ProjectionDecodeMatchesLibopus|ProjectionDecodePerStreamModeClassification)$)|(^Test(PLCModeAfterCELTRedundancyAcrossFormatsMatchesLibopus|DTXByteExactParity_.*|DecodeWithFECNoLBRR.*|DecodeWithFECOverlongNoLBRRRequestMatchesLibopus)$)'"|$exact_audit_selector" \
     -count=1 -timeout=25m
 
   run_json_phase "candidate-$mode-fixed-fec-control-transitions" \
     run_in_checkout "$candidate_root" \
-    "${run_env[@]}" go test -json -tags "gopus_fixed_point${feature_scalar_tag}" . \
+    "${run_env[@]}" go test -pgo="$candidate_pgo" -json -tags "gopus_fixed_point${feature_scalar_tag}" . \
     -run '^TestEncodeStatefulTransitionFuzz$/^xfr_auto_ch1_(10ms_32000bps_vbr0_cx5|20ms_24000bps_vbr0_cx0|40ms_24000bps_vbr0_cx0)_fectrue_dtxfalse$' \
     -count=1 -timeout=10m
 
   # Exact union of the original selectors, sharing package/helper setup.
   run_json_phase "candidate-$mode-fixed-qext-correctness-batch" \
     run_in_checkout "$candidate_root" \
-    "${run_env[@]}" go test -json -tags "gopus_fixed_point,gopus_qext,gopus_libopus_oracle${feature_scalar_tag}" \
+    "${run_env[@]}" go test -pgo="$candidate_pgo" -json -tags "gopus_fixed_point,gopus_qext,gopus_libopus_oracle${feature_scalar_tag}" \
     ./internal/libopustest ./internal/fixedpoint . ./internal/encoder ./internal/silk ./internal/celt ./multistream ./testvectors ./internal/opusmath \
     -run '(^Test(CELTAllocTrimAnalysisParity|CELTAllocTrimAnalysisQCONST32RoundingBoundary|TransientAnalysisMatchesLibopusFixed|PatchTransientDecisionMatchesLibopusFixed|PrefilterAnalysisMatchesLibopusFixed|GainFadeResQEXTMatchesSelectedLibopus|GainFadeResQEXTAllocs|CELTDecoderFullFrameOracle|CELTDecoderSequenceOracle|CELTDecoderDownsampleOracle|CELTDecoderPLCOracle|CELTDecoderPLCRecoveryOracle|CELTSynthesisOracle)$)|(^TestEncoderCBRPairedOracleExact$)|(^TestSILKFixedRes24API48kCBRSequenceMatchesLibopus$)|(^TestFixedOuterCBRInputPreprocessMatchesLibopus$)|(^(TestFixedQEXTArchiveAndPublicHelperUsePairedReference|TestCELTEncodeWithECFixedQEXTReferenceArchive)$)|(^(TestQEXTStatefulPacketMatrixMatchesLibopus|TestQEXTCBRExtensionFramingByteParityMatchesLibopus|TestFixedDecodeGainClampMatchesSelectedLibopus|TestFixedQEXTHybridSWBMonoPLCRecoveryMatchesSelectedReference|TestFixedQEXTMultistreamDecodeUsesSidePayload|TestMultistreamDecodeRequestedPLCDurationMatchesLibopus|TestMultistreamDecodeOverlongAndEmptyPLCMatchesLibopus|TestMultistreamDecodeInt16HighGainMatchesLibopus|TestMultistreamCallerBufferWarmZeroAlloc|TestDecodeDifferentialFixedPointPLC|TestDecodeDifferentialFixedPointLossSampleRates|TestDecodeDifferentialMalformed|TestDecodeDifferentialCrossFrameCorrupt|TestEncodeStatefulTransitionFuzz|TestEncodeStatefulDTXRunFuzz|TestMultistreamDecodeFixedPointParity|TestMultistreamDecodeFloat32MatchesLibopus|TestMultistreamCallerBuffersMatchLibopus|TestPublicExplicitMultistreamInt16MatchesLibopus|TestQEXTMultistreamDecodeMatchesLibopusOracle|TestHybridStereoFloatSameArchParity|TestPublicFixedQEXTPacketsMatchLibopus|TestPublicFixedQEXTConstraintPersistsAcrossCBR|TestPublicFixedQEXTFrameSizeModeAndInputMatrix|TestPublicFixedQEXTWarmEncodeAllocations|TestPublicFixedQEXTHighBudgetWarmEncodeAllocations|TestPublicFixedQEXT96kDurationsMatchLibopus|TestFixedQEXTInputBypassesDCHighpassWithoutAdvancingMemory|TestCELTFixedQEXTMainPayloadMatchesLibopus|TestCELTFixedQEXTReservedMainPayloadMatchesLibopus|TestCELTFixedQEXTNative96KFrameMatchesLibopus|TestCELTFixedQEXTNative96KSidePayloadMatchesLibopus|TestCELTFixedQEXTNative96KShortFrameNoSidePayloadMatchesLibopus|TestCELTFixedQEXTNative96KStatefulResetMatchesLibopus|TestCELTFixedQEXTNative96KEncodeDoesNotAllocateAfterWarmup|TestCELTFixedQEXTExtraAllocationMatchesLibopus)$)|(^(TestFixedPointTonalityAnalysisStagesMatchLibopus|TestFixedCELTEnergyMaskFloatBoundaryConversion|TestPublicFixedCELTEnergyMaskAndLFEControlsMatchOracle|TestPublicFixedCELTEnergyMaskResetLifetimeMatchesOracle|TestPublicFixedCELTQ24MaskMatchesOracle|TestPublicFixedLFEMatchesOracle|TestPublicFixedShortFrameSILKRequestFallsBackToCELTOracle)$)|(^(TestPublicFixedQEXTCELTReceivedFramesMatchSelectedReference|TestPublicFixedQEXTCELTMainWithoutExtensionMatchesSelectedReference|TestPublicFixedQEXTSmallBufferDoesNotAdvanceCELTState|TestPublicFixedQEXTLostCELTFrameMatchesSelectedReference|TestPublicFixedQEXTLostCELTBurstMatchesSelectedReference|TestPublicFixedQEXTStructuralMalformedPacketPreservesCELTState|TestPublicFixedQEXTHybridReceivedFramesMatchSelectedReference|TestPublicFixedQEXTCELTToHybridTransitionMatchesSelectedReference|TestPublicFixedQEXTHybridToCELTTransitionMatchesSelectedReference|TestPublicFixedQEXTHybridLostFrameMatchesSelectedReference|TestPublicFixedQEXTHybridLowerRateAndDownmixMatchesSelectedReference|TestPublicFixedQEXTHybridFECMatchesSelectedReference|TestPublicFixedQEXTHybridRedundancyDirectionsMatchSelectedReference|TestPublicFixedQEXTCELTShortFramesMatchSelectedReference|TestPublicQEXTNative96ShortCELTMatchesSelectedReference|TestPublicQEXTNative96Hybrid10msMatchesSelectedReference|TestPublicFixedQEXTHybridNative96TransitionsMatchSelectedReference|TestPublicFixedQEXTHybridNative96RedundancyMatchesSelectedReference|TestPublicFixedQEXTNative96SILKOutputMatchesSelectedReference|TestPublicFixedQEXT96kAutoChannelTransitionsMatchLibopus|TestPublicFixedQEXT96kAutoChannelTransitionStateMatchesCELT|TestPublicFixedQEXT48kAutoChannelTransitionsMatchLibopus|TestPublicFixedQEXT48kAutoChannelTransitionStateMatchesCELT|TestNative96kDecodeMatchesQEXTOracle(Mono|Stereo)|TestQEXTDecode96kOracleProducesNative96k|TestNative96kDecodeCrossFramePostfilterParity|TestNative96kIntegerDecodeFormatsMatchQEXTOracle|TestNative96kIntegerDecodeSmallBufferPreservesState|TestNative96kIntegerDecodeGainMatchesQEXTOracle|TestNative96kMixedIntegerFormatsMatchQEXTOracle|TestAlgQuantQEXTMatchesFixedLibopus|TestAlgUnquantQEXTMatchesSelectedLibopus|TestQuantAllBandsDecodeOracle|TestQuantAllBandsDecodeQEXTMatchesSelectedLibopus|TestQuantPartitionQEXTUsesZeroResolutionCubicLeaf)$)|(^(TestPublicFixedAutoCELTSequenceMatchesLibopus|TestPublicFixedSILKHybridModeTransitionsMatchLibopus|TestCombFilterQEXTPFMatchesLibopus|TestFixedPointSurroundEncodeMatchesLibopus|TestFixedPointSurroundAnalysisMatchesLibopus|TestFixedPointSurroundMaskRoutingMatchesAnalyzer|TestFixedPointFloatSurroundEncodeMatchesLibopus|TestFixedQEXTMonoSurroundCELTResetMatchesLibopus|TestMultistreamEncodeDecodeAllocGuard|TestProjectionDemixing(Float|Int16)MatchesLibopusMatrixOracle|TestMultistreamReferenceFeaturePairing)$)|(^(TestQEXTMDCTForwardMatchesFixedLibopus|TestQEXTMDCT96000ForwardMatchesFixedLibopus|TestQEXTMDCTBackwardMatchesSelectedLibopus|TestQEXTMDCTSilenceHeadroomMatchesFixedLibopus|TestQEXTKissFFTMatchesFixedLibopus|TestQEXTMDCTForwardDoesNotAllocateAfterWarmup|TestQEXTKissFFTDoesNotAllocate|TestAmp2Log2Oracle|TestCELTExp2DBFixedQEXTMatchesSelectedLibopus|TestDenormaliseBandsOracle|TestAntiCollapseMatchesLibopusFixed|TestSmoothFadeResQEXTMatchesSelectedLibopus)$)|(^(TestFixedPointPhaseInversionControlMatchesLibopus|TestDecoderFixedPointRedundancyCodedOutputChannelParity|TestFixedMultistreamDecodeFloat32MatchesSelectedLibopus|TestFixedMultistreamDecodeFloat32PLCRecoveryMatchesSelectedLibopus|TestMultistreamDecodeFixedPointGainMatchesLibopus|TestMultistreamFixedCELT.*|TestFixedPublicMultistreamHybridDecodeToInt16MatchesSelectedLibopus|TestProjectionDecodeInt24MatchesLibopus|TestProjectionFixed(PLCSequenceMatchesLibopus|DecodeBufferPreflightPreservesState|DecodeIntoPLCZeroAllocs))$)|(^TestFloat32ToInt(16.*MatchesLibopus.*|24MatchesLibopus)$)|(^TestProjectionDecodeHigherOrderAndGainMatchesLibopus$)|(^TestProjection(ShortMixingMatchesLibopus|EncodeInt16.*|Int16PacketRangeMatchesLibopus|Int16FullRangeMatchesLibopus)$)|(^Test(FixedStereoWidthAndModeThresholdMatchesLibopus|ProjectionEncodeDifferentialFuzz|FixedMultistreamHybridLowRateMatchesSelectedLibopus|FixedHybridToCELTTransitionMatchesLibopus|FixedPLCUsesCELTAfterRedundancySequence|MultistreamFixedHybridPLCRecoveryMatchesLibopus|FixedHybridMultiframeInt24MatchesLibopusAndZeroAllocs|FixedProjectionHybridRedundancyMatchesLibopusInt24|MultistreamModeTransitionsWarmZeroAllocs|DecoderQEXT.*|MultistreamSurroundDecodeDifferentialFuzz|MultistreamDiscreteDecodeDifferentialFuzz|ProjectionDecodeDifferentialFuzz|MultistreamGopusEncodedDecodeDifferentialFuzz|ProjectionDecodePerStreamModeClassification)$)|(^Test(QEXTExtensionBandsContentMatchesLibopusOracle|HD96kMDCTMatchesLibopusQEXT|CELTStereoIthetaQ30MatchesLibopus|Haar1Transform|QEXTSynthesisStagesMatchSelectedLibopus)$)|(^Test(SurroundEncodeMatchesLibopusByteExact|SurroundEncodeUnconstrainedVBRMatchesLibopus|SurroundEncodeComplexityMatchesLibopus|ProjectionDecodeMatchesLibopus|ProjectionDecodePerStreamModeClassification)$)|(^Test(PLCModeAfterCELTRedundancyAcrossFormatsMatchesLibopus|DTXByteExactParity_.*|DecodeWithFECNoLBRR.*|DecodeWithFECOverlongNoLBRRRequestMatchesLibopus)$)'"|$exact_audit_selector" \
     -count=1 -timeout=25m
 
   run_json_phase "candidate-$mode-neural-analysis-parity" \
     run_in_checkout "$candidate_root" \
-    "${run_env[@]}" go test -json -tags "gopus_osce${feature_scalar_tag}" \
+    "${run_env[@]}" go test -pgo="$candidate_pgo" -json -tags "gopus_osce${feature_scalar_tag}" \
     ./internal/lpcnetplc -count=1 -timeout=10m
 
   run_json_phase "candidate-$mode-dred-initial-latents" \
     run_in_checkout "$candidate_root" \
-    "${run_env[@]}" go test -json -tags "gopus_dred${feature_scalar_tag}" \
+    "${run_env[@]}" go test -pgo="$candidate_pgo" -json -tags "gopus_dred${feature_scalar_tag}" \
     ./internal/encoder -run '^TestEncoderDRED(InitialLatentsTraceMatchesLibopus|LongCELTLatentsUseLibopusSubframeCadence|SetDNNBlobPreservesActiveRuntime)$' \
     -count=1 -timeout=10m
 
   run_json_phase "candidate-$mode-dred-stateful-concealment" \
     run_in_checkout "$candidate_root" \
-    "${run_env[@]}" GOPUS_DRED_AUDIO_QUALITY=1 go test -json \
+    "${run_env[@]}" GOPUS_DRED_AUDIO_QUALITY=1 go test -pgo="$candidate_pgo" -json \
     -tags "gopus_dred${feature_scalar_tag}" . ./internal/celt ./internal/lpcnetplc ./internal/silk ./multistream \
     -run '^Test(DREDHistory.*|DecoderDecodePLCAppliesNeuralConcealmentWhenReady|DecoderDecodeNilConsumesMultistreamDREDNeural.*|MSDREDDormancy_.*|MSPerStreamDREDQueue.*|DecodeDREDCarrierHistoryCodecStateMatchesLibopus|DecoderDREDFECPLCUpdatesMatchLibopusHistory|DecoderNoSidecarDeepPLC.*|MultistreamMainModelNeuralPLC.*|DecoderStateSnapshotPreservesIntegerLowBits|DREDLowDelayReferenceOffsetAgainstLibopus|DREDLowDelayFullSequenceEncoderMatchesLibopus|DREDLongLossPCMMatchesLibopusRawBits|DREDLongSequenceAllDecodedPCMMatchesLibopusRawBits|DecoderCELTNeuralPLCAPIRatesMatchesLibopusRawBits|DREDBurgSelectedCFirstLossRawBits|DREDPredictorSelectedCFirstLossRawBits|ExplicitDRED.*Quality.*SixtyPercentLoss|AntiCollapseVsLibopus)$' \
     -count=1 -timeout=10m
@@ -387,7 +410,7 @@ for mode in "${modes[@]}"; do
   # Exact union of the original selectors, sharing package/helper setup.
   run_json_phase "candidate-$mode-dred-qext-correctness-batch" \
     run_in_checkout "$candidate_root" \
-    "${run_env[@]}" go test -json -tags "gopus_dred,gopus_qext${feature_scalar_tag}" \
+    "${run_env[@]}" go test -pgo="$candidate_pgo" -json -tags "gopus_dred,gopus_qext${feature_scalar_tag}" \
     . ./internal/celt ./internal/encoder ./internal/libopustest ./internal/libopustooling ./multistream ./internal/silk \
     -run '(^(TestDREDHistory.*|TestDecoderDecodePLCAppliesNeuralConcealmentWhenReady|TestDecoderDecodeNilConsumesMultistreamDREDNeural.*|TestMSDREDDormancy_.*|TestMSPerStreamDREDQueue.*|TestDecodeDREDCarrierHistoryCodecStateMatchesLibopus|TestDecoderDREDFECPLCUpdatesMatchLibopusHistory|TestDecoderNoSidecarDeepPLC.*|TestMultistreamMainModelNeuralPLC.*|TestDecoderStateSnapshotPreservesIntegerLowBits|TestDREDLongLossPCMMatchesLibopusRawBits|TestDREDLongSequenceAllDecodedPCMMatchesLibopusRawBits|TestMultistreamReferenceFeaturePairing|TestCombinedDREDQEXTBuildOptionalExtensionContract|TestCombinedDREDQEXTBuildPublicAPIContract|TestDREDQEXTFloatSurroundMasksMatchSelectedLibopus|TestMaybeBuildSingleFrameDREDPacketCarriesQEXTAndDRED|TestEncodeCELTDREDQEXTPacketCarriesBothExtensions|TestMaybeBuildLongCELTDREDQEXTPacketCarriesBothExtensions|TestResolveLibopusDREDQEXTReferenceMatchesGoISA|TestHelperRefDirSelectsDREDQEXTTree|TestCHelperReferenceSelectionRejectsConflictingVariants|TestDREDQEXTReferenceVariantPairsScalarAndSIMD|TestValidateDREDQEXTReferenceBuildRequiresCombinedFlagsAndPairedISA|TestExistingReferenceBuildsRejectDREDAndDeepPLCFeatures|TestDREDQEXTBuildEnvironmentClearsConflictingFeatureFlags|TestSILKPLCDurationChangesMatchLibopus|TestSelectedSIMDPLCRawAutocorrMatchesArchive|TestQEXTFirstLossPublicPLCMatchesSelectedReference|TestSelfDelimitedGrowingExtensionsZeroAllocAndByteExact|TestConcealPeriodicPLCMatchesLibopus|TestPeriodicPLCSynthesisStagesMatchLibopusBits|TestPeriodicPLCEnergyMatchesLibopusVectorRemainders|TestCELTPVQBandsGridMatchesLibopus|TestAntiCollapseVsLibopus)$)|(^TestDREDQEXTSurroundAndProjection(EncodeMatchesLibopus|WarmedCycleZeroAllocs)$)' \
     -count=1 -timeout=25m
@@ -398,22 +421,22 @@ fi
 if [[ "$early_phase" == benchmarks ]]; then
   run_phase build-candidate-simd-root-test-binary \
     run_in_checkout "$candidate_root" env -u GOPUS_LIBOPUS_REF_SCALAR GOEXPERIMENT=simd \
-    go test -c -pgo=auto -o "$artifact_root/candidate-simd-root.test" .
+    go test -c -pgo="$candidate_pgo" -o "$artifact_root/candidate-simd-root.test" .
   run_phase build-candidate-nosimd-root-test-binary \
     run_in_checkout "$candidate_root" env GOEXPERIMENT=simd \
-    go test -tags nosimd -c -pgo=auto -o "$artifact_root/candidate-nosimd-root.test" .
+    go test -tags nosimd -c -pgo="$candidate_pgo" -o "$artifact_root/candidate-nosimd-root.test" .
 fi
 
 if [[ "$early_phase" != correctness ]]; then
 run_phase build-baseline-scalar-test-binary \
   run_in_checkout "$baseline_root" env -u GOEXPERIMENT GOPUS_LIBOPUS_REF_SCALAR=1 \
-  go test -c -pgo=auto -o "$artifact_root/baseline-scalar-root.test" .
+  go test -c -pgo="$baseline_pgo" -o "$artifact_root/baseline-scalar-root.test" .
 run_phase build-baseline-simd-test-binary \
   run_in_checkout "$baseline_root" env -u GOPUS_LIBOPUS_REF_SCALAR GOEXPERIMENT=simd \
-  go test -c -pgo=auto -o "$artifact_root/baseline-simd-root.test" .
+  go test -c -pgo="$baseline_pgo" -o "$artifact_root/baseline-simd-root.test" .
 run_phase build-candidate-scalar-test-binary \
   run_in_checkout "$candidate_root" env -u GOEXPERIMENT GOPUS_LIBOPUS_REF_SCALAR=1 \
-  go test -c -pgo=auto -o "$artifact_root/candidate-scalar-root.test" .
+  go test -c -pgo="$candidate_pgo" -o "$artifact_root/candidate-scalar-root.test" .
 
 run_profile() {
   local side="$1" binary="$2" profile="$3" workload="$4" benchmark="$5" checkout
@@ -532,9 +555,11 @@ Scalar rows compile Go with -tags nosimd and select the stamped libopus scalar a
 SIMD rows compile Go with GOEXPERIMENT=simd and select the stamped libopus SIMD archive.
 Encoder cases are reported individually for CELT, SILK, and Hybrid; decode aggregates all
 official RFC 8251 vectors for float32 and int16 output paths. Each report uses three runs
-with a 250 ms minimum per run; Go uses the same -pgo=auto policy as the adjacent E2E
-benchmarks. The reports enforce and print Go allocs_per_op=0; C allocations are not
-measured. The paired archives, config.h files, and build stamps are in libopus-scalar/ and
+with a 250 ms minimum per run; Go explicitly uses the candidate checkout's root
+default.pgo, matching the adjacent E2E benchmarks and diagnostic profiles.
+The profile paths and SHA-256 hashes are recorded in pgo-profiles.json. Baseline/candidate
+ratios compare revisions as shipped, including PGO changes when profile hashes differ.
+The reports enforce and print Go allocs_per_op=0; C allocations are not measured. The paired archives, config.h files, and build stamps are in libopus-scalar/ and
 libopus-simd/.
 EOF
 
@@ -552,12 +577,12 @@ EOF
 
     run_phase "candidate-$mode-libopus-encoder-e2e" \
       run_in_checkout "$candidate_root" \
-      "${mode_env[@]}" go run -pgo=auto "${mode_args[@]}" ./tools/encoderbenchcmp \
+      "${mode_env[@]}" go run -pgo="$candidate_pgo" "${mode_args[@]}" ./tools/encoderbenchcmp \
       -cases=per-case -benchtime=250ms -count=3 -format=tsv -max-gopus-allocs-per-op=0
     if [[ "$vector_status" == 0 ]]; then
       run_phase "candidate-$mode-libopus-decode-e2e" \
         run_in_checkout "$candidate_root" \
-        "${mode_env[@]}" go run -pgo=auto "${mode_args[@]}" ./tools/testvectorbenchcmp \
+        "${mode_env[@]}" go run -pgo="$candidate_pgo" "${mode_args[@]}" ./tools/testvectorbenchcmp \
         -cases=aggregate -paths=all -benchtime=250ms -count=3 -format=tsv -max-gopus-allocs-per-op=0
     else
       printf 'official test-vector preparation failed with exit=%s; see candidate-paired-libopus-testvectors.log\n' \

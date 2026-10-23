@@ -1,0 +1,132 @@
+--- public before ---
+goos: darwin
+goarch: arm64
+pkg: github.com/thesyncim/gopus
+cpu: Apple M4 Max
+BenchmarkCELTShortFrameDecode/CELT/mono/8k/2_5ms         	    1204	    492465 ns/op	      1231 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/mono/8k/2_5ms         	    1230	    493270 ns/op	      1233 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/mono/16k/2_5ms        	     969	    615805 ns/op	      1540 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/mono/16k/2_5ms        	     952	    620037 ns/op	      1550 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/mono/24k/2_5ms        	     880	    678418 ns/op	      1696 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/mono/24k/2_5ms        	     904	    670835 ns/op	      1677 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/mono/48k/2_5ms        	     760	    816098 ns/op	      2040 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/mono/48k/2_5ms        	     756	    774132 ns/op	      1935 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/8k/2_5ms       	     783	    775766 ns/op	      1939 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/8k/2_5ms       	     768	    777370 ns/op	      1943 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/16k/2_5ms      	     572	   1063386 ns/op	      2658 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/16k/2_5ms      	     565	   1066990 ns/op	      2667 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/24k/2_5ms      	     532	   1106220 ns/op	      2766 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/24k/2_5ms      	     567	   1079653 ns/op	      2699 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/48k/2_5ms      	     454	   1310041 ns/op	      3275 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/48k/2_5ms      	     447	   1330016 ns/op	      3325 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+PASS
+--- public after ---
+goos: darwin
+goarch: arm64
+pkg: github.com/thesyncim/gopus
+cpu: Apple M4 Max
+BenchmarkCELTShortFrameDecode/CELT/mono/8k/2_5ms         	    1190	    484214 ns/op	      1211 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/mono/8k/2_5ms         	    1190	    492461 ns/op	      1231 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/mono/16k/2_5ms        	     988	    659184 ns/op	      1648 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/mono/16k/2_5ms        	     727	    696421 ns/op	      1741 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/mono/24k/2_5ms        	     926	    670315 ns/op	      1676 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/mono/24k/2_5ms        	     894	    663979 ns/op	      1660 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/mono/48k/2_5ms        	     750	    770754 ns/op	      1927 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/mono/48k/2_5ms        	     786	    761329 ns/op	      1903 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/8k/2_5ms       	     786	    772183 ns/op	      1930 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/8k/2_5ms       	     762	    761244 ns/op	      1903 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/16k/2_5ms      	     592	   1002976 ns/op	      2507 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/16k/2_5ms      	     602	   1002445 ns/op	      2506 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/24k/2_5ms      	     565	   1071345 ns/op	      2678 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/24k/2_5ms      	     537	   1088697 ns/op	      2722 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/48k/2_5ms      	     454	   1322604 ns/op	      3307 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/48k/2_5ms      	     446	   1313259 ns/op	      3283 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+PASS
+--- public after ---
+goos: darwin
+goarch: arm64
+pkg: github.com/thesyncim/gopus
+cpu: Apple M4 Max
+BenchmarkCELTShortFrameDecode/CELT/mono/8k/2_5ms         	    1214	    482344 ns/op	      1206 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/mono/8k/2_5ms         	    1216	    484178 ns/op	      1210 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/mono/16k/2_5ms        	    1009	    601678 ns/op	      1504 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/mono/16k/2_5ms        	     991	    602590 ns/op	      1506 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/mono/24k/2_5ms        	     868	    670405 ns/op	      1676 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/mono/24k/2_5ms        	     908	    665800 ns/op	      1664 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/mono/48k/2_5ms        	     795	    763072 ns/op	      1908 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/mono/48k/2_5ms        	     792	    769942 ns/op	      1925 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/8k/2_5ms       	     790	    769629 ns/op	      1924 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/8k/2_5ms       	     792	    766004 ns/op	      1915 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/16k/2_5ms      	     592	   1013541 ns/op	      2534 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/16k/2_5ms      	     586	   1012596 ns/op	      2531 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/24k/2_5ms      	     548	   1075650 ns/op	      2689 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/24k/2_5ms      	     549	   1075273 ns/op	      2688 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/48k/2_5ms      	     457	   1303154 ns/op	      3258 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/48k/2_5ms      	     462	   1304094 ns/op	      3260 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+PASS
+--- public before ---
+goos: darwin
+goarch: arm64
+pkg: github.com/thesyncim/gopus
+cpu: Apple M4 Max
+BenchmarkCELTShortFrameDecode/CELT/mono/8k/2_5ms         	    1240	    481911 ns/op	      1205 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/mono/8k/2_5ms         	    1244	    483004 ns/op	      1208 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/mono/16k/2_5ms        	    1006	    595873 ns/op	      1490 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/mono/16k/2_5ms        	    1005	    596259 ns/op	      1491 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/mono/24k/2_5ms        	     912	    659681 ns/op	      1649 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/mono/24k/2_5ms        	     912	    660683 ns/op	      1652 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/mono/48k/2_5ms        	     787	    763733 ns/op	      1909 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/mono/48k/2_5ms        	     787	    771345 ns/op	      1928 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/8k/2_5ms       	     765	    789278 ns/op	      1973 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/8k/2_5ms       	     753	    794074 ns/op	      1985 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/16k/2_5ms      	     580	   1039610 ns/op	      2599 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/16k/2_5ms      	     588	   1015492 ns/op	      2539 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/24k/2_5ms      	     552	   1081260 ns/op	      2703 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/24k/2_5ms      	     555	   1087439 ns/op	      2719 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/48k/2_5ms      	     448	   1318503 ns/op	      3296 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/48k/2_5ms      	     444	   1343993 ns/op	      3360 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+PASS
+--- public before ---
+goos: darwin
+goarch: arm64
+pkg: github.com/thesyncim/gopus
+cpu: Apple M4 Max
+BenchmarkCELTShortFrameDecode/CELT/mono/8k/2_5ms         	    1233	    488991 ns/op	      1222 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/mono/8k/2_5ms         	    1232	    487423 ns/op	      1219 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/mono/16k/2_5ms        	    1005	    600020 ns/op	      1500 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/mono/16k/2_5ms        	     994	    602008 ns/op	      1505 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/mono/24k/2_5ms        	     885	    691214 ns/op	      1728 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/mono/24k/2_5ms        	     886	    673161 ns/op	      1683 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/mono/48k/2_5ms        	     784	    776019 ns/op	      1940 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/mono/48k/2_5ms        	     768	    776718 ns/op	      1942 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/8k/2_5ms       	     748	    789301 ns/op	      1973 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/8k/2_5ms       	     729	    779100 ns/op	      1948 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/16k/2_5ms      	     586	   1027715 ns/op	      2569 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/16k/2_5ms      	     590	   1027638 ns/op	      2569 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/24k/2_5ms      	     547	   1112281 ns/op	      2781 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/24k/2_5ms      	     555	   1084974 ns/op	      2712 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/48k/2_5ms      	     433	   1334483 ns/op	      3336 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/48k/2_5ms      	     457	   1296757 ns/op	      3242 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+PASS
+--- public after ---
+goos: darwin
+goarch: arm64
+pkg: github.com/thesyncim/gopus
+cpu: Apple M4 Max
+BenchmarkCELTShortFrameDecode/CELT/mono/8k/2_5ms         	    1240	    480735 ns/op	      1202 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/mono/8k/2_5ms         	    1250	    478597 ns/op	      1196 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/mono/16k/2_5ms        	    1009	    591008 ns/op	      1478 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/mono/16k/2_5ms        	    1020	    592178 ns/op	      1480 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/mono/24k/2_5ms        	     896	    657180 ns/op	      1643 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/mono/24k/2_5ms        	     886	    660591 ns/op	      1651 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/mono/48k/2_5ms        	     801	    753865 ns/op	      1885 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/mono/48k/2_5ms        	     782	    772223 ns/op	      1931 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/8k/2_5ms       	     758	    784494 ns/op	      1961 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/8k/2_5ms       	     752	    778216 ns/op	      1946 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/16k/2_5ms      	     567	   1048288 ns/op	      2621 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/16k/2_5ms      	     572	   1043902 ns/op	      2610 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/24k/2_5ms      	     550	   1088547 ns/op	      2721 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/24k/2_5ms      	     541	   1095088 ns/op	      2738 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/48k/2_5ms      	     454	   1323596 ns/op	      3309 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+BenchmarkCELTShortFrameDecode/CELT/stereo/48k/2_5ms      	     457	   1349804 ns/op	      3375 ns/packet	       400.0 packets/op	       0 B/op	       0 allocs/op
+PASS

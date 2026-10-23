@@ -3,10 +3,18 @@ name: PGO refresh
 # default.pgo is a sample-based (non-deterministic) profile, so it cannot be
 # diff-checked in regular CI. It is also amd64-specific: the hot kernels it
 # profiles are the AVX2/SSE2 paths, so it must be regenerated on amd64, never on
-# an arm64 dev box. This manual job refreshes it on an amd64 runner and opens a
-# pull request for review.
+# an arm64 dev box. This manual job refreshes it on an amd64 runner and either
+# opens a pull request or uploads the result for an existing branch.
 on:
   workflow_dispatch:
+    inputs:
+      delivery:
+        description: Publish a new PR or an artifact for an existing PR
+        type: choice
+        default: pull-request
+        options:
+          - pull-request
+          - artifact
 
 permissions:
   contents: write
@@ -16,7 +24,7 @@ jobs:
   refresh:
     name: refresh-default-pgo
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -27,10 +35,54 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Regenerate default.pgo on amd64
-        run: make pgo-generate
+      - name: Regenerate scalar and SIMD profiles on native amd64
+        run: python3 scripts/refresh_pgo.py "$RUNNER_TEMP/pgo-refresh"
+
+      - name: Install refreshed profile
+        run: cp "$RUNNER_TEMP/pgo-refresh/default.pgo" default.pgo
+
+      - name: Validate parity and benchmark refreshed PGO against matched libopus
+        shell: bash
+        env:
+          GOAMD64: v3
+          GOPUS_LIBOPUS_AMD64_TARGET: v3
+          GOMAXPROCS: "1"
+          GOWORK: "off"
+          GOPUS_TEST_TIER: parity
+          GOPUS_STRICT_LIBOPUS_REF: "1"
+        run: |
+          set -euo pipefail
+          for mode in nosimd simd; do
+            GOEXPERIMENT="$mode" make pgo-validate PGO_FILE=default.pgo \
+              > "$RUNNER_TEMP/pgo-refresh/$mode-validate.log" 2>&1
+            scalar=0
+            simd=0
+            if [[ "$mode" == nosimd ]]; then scalar=1; else simd=1; fi
+            GOEXPERIMENT="$mode" LIBOPUS_ENABLE_SCALAR="$scalar" LIBOPUS_ENABLE_SIMD="$simd" \
+              make bench-libopus-guard PGO_FILE=default.pgo \
+                BENCH_LIBOPUS_GUARD_TIME=300ms BENCH_LIBOPUS_GUARD_COUNT=5 \
+                BENCH_LIBOPUS_GUARD_ALLOCS=0 BENCH_ENCODER_LIBOPUS_GUARD_ALLOCS=0 \
+              > "$RUNNER_TEMP/pgo-refresh/$mode-benchmark.log" 2>&1
+            GOEXPERIMENT="$mode" go test -pgo=default.pgo \
+              ./internal/celt ./internal/silk ./internal/hybrid ./internal/rangecoding \
+              -count=1 -timeout=15m \
+              > "$RUNNER_TEMP/pgo-refresh/$mode-core-parity.log" 2>&1
+            GOEXPERIMENT="$mode" go test -pgo=default.pgo . \
+              -run '^TestDecodeWithFECFallbackUsesActiveSILKStateAfterDTX$' -count=1 -timeout=5m \
+              > "$RUNNER_TEMP/pgo-refresh/$mode-fec-dtx-parity.log" 2>&1
+          done
+
+      - name: Upload profile, training provenance and matched benchmarks
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: pgo-refresh-${{ github.sha }}
+          path: ${{ runner.temp }}/pgo-refresh
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Open a refresh pull request
+        if: success() && inputs.delivery != 'artifact'
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
@@ -43,11 +95,12 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -c "${branch}"
-          git add default.pgo
+          cp "$RUNNER_TEMP/pgo-refresh/provenance.json" default.pgo.json
+          git add default.pgo default.pgo.json
           git commit -m "build: refresh default.pgo (amd64 PGO profile)"
           git push origin "${branch}"
           gh pr create \
             --base master \
             --head "${branch}" \
             --title "build: refresh default.pgo (amd64)" \
-            --body "Regenerated default.pgo on amd64 via the PGO refresh workflow. It is a sample-based, non-deterministic profile; review the bench guardrail impact (make bench-libopus-guard) before merging."
+            --body "Regenerated default.pgo from equal-duration scalar and SIMD training on native amd64 via the PGO refresh workflow. Profile hashes and source/compiler provenance are recorded in default.pgo.json. It is a sample-based, non-deterministic profile; review the bench guardrail impact (make bench-libopus-guard) before merging."
