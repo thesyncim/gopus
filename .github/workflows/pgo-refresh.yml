@@ -24,7 +24,7 @@ jobs:
   refresh:
     name: refresh-default-pgo
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -38,7 +38,41 @@ jobs:
       - name: Regenerate scalar and SIMD profiles on native amd64
         run: python3 scripts/refresh_pgo.py "$RUNNER_TEMP/pgo-refresh"
 
-      - name: Upload profile and training provenance
+      - name: Install refreshed profile
+        run: cp "$RUNNER_TEMP/pgo-refresh/default.pgo" default.pgo
+
+      - name: Validate parity and benchmark refreshed PGO against matched libopus
+        shell: bash
+        env:
+          GOAMD64: v3
+          GOPUS_LIBOPUS_AMD64_TARGET: v3
+          GOMAXPROCS: "1"
+          GOWORK: "off"
+          GOPUS_TEST_TIER: parity
+          GOPUS_STRICT_LIBOPUS_REF: "1"
+        run: |
+          set -euo pipefail
+          for mode in nosimd simd; do
+            GOEXPERIMENT="$mode" make pgo-validate PGO_FILE=default.pgo \
+              > "$RUNNER_TEMP/pgo-refresh/$mode-validate.log" 2>&1
+            scalar=0
+            simd=0
+            if [[ "$mode" == nosimd ]]; then scalar=1; else simd=1; fi
+            GOEXPERIMENT="$mode" LIBOPUS_ENABLE_SCALAR="$scalar" LIBOPUS_ENABLE_SIMD="$simd" \
+              make bench-libopus-guard PGO_FILE=default.pgo \
+                BENCH_LIBOPUS_GUARD_TIME=300ms BENCH_LIBOPUS_GUARD_COUNT=5 \
+                BENCH_LIBOPUS_GUARD_ALLOCS=0 BENCH_ENCODER_LIBOPUS_GUARD_ALLOCS=0 \
+              > "$RUNNER_TEMP/pgo-refresh/$mode-benchmark.log" 2>&1
+            GOEXPERIMENT="$mode" go test -pgo=default.pgo \
+              ./internal/celt ./internal/silk ./internal/hybrid ./internal/rangecoding \
+              -count=1 -timeout=15m \
+              > "$RUNNER_TEMP/pgo-refresh/$mode-core-parity.log" 2>&1
+            GOEXPERIMENT="$mode" go test -pgo=default.pgo . \
+              -run '^TestDecodeWithFECFallbackUsesActiveSILKStateAfterDTX$' -count=1 -timeout=5m \
+              > "$RUNNER_TEMP/pgo-refresh/$mode-fec-dtx-parity.log" 2>&1
+          done
+
+      - name: Upload profile, training provenance and matched benchmarks
         if: always()
         uses: actions/upload-artifact@v5
         with:
@@ -47,11 +81,8 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Install refreshed profile
-        run: cp "$RUNNER_TEMP/pgo-refresh/default.pgo" default.pgo
-
       - name: Open a refresh pull request
-        if: inputs.delivery != 'artifact'
+        if: success() && inputs.delivery != 'artifact'
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
