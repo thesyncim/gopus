@@ -22,9 +22,10 @@ func xcorrKernelAVX4(x, y *float32, sum *[4]float32, length int) {
 
 func xcorrKernelAVX4Tail(x, y *float32, sum *[4]float32, length int, tail *xcorrTail8) {
 	var acc0, acc1, acc2, acc3 archsimd.Float32x8
-	xp, yp := unsafe.Pointer(x), unsafe.Pointer(y)
+	xBase, yp := unsafe.Pointer(x), unsafe.Pointer(y)
 	i := 0
 	for ; i+16 <= length; i += 16 {
+		xp := unsafe.Add(xBase, i*4)
 		xv := archsimd.LoadFloat32x8Array((*[8]float32)(xp))
 		acc0 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(yp)), acc0)
 		acc1 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 4))), acc1)
@@ -37,16 +38,15 @@ func xcorrKernelAVX4Tail(x, y *float32, sum *[4]float32, length int, tail *xcorr
 		acc1 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp1, 4))), acc1)
 		acc2 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp1, 8))), acc2)
 		acc3 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp1, 12))), acc3)
-		xp = unsafe.Add(xp, 64)
 		yp = unsafe.Add(yp, 64)
 	}
 	for ; i+8 <= length; i += 8 {
+		xp := unsafe.Add(xBase, i*4)
 		xv := archsimd.LoadFloat32x8Array((*[8]float32)(xp))
 		acc0 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(yp)), acc0)
 		acc1 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 4))), acc1)
 		acc2 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 8))), acc2)
 		acc3 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 12))), acc3)
-		xp = unsafe.Add(xp, 32)
 		yp = unsafe.Add(yp, 32)
 	}
 	if i < length {
@@ -96,7 +96,7 @@ func TestXcorrKernelAVX8OnePassBitExact(t *testing.T) {
 		t.Skip("AVX2/FMA unavailable")
 	}
 	rng := rand.New(rand.NewSource(0x8acc))
-	for _, length := range []int{16, 17, 23, 31, 32, 64, 65, 119, 120, 127, 128, 239, 240, 241, 479, 480, 481} {
+	for _, length := range []int{1, 7, 8, 9, 15, 16, 17, 23, 31, 32, 64, 65, 119, 120, 127, 128, 239, 240, 241, 479, 480, 481} {
 		x := make([]float32, length)
 		y := make([]float32, length+7)
 		for trial := 0; trial < 32; trial++ {

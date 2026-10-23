@@ -122,7 +122,9 @@ jobs:
         env:
           GOEXPERIMENT: simd
           GOPUS_REQUIRE_XCORR_SIMD: "1"
-        run: go test ./internal/celt ./internal/silk -run '^TestXcorrKernelAVX8PageEndTails$' -count=1 -timeout=10m
+        run: |
+          go test ./internal/celt ./internal/silk -run '^TestXcorrKernelAVX8PageEndTails$' -count=1 -timeout=10m
+          go test -gcflags=all=-d=checkptr=2 ./internal/celt ./internal/silk -run '^(TestXcorrKernelAVX8BitExact|TestXcorrKernelAVX8OnePassBitExact|TestSilkXcorrKernelAVX8OnePassBitExact|TestSilkPitchXcorrAVX2KernelMatchesReference)$' -count=1 -timeout=10m
 
       - name: Save pinned libopus builds
         if: always() && steps.native_libopus_cache.outputs.cache-primary-key != '' && steps.native_libopus_cache.outputs.cache-hit != 'true'

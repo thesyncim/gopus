@@ -20,7 +20,7 @@ func TestSilkXcorrKernelAVX8OnePassBitExact(t *testing.T) {
 		t.Skip("AVX2/FMA unavailable")
 	}
 	rng := rand.New(rand.NewSource(0x8acc))
-	for _, length := range []int{16, 17, 23, 31, 32, 64, 65, 119, 120, 127, 128, 239, 240, 241, 479, 480, 481} {
+	for _, length := range []int{1, 7, 8, 9, 15, 16, 17, 23, 31, 32, 64, 65, 119, 120, 127, 128, 239, 240, 241, 479, 480, 481} {
 		x := make([]float32, length)
 		y := make([]float32, length+7)
 		for trial := 0; trial < 32; trial++ {
