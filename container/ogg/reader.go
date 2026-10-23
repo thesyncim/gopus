@@ -44,6 +44,9 @@ type Reader struct {
 // readerBufferSize is the size of the internal read buffer.
 const readerBufferSize = 64 * 1024 // 64KB
 
+// Match bufio's bound while allowing readers to return temporary empty reads.
+const maxConsecutiveEmptyReads = 100
+
 const maxOpusPacketSizePerStream = 61_440 // RFC 7845 §6's expected packet size.
 
 // NewReader returns a Reader for r after parsing the OpusHead and OpusTags
@@ -55,7 +58,8 @@ const maxOpusPacketSizePerStream = 61_440 // RFC 7845 §6's expected packet size
 // OpusTags packets larger than 120 MiB are rejected to bound header memory use;
 // RFC 7845 §5.2 permits rejecting comment headers above this size.
 // Page lengths and CRCs are checked while reading, and nonzero Ogg page
-// versions return ErrInvalidPage.
+// versions return ErrInvalidPage. It returns io.ErrNoProgress if the source
+// returns no bytes or error for 100 consecutive reads.
 // It returns ErrNilReader for a nil reader, ErrInvalidPage or
 // ErrBadCRC for invalid page framing or checksums,
 // ErrInvalidHeader for malformed Opus headers, and propagates errors from r. If
@@ -174,6 +178,8 @@ func NewReader(r io.Reader) (*Reader, error) {
 // It returns io.EOF when the selected stream is exhausted or no more packet
 // data can be read; an unterminated trailing packet can also end with io.EOF.
 // Page framing, CRC, and underlying read errors are returned to the caller.
+// It returns io.ErrNoProgress if the source returns no bytes or error for
+// 100 consecutive reads.
 func (or *Reader) ReadPacket() (packet []byte, granulePos uint64, err error) {
 	out, granule, err := or.nextPacket(or.pktScratch[:0], or.maxPacketSize())
 	if err != nil {
@@ -190,7 +196,9 @@ func (or *Reader) ReadPacket() (packet []byte, granulePos uint64, err error) {
 // storage. If the packet exceeds len(dst), it discards the excess without
 // allocating packet storage, consumes the packet, and returns n == 0,
 // granulePos == 0, and ErrPacketTooLarge. Pages from other logical bitstreams
-// are skipped, and io.EOF indicates stream exhaustion.
+// are skipped, and io.EOF indicates stream exhaustion. It returns
+// io.ErrNoProgress if the source returns no bytes or error for 100 consecutive
+// reads.
 func (or *Reader) ReadPacketInto(dst []byte) (n int, granulePos uint64, err error) {
 	out, granule, err := or.nextPacket(dst[:0], len(dst))
 	if err != nil {
@@ -309,7 +317,6 @@ func (or *Reader) maxPacketSize() int {
 // terminator; subsequent complete packets on the page remain readable. Empty
 // pages preserve a pending packet when their sequence numbers are continuous.
 func (or *Reader) advancePage(continuePacket bool) (bool, error) {
-	// Capture this before readPage can replace or.page with another stream's page.
 	expectedSequence := or.audioSequence
 	if or.havePage {
 		expectedSequence = or.page.PageSequence + 1
@@ -324,15 +331,17 @@ func (or *Reader) advancePage(continuePacket bool) (bool, error) {
 		}
 	}
 	for {
-		if _, err := or.readPage(); err != nil {
+		page, err := or.readPage()
+		if err != nil {
 			if err == io.EOF {
 				or.eos = true
 			}
 			return false, err
 		}
-		if or.page.SerialNumber != or.serial {
+		if page.SerialNumber != or.serial {
 			continue
 		}
+		or.page = page
 		sequenceContinuous := or.page.PageSequence == expectedSequence
 		// RFC 7845 section 3 checks continuation on the next page with packet
 		// data; an empty lacing table leaves the pending packet intact.
@@ -615,23 +624,26 @@ func (or *Reader) streamOffset() (int64, error) {
 	return current - buffered, nil
 }
 
-// readPage parses the next Ogg page into the reused or.page, refilling the read
-// buffer as needed. It rejects unsupported page versions without consuming the
-// page, and returns a pointer to valid version-0 pages.
-func (or *Reader) readPage() (*Page, error) {
+// readPage parses the next Ogg page over the reused read buffer. It rejects
+// unsupported page versions without consuming the page. The returned page's
+// slices remain valid until the next refill. Only advancePage publishes a
+// selected-stream page to the packet cursor, after complete validation.
+func (or *Reader) readPage() (Page, error) {
+	var page Page
+	emptyReads := 0
 	for {
 		if or.bufferLen > or.bufferOffset {
 			data := or.pageBuffer[or.bufferOffset:or.bufferLen]
-			consumed, err := parsePageInto(data, &or.page)
+			consumed, err := parsePageInto(data, &page)
 			if err == nil {
-				if or.page.Version != 0 {
-					return nil, ErrInvalidPage
+				if page.Version != 0 {
+					return Page{}, ErrInvalidPage
 				}
 				or.bufferOffset += consumed
-				return &or.page, nil
+				return page, nil
 			}
 			if err != ErrInvalidPage || !hasOggMagicPrefix(data) {
-				return nil, err
+				return Page{}, err
 			}
 			// A valid capture-pattern prefix can still be an incomplete page.
 		}
@@ -649,7 +661,7 @@ func (or *Reader) readPage() (*Page, error) {
 		if or.pendingErr != nil {
 			err := or.pendingErr
 			or.pendingErr = nil
-			return nil, err
+			return Page{}, err
 		}
 
 		// Grow if a single page exceeds the buffer.
@@ -662,28 +674,34 @@ func (or *Reader) readPage() (*Page, error) {
 		n, err := or.r.Read(or.pageBuffer[or.bufferLen:])
 		if n > 0 {
 			or.bufferLen += n
+			emptyReads = 0
+		} else if err == nil {
+			emptyReads++
+			if emptyReads >= maxConsecutiveEmptyReads {
+				return Page{}, io.ErrNoProgress
+			}
 		}
 		if err != nil {
 			if err == io.EOF {
 				if or.bufferLen == or.bufferOffset {
-					return nil, io.EOF
+					return Page{}, io.EOF
 				}
 				data := or.pageBuffer[or.bufferOffset:or.bufferLen]
-				consumed, parseErr := parsePageInto(data, &or.page)
+				consumed, parseErr := parsePageInto(data, &page)
 				if parseErr == nil {
-					if or.page.Version != 0 {
-						return nil, ErrInvalidPage
+					if page.Version != 0 {
+						return Page{}, ErrInvalidPage
 					}
 					or.bufferOffset += consumed
-					return &or.page, nil
+					return page, nil
 				}
-				return nil, parseErr
+				return Page{}, parseErr
 			}
 			if n > 0 {
 				or.pendingErr = err
 				continue
 			}
-			return nil, err
+			return Page{}, err
 		}
 	}
 }

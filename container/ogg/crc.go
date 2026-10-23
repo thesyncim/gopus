@@ -1,5 +1,7 @@
 package ogg
 
+import "encoding/binary"
+
 // Ogg CRC-32 implementation using polynomial 0x04C11DB7.
 //
 // Note: This is NOT the standard IEEE CRC-32 (polynomial 0xEDB88320).
@@ -73,6 +75,20 @@ var oggCRCTable = [256]uint32{
 	0xBCB4666D, 0xB8757BDA, 0xB5365D03, 0xB1F740B4,
 }
 
+// oggCRCZeroByteTables[n] advances a byte's CRC through n+1 zero bytes.
+// These powers of the Ogg polynomial let eight input bytes update the CRC
+// independently, eliminating the byte-by-byte dependency chain.
+var oggCRCZeroByteTables = func() [7][256]uint32 {
+	var tables [7][256]uint32
+	for i, crc := range oggCRCTable {
+		for n := range tables {
+			crc = crc<<8 ^ oggCRCTable[byte(crc>>24)]
+			tables[n][i] = crc
+		}
+	}
+	return tables
+}()
+
 // oggCRC computes the Ogg CRC-32 checksum from scratch.
 func oggCRC(data []byte) uint32 {
 	return oggCRCUpdate(0, data)
@@ -80,6 +96,18 @@ func oggCRC(data []byte) uint32 {
 
 // oggCRCUpdate updates a running CRC with additional data.
 func oggCRCUpdate(crc uint32, data []byte) uint32 {
+	for len(data) >= 8 {
+		crc ^= binary.BigEndian.Uint32(data)
+		crc = oggCRCZeroByteTables[6][byte(crc>>24)] ^
+			oggCRCZeroByteTables[5][byte(crc>>16)] ^
+			oggCRCZeroByteTables[4][byte(crc>>8)] ^
+			oggCRCZeroByteTables[3][byte(crc)] ^
+			oggCRCZeroByteTables[2][data[4]] ^
+			oggCRCZeroByteTables[1][data[5]] ^
+			oggCRCZeroByteTables[0][data[6]] ^
+			oggCRCTable[data[7]]
+		data = data[8:]
+	}
 	for _, b := range data {
 		crc = (crc << 8) ^ oggCRCTable[byte(crc>>24)^b]
 	}
