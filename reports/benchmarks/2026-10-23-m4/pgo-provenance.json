@@ -1,0 +1,29 @@
+{
+  "codec_revision": "42975dbd33811783b7bfb444662224b5d6aea037",
+  "date": "2026-10-23",
+  "cpu": "Apple M4 Max",
+  "go": "go1.27.0",
+  "goos": "darwin",
+  "goarch": "arm64",
+  "gomaxprocs": 1,
+  "pgo": "default.pgo",
+  "c_compiler": "Apple clang version 21.0.0 (clang-2100.1.1.101)",
+  "libopus": "1.6.1",
+  "c_builds": {
+    "scalar": {
+      "configure": "$ ./configure --enable-static --disable-shared --disable-asm --disable-rtcd --disable-intrinsics",
+      "cflags": "CFLAGS='-O3 -DNDEBUG -fno-tree-vectorize -fno-tree-slp-vectorize -fvisibility=hidden -D_FORTIFY_SOURCE=2 -W -Wall -Wextra -Wcast-align -Wnested-externs -Wshadow -Wstrict-prototypes'",
+      "archive_sha256": "c4f9299ff4198d508156041df934de12fe5e4d92513314bc60d59ceea2c463f1"
+    },
+    "simd": {
+      "configure": "$ ./configure --enable-static --disable-shared --enable-rtcd --enable-intrinsics",
+      "cflags": "CFLAGS='-O3 -DNDEBUG -fvisibility=hidden -D_FORTIFY_SOURCE=2 -W -Wall -Wextra -Wcast-align -Wnested-externs -Wshadow -Wstrict-prototypes'",
+      "archive_sha256": "f90365a6a67f24d5db4d77639b73e33783c119efae600400faf0bee4e7929faa"
+    }
+  },
+  "profile_sha256": "a85d5274259f90793a655bf823a20062238f897903b7f0634e885bdfbec770b9",
+  "profile_origin_commit": "18eaa63b8f6c015c536a66da625df935a0cd46ca",
+  "benchmark_revision": "42975dbd33811783b7bfb444662224b5d6aea037",
+  "profile_generation_architecture": "amd64",
+  "comparison_note": "Separate snapshots, not an interleaved PGO-on/off experiment; do not infer a PGO speedup from their difference."
+}

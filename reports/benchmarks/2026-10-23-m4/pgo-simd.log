@@ -1,0 +1,34 @@
+LIBOPUS_VERSION=1.6.1 ./tools/ensure_libopus.sh
+/Users/thesyncim/.codex/worktrees/performance-safety-fixes/gopus/tmp_check/opus-1.6.1/opus_demo
+cd testvectors && GOWORK=off go test . -run='^TestParseTestVectorBitstreams$' -count=1
+ok  	github.com/thesyncim/gopus/testvectors	0.377s
+GOWORK=off go run -pgo=default.pgo ./tools/testvectorbenchcmp -cases=aggregate -paths=all -benchtime=300ms -count=5 -format=tsv -max-gopus-libopus-ratio=3.25 -max-gopus-allocs-per-op=0
+testvectorbenchcmp: 300ms Float32 all          gopus/libopus=0.928x (max 3.250x), gopus allocs/op=0
+testvectorbenchcmp: 300ms Int16   all          gopus/libopus=0.942x (max 3.250x), gopus allocs/op=0
+implementation	path	vector	benchtime	count	iterations	elapsed_ns	bytes_per_op	packets_per_op	samples_per_op	ns_per_sample	ns_per_packet	x_realtime	allocs_per_op
+gopus	Float32	all	300ms	5	2	542736917	3369042	20075	15390480	17.632228	13517.731432	1181.548518	0
+libopus	Float32	all	300ms	5	2	584915000	3369042	20075	15390480	19.002494	14568.244085	1096.347333	-
+gopus	Int16	all	300ms	5	2	556851416	3369042	20075	15390480	18.090775	13869.275616	1151.599837	0
+libopus	Int16	all	300ms	5	2	591148000	3369042	20075	15390480	19.204989	14723.486924	1084.787566	-
+testvectorbenchcmp: libopus-relative performance guardrails are within limits
+GOWORK=off go run -pgo=default.pgo ./tools/encoderbenchcmp -cases=all -benchtime=300ms -count=5 -format=tsv -max-gopus-libopus-ratio=3.25 -max-gopus-allocs-per-op=0
+encoderbenchcmp: 300ms Float32 all                              gopus/libopus=0.982x (max 3.250x), gopus allocs/op=0
+encoderbenchcmp: 300ms Float32 CELT-FB-20ms-stereo-128k         gopus/libopus=1.165x (max 3.250x), gopus allocs/op=0
+encoderbenchcmp: 300ms Float32 CELT-FB-5ms-mono-64k             gopus/libopus=1.197x (max 3.250x), gopus allocs/op=0
+encoderbenchcmp: 300ms Float32 Hybrid-FB-20ms-mono-64k          gopus/libopus=0.982x (max 3.250x), gopus allocs/op=0
+encoderbenchcmp: 300ms Float32 Hybrid-FB-20ms-stereo-96k        gopus/libopus=1.163x (max 3.250x), gopus allocs/op=0
+encoderbenchcmp: 300ms Float32 SILK-WB-20ms-mono-32k            gopus/libopus=0.839x (max 3.250x), gopus allocs/op=0
+implementation	path	vector	benchtime	count	iterations	elapsed_ns	bytes_per_op	packets_per_op	samples_per_op	ns_per_sample	ns_per_packet	x_realtime	allocs_per_op
+gopus	Float32	all	300ms	5	9	310316375	48000	400	240000	143.664988	86198.993056	145.013295	0
+libopus	Float32	all	300ms	5	9	316048000	48000	400	240000	146.318519	87791.111111	142.383435	-
+gopus	Float32	CELT-FB-20ms-stereo-128k	300ms	5	72	300281709	16000	50	48000	86.887069	83411.585833	239.774844	0
+libopus	Float32	CELT-FB-20ms-stereo-128k	300ms	5	84	300674000	16000	50	48000	74.571925	71589.047619	279.372343	-
+gopus	Float32	CELT-FB-5ms-mono-64k	300ms	5	151	300237291	8000	200	48000	41.423467	9941.632152	502.935526	0
+libopus	Float32	CELT-FB-5ms-mono-64k	300ms	5	181	300734000	8000	200	48000	34.614871	8307.569061	601.860781	-
+gopus	Float32	Hybrid-FB-20ms-mono-64k	300ms	5	38	304468041	8000	50	48000	166.923268	160246.337368	124.807845	0
+libopus	Float32	Hybrid-FB-20ms-mono-64k	300ms	5	37	301827000	8000	50	48000	169.947635	163149.729730	122.586780	-
+gopus	Float32	Hybrid-FB-20ms-stereo-96k	300ms	5	61	300104333	12000	50	48000	102.494649	98394.863279	203.262643	0
+libopus	Float32	Hybrid-FB-20ms-stereo-96k	300ms	5	71	300243000	12000	50	48000	88.099472	84575.492958	236.475122	-
+gopus	Float32	SILK-WB-20ms-mono-32k	300ms	5	23	312277542	4000	50	48000	282.860092	271545.688696	73.652431	0
+libopus	Float32	SILK-WB-20ms-mono-32k	300ms	5	19	307535000	4000	50	48000	337.209430	323721.052632	61.781586	-
+encoderbenchcmp: libopus-relative performance guardrails are within limits

@@ -910,10 +910,11 @@ stamps are checked before comparison.
 
 The [native benchmark](https://github.com/thesyncim/gopus/actions/runs/36852328909) compares assembly `8ac93c85` with
 SIMD/`nosimd` `4b660d668` on AMD EPYC 7763, Go 1.27.1 and GCC 13.3.0,
-**GOAMD64=v3**, with PGO enabled. Four rotated/reversed 500 ms rounds use
+**GOAMD64=v3**. These root-package test binaries use `-pgo=auto`, which selects
+each checkout's root `default.pgo`. Four rotated/reversed 500 ms rounds use
 `-cpu=1`. All 72 v3 samples report 0 B/op and 0 allocs/op. Values are median ns/op.
 The artifact `goamd64-benchmark-36852328909` contains the raw samples, compiler
-settings, source revisions and per-binary PGO hashes.
+settings, source revisions and checkout PGO profile hashes.
 
 | Workload | Old assembly | Go SIMD | `nosimd` |
 |---|---:|---:|---:|
@@ -937,7 +938,11 @@ Same native runner and candidate revision; C scalar vs Go scalar and C SIMD
 vs Go SIMD. Both compilers target v3. Scalar C disables assembly, intrinsics,
 RTCD and compiler vectorization; SIMD C selects AVX2/FMA. Each case has three
 runs of at least 250 ms. Values are **ns/sample per channel** (lower is faster).
-Go allocations are zero; C allocations are not measured.
+The Go `tools/encoderbenchcmp` and `tools/testvectorbenchcmp` main packages in
+this recorded run use `-pgo=auto` with no package-local `default.pgo`, so these
+paired-C rows have **Go PGO disabled**. The root-package PGO profile applies to
+the separate end-to-end table above. Go allocations are zero; C allocations
+are not measured.
 
 | Workload | C scalar | Go scalar | C SIMD | Go SIMD |
 |---|---:|---:|---:|---:|
@@ -996,9 +1001,12 @@ archives are built before the timed rounds. C benchmark helpers compile before
 their measurements; builds do not run concurrently with timings. Four rounds
 rotate nine Go binaries: old assembly,
 scalar Go, and SIMD Go, each compiled at v1, v2, and v3. Every row uses the same
-host, controls, Go version, and PGO policy. Within each target, the three Go
-implementations use identical input generators. Comparisons between compiler
-targets can also reflect compiler effects on those generators; they do not
+host, controls, Go version, and PGO policy. Each build explicitly receives its
+checkout's root `default.pgo`, including paired-C tool mains and diagnostic
+profiles. Profile hashes identify the inputs; baseline/candidate ratios measure
+both source and PGO changes when those hashes differ. Within each target, the
+three Go implementations use identical input generators. Comparisons between
+compiler targets can also reflect compiler effects on those generators; they do not
 isolate kernel speed alone. The paired C encoder table verifies identical PCM
 hashes across targets and modes. Binary build information,
 source revisions, profile hashes, compiler flags and C archive hashes accompany
@@ -1083,9 +1091,11 @@ workloads or any warm allocation fail the run.
 
 The [native incremental benchmark](https://github.com/thesyncim/gopus/actions/runs/36870981432)
 compares Go `4b660d668` with `bce51d66f` on AMD EPYC 9V74, Go 1.27.1 and
-GCC 13.3. Both revisions have identical PGO and benchmark source hashes. Four
-rotated/reversed 500 ms rounds use `-cpu=1`; all 80 samples report zero bytes
-and allocations. Values are median ns/op; percentages describe time changes.
+GCC 13.3. Both revisions have identical root PGO and benchmark source hashes.
+In this recorded run, `-pgo=auto` enables PGO for the root-package public encoder
+benchmarks; the `internal/encoder` analyzer test package has no local profile
+and runs without PGO. Four rotated/reversed 500 ms rounds use `-cpu=1`; all
+80 samples report zero bytes and allocations. Values are median ns/op; percentages describe time changes.
 
 | Workload | Scalar baseline → candidate | Change | SIMD baseline → candidate | Change |
 |---|---:|---:|---:|---:|

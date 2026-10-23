@@ -1,11 +1,65 @@
 # Core codec measurements — 2026-10-23
 
-These native Apple M4 Max measurements cover codec source `fd287c213` on
-`darwin/arm64`, Go 1.27.0, Apple Clang 21.0.0, libopus 1.6.1, `GOMAXPROCS=1`
-and PGO disabled. They do not establish current-revision amd64 results.
+These native Apple M4 Max measurements cover PGO-enabled codec source
+`42975dbd3` and PGO-off source `fd287c213` on
+`darwin/arm64`, Go 1.27.0, Apple Clang 21.0.0, libopus 1.6.1 and `GOMAXPROCS=1`.
+PGO-enabled and PGO-off snapshots are explicitly separated. They do not establish current-revision amd64 results.
 [Provenance](provenance.json) records reference flags and static-archive hashes.
 
-## Matched libopus comparison
+## Explicit PGO comparison
+
+The Go binaries in this snapshot explicitly use the checked-in root
+`default.pgo`; C uses its matched scalar/SIMD `-O3` build without PGO. Profile
+SHA-256 is `a85d5274259f90793a655bf823a20062238f897903b7f0634e885bdfbec770b9`; its source
+commit is `18eaa63b8` (native amd64 profile). The codec source is `42975dbd3`.
+[PGO provenance](pgo-provenance.json) records both identities, so applying a
+profile is not confused with regenerating it from current source.
+
+| Workload | C SIMD ns/sample | Go SIMD ns/sample | Go/C time | Result |
+|---|---:|---:|---:|---|
+| Encode aggregate | 146.32 | 143.66 | 0.982× | Go faster |
+| Encode CELT, fullband, 20 ms stereo, 128 kbps | 74.57 | 86.89 | 1.165× | Go slower |
+| Encode CELT, fullband, 5 ms mono, 64 kbps | 34.61 | 41.42 | 1.197× | Go slower |
+| Encode SILK, wideband, 20 ms mono, 32 kbps | 337.21 | 282.86 | 0.839× | Go faster |
+| Encode Hybrid, fullband, 20 ms mono, 64 kbps | 169.95 | 166.92 | 0.982× | Go faster |
+| Encode Hybrid, fullband, 20 ms stereo, 96 kbps | 88.10 | 102.49 | 1.163× | Go slower |
+| Decode RFC vectors, float32 | 19.00 | 17.63 | 0.928× | Go faster |
+| Decode RFC vectors, int16 | 19.20 | 18.09 | 0.942× | Go faster |
+
+Scalar and SIMD values, in ns/sample per channel:
+
+| Workload | C scalar | Go scalar | C SIMD | Go SIMD |
+|---|---:|---:|---:|---:|
+| Encode aggregate | 167.30 | 154.39 | 146.32 | 143.66 |
+| Encode CELT, fullband, 20 ms stereo, 128 kbps | 97.05 | 105.37 | 74.57 | 86.89 |
+| Encode CELT, fullband, 5 ms mono, 64 kbps | 39.57 | 52.22 | 34.61 | 41.42 |
+| Encode SILK, wideband, 20 ms mono, 32 kbps | 375.95 | 292.99 | 337.21 | 282.86 |
+| Encode Hybrid, fullband, 20 ms mono, 64 kbps | 197.06 | 177.08 | 169.95 | 166.92 |
+| Encode Hybrid, fullband, 20 ms stereo, 96 kbps | 118.42 | 122.17 | 88.10 | 102.49 |
+| Decode RFC vectors, float32 | 19.55 | 21.04 | 19.00 | 17.63 |
+| Decode RFC vectors, int16 | 21.32 | 23.36 | 19.20 | 18.09 |
+
+Raw output: [PGO scalar](pgo-scalar.log), [PGO SIMD](pgo-simd.log).
+Machine-readable rows: [PGO scalar TSV](pgo-scalar.tsv),
+[PGO SIMD TSV](pgo-simd.tsv). All 16 Go rows across the two lanes report zero
+warm allocations. The same five-run, 300 ms minimum, single-threaded methodology
+below applies; the explicit build argument is `-pgo=default.pgo`.
+
+Lower ns/sample and ns/packet is faster; higher × realtime is faster. Go/C time
+below 1.0 means Go is faster. The PGO-off SILK row of 287.108348 ns/sample against
+C's 347.584491 is a Go win: 17.4% less time, or 72.56× versus 59.94× realtime.
+The PGO-enabled SILK row is 282.860092 against 337.209430, 16.1% less time.
+These are separate snapshots, not an interleaved PGO-on/off A/B experiment;
+their difference cannot establish the impact of PGO.
+
+Reproduce with the commands below using `PGO_FILE=default.pgo`. For native amd64,
+apply the target and reference-selection flags in the
+[README commands](../../../README.md#performance). The existing
+profile is measured as committed; native regeneration and its own benchmarks
+are a separate `PGO refresh` workflow artifact. Architecture, workload mix and
+profile age all limit how broadly these results apply.
+
+## PGO-off comparison
 
 Each row is the median by ns/sample of five runs of at least 300 ms. C and Go
 receive the same controls, packet streams or PCM inputs. Timings include stream

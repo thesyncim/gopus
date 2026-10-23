@@ -353,6 +353,11 @@ GOEXPERIMENT=simd go build ./...                # opt into SIMD
 GOEXPERIMENT=simd go build -tags nosimd ./...    # force scalar with SIMD enabled
 ```
 
+The benchmark commands explicitly apply the repository's `default.pgo`.
+For an application, use `go build -pgo=/path/to/gopus/default.pgo` to select it.
+Go's automatic PGO lookup searches the main package's directory; it does not
+select a profile from a library dependency automatically.
+
 The `nosimd` and `purego` tags both force scalar kernels and select the matching
 scalar C reference in oracle tests. SIMD is opt-in and independent of the
 optional codec features below.
@@ -396,44 +401,47 @@ go test -tags gopus_osce ./...
 
 ## Performance
 
-The measurements below compare **C scalar with Go scalar** and **C SIMD with
-Go SIMD**, using identical inputs and controls. They run on an **Apple M4 Max,
-darwin/arm64, Go 1.27.0, Apple Clang 21.0.0**, with `GOMAXPROCS=1` and PGO off.
-Values are median **ns/sample per channel** across five runs of at least 300 ms
-(lower is faster). The measured codec source is `fd287c213`; all Go rows report
-**0 allocs/op** after warmup. C allocations are not measured.
+**Lower ns/sample or ns/packet means faster. Higher × realtime means faster.**
+The Go/C time ratio divides Go time by C time: below `1.0` is a Go win; above
+`1.0` is slower. For example, 287 ns/sample beats 348 ns/sample.
 
-| Workload | C scalar | Go scalar | C SIMD | Go SIMD |
-|---|---:|---:|---:|---:|
-| Encode aggregate | 169.80 | 151.35 | 148.79 | 140.48 |
-| Encode CELT, fullband, 20 ms stereo, 128 kbps | 97.77 | 102.56 | 74.05 | 83.35 |
-| Encode CELT, fullband, 5 ms mono, 64 kbps | 40.02 | 50.36 | 34.97 | 41.65 |
-| Encode SILK, wideband, 20 ms mono, 32 kbps | 378.43 | 286.71 | 347.58 | 287.11 |
-| Encode Hybrid, fullband, 20 ms mono, 64 kbps | 194.00 | 174.80 | 179.19 | 164.38 |
-| Encode Hybrid, fullband, 20 ms stereo, 96 kbps | 111.68 | 124.92 | 93.23 | 102.09 |
-| Decode RFC vectors, float32 | 19.38 | 20.22 | 18.65 | 17.34 |
-| Decode RFC vectors, int16 | 20.82 | 22.95 | 18.55 | 17.89 |
+These measurements use **Apple M4 Max, darwin/arm64, Go 1.27.0, Apple Clang
+21.0.0**, `GOMAXPROCS=1`, and identical C/Go workloads. Go explicitly uses the
+checked-in **`default.pgo`** (SHA-256 `a85d5274259f…`; profile source `18eaa63b8`);
+C uses `-O3` without PGO. The measured codec source is `42975dbd3`. Values are
+medians across five runs of at least 300 ms. Every Go row reports **0 allocs/op**
+after warmup; C allocations are not measured.
 
-For these SIMD workloads, the encoder aggregate takes **5.6% less time** than
-libopus; float32 and int16 RFC decode take **7.0% and 3.6% less time**.
-The individual CELT encode cases take **12.6% and 19.1% more time**, and stereo
-Hybrid takes **9.5% more**. The aggregate weights each of the five encoder
-workloads equally by samples per channel; it does not imply a win on every stream.
-Decoder rows cover 20,075 identical packets. Scalar results are shown separately
-because ordinary builds do not enable SIMD.
+| Workload | C SIMD ns/sample | Go SIMD ns/sample | Go/C time | Result |
+|---|---:|---:|---:|---|
+| Encode aggregate | 146.32 | 143.66 | 0.982× | Go faster |
+| Encode CELT, fullband, 20 ms stereo, 128 kbps | 74.57 | 86.89 | 1.165× | Go slower |
+| Encode CELT, fullband, 5 ms mono, 64 kbps | 34.61 | 41.42 | 1.197× | Go slower |
+| Encode SILK, wideband, 20 ms mono, 32 kbps | 337.21 | 282.86 | 0.839× | Go faster |
+| Encode Hybrid, fullband, 20 ms mono, 64 kbps | 169.95 | 166.92 | 0.982× | Go faster |
+| Encode Hybrid, fullband, 20 ms stereo, 96 kbps | 88.10 | 102.49 | 1.163× | Go slower |
+| Decode RFC vectors, float32 | 19.00 | 17.63 | 0.928× | Go faster |
+| Decode RFC vectors, int16 | 19.20 | 18.09 | 0.942× | Go faster |
 
-An interleaved SIMD comparison of eight CELT 2.5 ms decode configurations
-(mono/stereo at 8/16/24/48 kHz) has a Go/C geometric-mean time ratio of **0.937×**.
-The corresponding public benchmarks report **0 B/op and 0 allocs/op**. See the
-[measurement report and raw results](reports/benchmarks/2026-10-23-m4/README.md)
-for inputs, commands, allocation checks and the limits of these measurements.
+With this profile, SIMD aggregate encoding takes **1.8% less time** than libopus;
+SILK encoding takes **16.1% less**, and float32/int16 RFC decode take
+**7.2%/5.8% less**. CELT 20 ms/5 ms encoding and stereo Hybrid take
+**16.5%/19.7%/16.3% more time**. Small differences can include measurement noise.
+The encoder aggregate weights five workloads equally by samples per channel;
+it does not imply a win on every stream. RFC decode covers 20,075 packets.
 
-Native amd64 evidence is separate: the
-[AMD EPYC 7763 results](reports/validation.md#performance) at `4b660d668` use
-Go 1.27.1, GCC 13.3.0, `GOAMD64=v3` and PGO. That SIMD run beats matched C in four
-of five encoder cases and both RFC decoder paths; its 5 ms CELT encoder takes
-14.6% more time. The ARM64 measurements above do **not** establish native amd64
-performance or SIMD parity for this revision. The
+The [measurement report](reports/benchmarks/2026-10-23-m4/README.md) includes
+matched scalar results, the exact PGO hash and provenance, raw output, and
+separate PGO-off measurements. Those snapshots do not isolate the effect of PGO.
+The PGO-off short-frame decode comparison covers eight CELT 2.5 ms cases with a
+Go/C geometric-mean ratio of 0.937× and public **0 B/op, 0 allocs/op** checks.
+
+Native amd64 evidence is separate. The
+[AMD EPYC 7763 measurements](reports/validation.md#performance) at `4b660d668`
+use Go 1.27.1, GCC 13.3.0 and `GOAMD64=v3`. Their direct C comparison tools use
+`-pgo=auto` without a package-local profile, so those particular rows have PGO
+off. The ARM64 measurements above do **not** establish native amd64 performance
+or SIMD parity for this revision. The
 [v1/v2/v3 audit](reports/validation.md#amd64-compiler-targets) records native
 compiler-target evidence; routine PR CI does not run that timing matrix.
 
@@ -441,15 +449,17 @@ Reproduce the scalar and SIMD comparisons from the repository root:
 
 ```sh
 GOMAXPROCS=1 GOEXPERIMENT=nosimd make bench-libopus-guard \
-  PGO_FILE=off BENCH_LIBOPUS_GUARD_TIME=300ms BENCH_LIBOPUS_GUARD_COUNT=5
+  PGO_FILE=default.pgo BENCH_LIBOPUS_GUARD_TIME=300ms BENCH_LIBOPUS_GUARD_COUNT=5
 GOMAXPROCS=1 GOEXPERIMENT=simd make bench-libopus-guard \
-  PGO_FILE=off BENCH_LIBOPUS_GUARD_TIME=300ms BENCH_LIBOPUS_GUARD_COUNT=5
+  PGO_FILE=default.pgo BENCH_LIBOPUS_GUARD_TIME=300ms BENCH_LIBOPUS_GUARD_COUNT=5
 ```
 
-Both commands enforce zero warm Go allocations. Their runtime-ratio limit is a
-regression guard, not a requirement to beat C; compare each reported Go/C ratio
-with `1.0`. On a supporting amd64 CPU, set **both** `GOAMD64=v3` and
-`GOPUS_LIBOPUS_AMD64_TARGET=v3` to select matching compiler targets. Omit those
+Both commands explicitly apply the same profile and enforce zero warm Go
+allocations. Use `PGO_FILE=off` for a separate PGO-off run. Their runtime-ratio
+limit is a regression guard, not a requirement to beat C. On a supporting amd64
+CPU, prefix both commands with `GOAMD64=v3 GOPUS_LIBOPUS_AMD64_TARGET=v3`. Also
+set `LIBOPUS_ENABLE_SCALAR=1` for the nosimd command or `LIBOPUS_ENABLE_SIMD=1`
+for the SIMD command; leave the other reference flag unset. Omit the AMD64 target
 settings on ARM64. Avoid concurrent builds or tests during timings.
 
 These tools exclude file I/O, codec construction and C helper startup. The
