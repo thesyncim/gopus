@@ -33,7 +33,7 @@ require (
 	gioui.org v0.10.0
 	github.com/gen2brain/malgo v0.11.26
 	github.com/pion/interceptor v0.1.49
-	github.com/pion/rtp v1.10.5
+	github.com/pion/rtp v1.10.6
 	github.com/pion/webrtc/v4 v4.2.22
 	github.com/thesyncim/gopus v0.0.0-00010101000000-000000000000
 )
