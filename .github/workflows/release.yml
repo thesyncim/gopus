@@ -27,7 +27,7 @@ concurrency:
 jobs:
   publish-release:
     name: publish-release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 180
     steps:
       - name: Checkout
@@ -104,7 +104,7 @@ jobs:
           path: |
             tmp_check/opus-${{ env.LIBOPUS_VERSION }}
             tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
-          key: release-libopus-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
+          key: release-libopus-ubuntu-24.04-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
 
       - name: Install codec tools (if missing)
         run: |
