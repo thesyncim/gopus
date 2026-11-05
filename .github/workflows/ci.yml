@@ -80,9 +80,10 @@ jobs:
       - name: Run lint/static analysis across optional-feature tag builds
         run: make test-lint-tags
 
+  # The bit-exact linux/amd64 reference and its fixtures use Ubuntu 24.04 / GCC 13.
   test-linux-fast:
     name: test-linux-fast
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - name: Checkout
@@ -114,7 +115,7 @@ jobs:
     # the fast package sweep plus focused optional-surface gates; protected
     # branch pushes keep the full quality gate.
     if: github.event_name == 'push'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - name: Checkout
@@ -153,7 +154,7 @@ jobs:
 
   test-linux-conformance:
     name: test-linux-conformance
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - name: Checkout
@@ -211,7 +212,7 @@ jobs:
     # Race sweeps are expensive and duplicate broad PR coverage. Keep them on
     # protected-branch pushes where they still guard integration into master.
     if: github.event_name == 'push'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - name: Checkout
@@ -251,7 +252,7 @@ jobs:
     # exhaustive fixture-honesty checks. Keep it on protected-branch pushes,
     # while PR CI uses the faster parity/race/feature-tag gates below.
     if: github.event_name == 'push'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - name: Checkout
@@ -296,7 +297,7 @@ jobs:
     # Shuffle+repeat flake detection is valuable but not needed on every PR
     # attempt; run it once code lands on the protected branch.
     if: github.event_name == 'push'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - name: Checkout
@@ -363,7 +364,7 @@ jobs:
 
   test-linux-dnn-blob-parity:
     name: test-linux-dnn-blob-parity
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -388,7 +389,7 @@ jobs:
 
   test-linux-extra-controls:
     name: test-linux-extra-controls
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -405,7 +406,7 @@ jobs:
 
   test-linux-dred-tag:
     name: test-linux-dred-tag
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -430,7 +431,7 @@ jobs:
 
   test-linux-qext-parity:
     name: test-linux-qext-parity
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -455,7 +456,7 @@ jobs:
 
   test-linux-custom-parity:
     name: test-linux-custom-parity
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - name: Checkout
@@ -480,7 +481,7 @@ jobs:
 
   test-linux-corpus-quality:
     name: test-linux-corpus-quality
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - name: Checkout
@@ -505,7 +506,7 @@ jobs:
 
   test-linux-extra-controls-parity:
     name: test-linux-extra-controls-parity
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -526,7 +527,7 @@ jobs:
 
   test-linux-build-config-matrix:
     name: test-linux-build-config-matrix
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - name: Checkout
@@ -552,7 +553,7 @@ jobs:
   test-linux-simd:
     name: test-linux-simd
     if: github.event_name == 'push'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
       - name: Checkout
@@ -721,7 +722,7 @@ jobs:
 
   test-linux-core-oracles:
     name: test-linux-core-oracles
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -760,7 +761,7 @@ jobs:
 
   test-linux-fixedpoint-parity:
     name: test-linux-fixedpoint-parity
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - name: Checkout
@@ -885,7 +886,7 @@ jobs:
 
   perf-linux:
     name: perf-linux
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout

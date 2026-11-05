@@ -22,7 +22,8 @@ permissions:
 jobs:
   evidence:
     name: ${{ inputs.name }}
-    runs-on: ubuntu-latest
+    # Match the GCC toolchain used for the linux/amd64 codec oracle.
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
       GOAMD64: v1
