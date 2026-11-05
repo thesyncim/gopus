@@ -21,7 +21,7 @@ FOCUS_GATE_TARGETS := test-build-contract test-dnn-blob-parity test-core-oracles
 GO ?= go
 GO_WORK_ENV ?= GOWORK=off
 GOLANGCI_LINT ?= golangci-lint
-GOLANGCI_LINT_VERSION ?= v2.13.2
+GOLANGCI_LINT_VERSION ?= v2.15.0
 GOLANGCI_LINT_TIMEOUT ?= 5m
 # Build-tag configs whose tagged source must stay lint/vet clean. The default
 # `make lint` only covers the default build; test-lint-tags runs golangci-lint
