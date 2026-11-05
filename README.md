@@ -18,7 +18,7 @@ exact guarantees and tested configurations.
 
 ## Install
 
-This README describes `master`, which requires Go 1.27 or newer:
+This README describes `master`, which requires Go 1.27.3 or newer:
 
 ```sh
 go get github.com/thesyncim/gopus@master

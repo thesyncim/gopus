@@ -5,7 +5,7 @@ WebRTC RTP link, injecting configurable packet loss, decoding at the receiver,
 and recording or monitoring the recovered audio.
 
 This is a separate Go module with a local `replace` directive for gopus.
-It requires Go 1.27 or later. WebRTC, RTP, and Opus processing use Go;
+It requires Go 1.27.3 or later. WebRTC, RTP, and Opus processing use Go;
 microphone and speaker access uses `malgo` and requires cgo and a C compiler.
 The desktop UI uses Gio.
 

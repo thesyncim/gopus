@@ -51,7 +51,6 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v7
         with:
-          go-version: ${{ startsWith(inputs.task, 'goamd64-') && '1.27.1' || '' }}
           go-version-file: go.mod
           cache: true
 
