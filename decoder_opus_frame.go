@@ -376,21 +376,21 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 			// frame AND the post-loss recovery frame stay bit-exact. When the integer
 			// path is declined (no active packet, integer CELT not yet primed, or a
 			// rate below 48 kHz) the int16/int24 wrappers use the float conversion.
+			silkStereo := packetStereoLocal
+			if useDecoderPLCState {
+				silkStereo = d.silkDecoder.InternalStereo()
+			}
 			fixedHybridPLCArmed := false
 			if extsupport.QEXT {
-				fixedHybridPLCArmed = d.armFixedQEXTHybridLost(frameSize, packetStereoLocal)
+				fixedHybridPLCArmed = d.armFixedQEXTHybridLost(frameSize, silkStereo)
 			} else {
-				fixedHybridPLCArmed = d.armFixedHybridLost(frameSize, packetStereoLocal)
+				fixedHybridPLCArmed = d.armFixedHybridLost(frameSize, silkStereo)
 			}
 			if !fixedHybridPLCArmed {
 				d.markFixedUnhandled()
 				if extsupport.QEXT {
 					d.invalidateFixedQEXTCELT()
 				}
-			}
-			silkStereo := packetStereoLocal
-			if useDecoderPLCState {
-				silkStereo = d.silkDecoder.InternalStereo()
 			}
 			if err := d.hybridDecoder.DecodePLCToFloat32WithPacketStereoInto(frameSize, silkStereo, out); err != nil {
 				if fixedHybridPLCArmed {

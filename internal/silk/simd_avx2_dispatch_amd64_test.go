@@ -26,6 +26,7 @@ func TestSILKAMD64SIMDRequiresAVX2(t *testing.T) {
 			"stereo":                 silkStereoUsesAVX2,
 			"resampler FIR":          firInterpolUsesAVX2,
 			"int16 to float32":       int16ToFloat32UsesAVX2,
+			"float32 to int16":       floatToInt16UsesAVX2,
 		} {
 			if enabled {
 				t.Errorf("%s enables a 256-bit SIMD path without AVX2", name)

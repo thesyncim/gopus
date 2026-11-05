@@ -22,7 +22,8 @@ permissions:
 jobs:
   evidence:
     name: ${{ inputs.name }}
-    runs-on: ubuntu-latest
+    # Match the GCC toolchain used for the linux/amd64 codec oracle.
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
       GOAMD64: v1
@@ -46,10 +47,10 @@ jobs:
           path: candidate
           fetch-depth: 1
 
-      - name: Setup Go 1.27.1
+      - name: Setup Go
         uses: actions/setup-go@v7
         with:
-          go-version: 1.27.1
+          go-version-file: candidate/go.mod
           cache: true
           cache-dependency-path: |
             baseline/go.mod
@@ -90,6 +91,14 @@ jobs:
           sudo apt-get install -y -qq opus-tools qemu-user
           command -v opusdec
           command -v qemu-x86_64
+
+      - name: Check QEXT range coder selection on POWER
+        if: inputs.phase == 'early' && inputs.mode == 'simd'
+        working-directory: candidate
+        env:
+          GOARCH: ppc64le
+          CGO_ENABLED: "0"
+        run: go test -exec qemu-ppc64le -tags gopus_qext ./internal/celt -run '^TestQEXTCubicBitsUsesActiveCoder$' -count=1
 
       - name: Test evidence runners and comparator
         run: |

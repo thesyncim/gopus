@@ -120,3 +120,31 @@ func TestQEXTCubicReductionBoundaryGrid(t *testing.T) {
 		})
 	}
 }
+
+func TestQEXTCubicBitsUsesActiveCoder(t *testing.T) {
+	const n, budget, total = 4, 12 << bitRes, 18 << bitRes
+	var packet [32]byte
+	var enc rangecoding.Encoder
+	enc.Init(packet[:])
+	enc.EncodeRawBits(0, 6)
+	var dec rangecoding.Decoder
+	dec.Init(packet[:])
+
+	// In celt/bands.c:quant_partition, the encoder has 11 bits left and
+	// the fresh decoder has 17. After reserving n bits, divide by n-1
+	// and subtract one to get the cubic resolution.
+	for _, tc := range []struct {
+		name string
+		ctx  bandCtx
+		want int
+	}{
+		{"encode", bandCtx{encode: true, extEnc: &enc, extTotalBits: total}, 1},
+		{"decode", bandCtx{extDec: &dec, extTotalBits: total}, 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := computeQEXTCubicBits(&tc.ctx, budget, n); got != tc.want {
+				t.Fatalf("cubic bits = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}

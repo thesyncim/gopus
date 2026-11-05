@@ -896,7 +896,7 @@ feature combinations do not have a matching supported C reference lane.
 ## Performance
 
 All 53 symbols from the 41 assembly files at baseline `8ac93c85` have Go
-replacements. No tracked `.s` or `.S` files remain. Go 1.27 is the minimum.
+replacements. No tracked `.s` or `.S` files remain. Go 1.27.3 is the minimum.
 Ordinary builds and `-tags nosimd` use scalar Go. `GOEXPERIMENT=simd` enables
 `simd/archsimd` kernels with CPU checks and scalar fallbacks.
 AMD64 references select SSE/AVX2 RTCD (`opus_select_arch=4` for the measured AVX2
@@ -1371,7 +1371,7 @@ provides CPU-compatibility evidence, not native SIMD performance evidence.
 
 ## Compiler code generation
 
-Scope: the Go SIMD codec paths on PR #505, Go 1.27.0/1.27.1, ARM64 and AMD64.
+The SIMD audit for PR #505 covers the codec paths on Go 1.27.0/1.27.1, ARM64 and AMD64.
 The audit checks upstream SIMD issues against the actual codec call sites.
 
 | Upstream issue | Exposure in gopus | Check or correction |
@@ -1384,7 +1384,53 @@ The audit checks upstream SIMD issues against the actual codec call sites.
 | [Legacy SSE/AVX transition overhead (#80835)](https://github.com/golang/go/issues/80835) | Go 1.27 emits legacy SSE (`MOVUPS`, `MOVSD`, `MOVSS`, `MOVQ`) for spills, reloads, zeroing and scalar stores inside `archsimd` functions. On the measured Intel Xeon (AVX-512, Go 1.27.0), a legacy SSE instruction that runs after a 256-bit instruction and before `VZEROUPPER` costs a state transition: a 256-bit/legacy SSE round trip takes about 170 ns, against 13 ns with the upper halves cleared. | The 256-bit SILK kernels run no legacy SSE instruction between their first 256-bit instruction and `ClearAVXUpperBits`. The NSQ quantizer loads its broadcast constants from tables and clears before its state copy; the warped autocorrelation stores whole lane pairs and leaves its C double warping argument and scalar tail outside the vector function. A data-flow scan of the SIMD test binary finds no legacy SSE instruction reachable in that state in these kernels; the once-per-frame pitch-resampler conversion keeps one spill, whose removal measures no gain. See [Intel SSE/AVX transitions](#intel-sseavx-transitions) for the measured effect. The upstream [VEX fix](https://github.com/golang/go/commit/5763a306d2d31111a2ac58b4f67cf5678a17f24e) requires a separate compiler comparison. |
 | [Portable SIMD export/import failure (#81614)](https://github.com/golang/go/issues/81614) | No portable `simd` import and no SIMD types in public API signatures. | No matching call surface. Internal `archsimd` kernels build with normal public scalar/slice APIs. |
 | [AVX-512 mask-register eviction (#81767)](https://github.com/golang/go/issues/81767) | No AVX-512 vector or mask kernels. | No matching register-allocation surface. |
-| [ARM64 carryless-multiply dispatch (#80991)](https://github.com/golang/go/issues/80991), [portable shift operands (#81099)](https://github.com/golang/go/issues/81099) | No carryless-multiply intrinsic or portable SIMD operation. | These reported paths are unused. CI uses Go 1.27.1. |
+| [ARM64 carryless-multiply dispatch (#80991)](https://github.com/golang/go/issues/80991), [portable shift operands (#81099)](https://github.com/golang/go/issues/81099) | No carryless-multiply intrinsic or portable SIMD operation. | These reported paths are unused. The PR #505 check uses Go 1.27.1. |
+
+### Go 1.27.3
+
+The module requires Go 1.27.3. The audit compares this release with
+[Go tip at `35455b81`](https://github.com/golang/go/commit/35455b81d3dcd923beec25b13489abbc8414221f).
+
+- On AVX-only x86 CPUs, the Go 1.27.3 preemption handler saves only the low
+  128 bits of each vector register. SILK requires AVX2 for its eight-sample
+  float-to-int16 conversion. The AMD64 dispatch test checks the selected path,
+  and the sample test covers rounding ties, saturation, and tails. Both run
+  under the Sandy Bridge CPU model in CI. [Go #81209](https://github.com/golang/go/issues/81209)
+- On POWER, signed division can overwrite the condition register between the
+  QEXT coder check and the read of its bit count. CELT reads the active coder
+  before the division for both cubic and PVQ refinement. The PPC64LE regression
+  uses different encoder and decoder bit counts and supplies only the active
+  coder. [Go #81842](https://github.com/golang/go/issues/81842)
+- The CELT and SILK AMD64 tails use full-width loads with sufficient input or
+  bounded tail handling. The codec has no partial-load intrinsic calls. The
+  page-end tests exercise correlation tails against a protected page.
+  [Go #82764](https://github.com/golang/go/issues/82764)
+- The AMD64 FFT uses separate real and imaginary products or explicit fused
+  operations. It has no calls to the alternating fused operations affected by
+  the lane-order bug. ARM64 kernels use fixed-width NEON vectors and avoid the
+  SVE spill path. [Go #81254](https://github.com/golang/go/issues/81254),
+  [Go #82408](https://github.com/golang/go/issues/82408)
+
+For the integer code-generation checks, the comparison uses Go 1.27.3 and a
+diagnostic build of the same compiler with seven upstream SSA fixes applied.
+It compares function text and relocations in the Linux codec, multistream and
+container packages, in ordinary builds and with QEXT, DRED, OSCE, custom modes
+and fixed point enabled together.
+
+- On AMD64 and 386, the extra compares in the fixed compiler feed another
+  subtract-with-borrow mask. Both masks use only the carry flag, which the
+  first mask preserves. The affected codec code has no consumer of the
+  incorrect zero flag. [Go #82825](https://github.com/golang/go/issues/82825)
+- On PPC64LE, the corrected QEXT code produces identical text with either
+  compiler. In multistream DRED, the extra compare tests for a zero divisor
+  after dividing by a positive sample rate. Both sequences take the same path
+  for every supported rate. [Go #81842](https://github.com/golang/go/issues/81842)
+- The selected fixes produce identical codec text on ARM64, riscv64, mipsle
+  and s390x. [ARM64 conditional inversion](https://github.com/golang/go/issues/82777),
+  [RISC-V sign extension](https://github.com/golang/go/issues/82773),
+  [MIPS shift counts](https://github.com/golang/go/issues/82776),
+  [s390x unsigned comparisons](https://github.com/golang/go/issues/82774),
+  [s390x shifted comparisons](https://github.com/golang/go/issues/82141)
 
 ### Validation
 

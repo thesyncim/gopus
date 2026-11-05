@@ -290,7 +290,7 @@ for mode in "${modes[@]}"; do
       run_phase "candidate-simd-$cpu-silk-dispatch" \
         env GOPUS_TEST_TIER=fast GOMAXPROCS=2 \
         qemu-x86_64 -cpu "$cpu" "$artifact_root/candidate-simd-silk.test" \
-        -test.run '^TestSILKAMD64SIMDRequiresAVX2$' \
+        -test.run '^Test(SILKAMD64SIMDRequiresAVX2|FloatToInt16ScaledMatchesRaw)$' \
         -test.count=1 -test.timeout=2m -test.v
       run_phase "candidate-simd-$cpu-celt-dispatch" \
         env GOPUS_TEST_TIER=fast GOMAXPROCS=2 \

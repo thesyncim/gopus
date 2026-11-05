@@ -425,7 +425,7 @@ if [[ -n "$summary_file" ]]; then
   {
     echo '## Native Linux AMD64 mode-matched A/B'
     echo
-    echo 'Both checkouts use this runner, Go 1.27.1, and pinned libopus 1.6.1. Default, nosimd, and purego Go builds use scalar C; GOEXPERIMENT=simd builds use native SIMD C. Full parity and benchmark comparisons use the same Go lane on both checkouts.'
+    echo 'Both checkouts use the Go toolchain recorded below and pinned libopus 1.6.1. Default, nosimd, and purego Go builds use scalar C; GOEXPERIMENT=simd builds use native SIMD C. Full parity and benchmark comparisons use the same Go lane on both checkouts.'
     echo
     cat "$artifact_root/environment.txt"
     echo
