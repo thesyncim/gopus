@@ -1,4 +1,10 @@
+//go:build !arm64 || !goexperiment.simd || nosimd || purego
+
 package celt
+
+func pvqExtractAbsSignNorm(x []celtNorm, absX []float32, y []float32, signx []byte, iy []int32, n int) {
+	pvqExtractAbsSignNormScalar(x, absX, y, signx, iy, n)
+}
 
 // pvqSearchPulseLoop places pulsesLeft pulses using the rate-distortion
 // criterion. Go fallback for non-SIMD architectures.

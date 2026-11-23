@@ -214,7 +214,7 @@ func pvqExtractAbsSignOnlySum(x []celtNorm, absX []float32, signx []byte, n int)
 	return sum
 }
 
-func pvqExtractAbsSignNorm(x []celtNorm, absX []float32, y []float32, signx []byte, iy []int32, n int) {
+func pvqExtractAbsSignNormScalar(x []celtNorm, absX []float32, y []float32, signx []byte, iy []int32, n int) {
 	_ = x[n-1]
 	_ = absX[n-1]
 	_ = y[n-1]
