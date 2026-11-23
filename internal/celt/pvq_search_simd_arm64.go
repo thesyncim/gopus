@@ -68,7 +68,7 @@ func pvqSearchPulseLoop(absX, y []float32, iy []int32, xy, yy float32, n, pulses
 		bestDen := ryy
 
 		j := 1
-		if n >= 5 {
+		if n >= 16 {
 			xy4 := archsimd.BroadcastFloat32x4(xy)
 			yy4 := archsimd.BroadcastFloat32x4(yy)
 			bestNum4 := archsimd.BroadcastFloat32x4(bestNum)
