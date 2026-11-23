@@ -6,6 +6,7 @@ package celt
 import (
 	"math"
 
+	"github.com/thesyncim/gopus/internal/arena"
 	"github.com/thesyncim/gopus/internal/opusmath"
 )
 
@@ -614,6 +615,9 @@ func DynallocAnalysis(
 
 // DynallocScratch holds pre-allocated buffers for DynallocAnalysis.
 type DynallocScratch struct {
+	i32 arena.Bump[int32]
+	f32 arena.Bump[float32]
+
 	// Result arrays (caller provides these in result struct)
 	Offsets      []int32
 	SpreadWeight []int32
@@ -635,44 +639,30 @@ type DynallocScratch struct {
 // EnsureDynallocScratch ensures scratch buffers are large enough.
 func (s *DynallocScratch) EnsureDynallocScratch(nbBands, channels int) {
 	maxSize := nbBands * channels
-	if cap(s.Offsets) < nbBands {
-		s.Offsets = make([]int32, nbBands)
+	needI32 := 3 * nbBands
+	needF32 := 4*nbBands + maxSize
+	if s.i32.Cap() < needI32 {
+		s.i32.Ensure(needI32)
+		s.Offsets = s.i32.AllocN(nbBands)
+		s.SpreadWeight = s.i32.AllocN(nbBands)
+		s.Importance = s.i32.AllocN(nbBands)
 	} else {
 		s.Offsets = s.Offsets[:nbBands]
-	}
-	if cap(s.SpreadWeight) < nbBands {
-		s.SpreadWeight = make([]int32, nbBands)
-	} else {
 		s.SpreadWeight = s.SpreadWeight[:nbBands]
-	}
-	if cap(s.Importance) < nbBands {
-		s.Importance = make([]int32, nbBands)
-	} else {
 		s.Importance = s.Importance[:nbBands]
 	}
-	if cap(s.NoiseFloor) < nbBands {
-		s.NoiseFloor = make([]float32, nbBands)
+	if s.f32.Cap() < needF32 {
+		s.f32.Ensure(needF32)
+		s.NoiseFloor = s.f32.AllocN(nbBands)
+		s.Mask = s.f32.AllocN(nbBands)
+		s.Sig = s.f32.AllocN(nbBands)
+		s.Follower = s.f32.AllocN(maxSize)
+		s.BandLogE3 = s.f32.AllocN(nbBands)
 	} else {
 		s.NoiseFloor = s.NoiseFloor[:nbBands]
-	}
-	if cap(s.Mask) < nbBands {
-		s.Mask = make([]float32, nbBands)
-	} else {
 		s.Mask = s.Mask[:nbBands]
-	}
-	if cap(s.Sig) < nbBands {
-		s.Sig = make([]float32, nbBands)
-	} else {
 		s.Sig = s.Sig[:nbBands]
-	}
-	if cap(s.Follower) < maxSize {
-		s.Follower = make([]float32, maxSize)
-	} else {
 		s.Follower = s.Follower[:maxSize]
-	}
-	if cap(s.BandLogE3) < nbBands {
-		s.BandLogE3 = make([]float32, nbBands)
-	} else {
 		s.BandLogE3 = s.BandLogE3[:nbBands]
 	}
 }

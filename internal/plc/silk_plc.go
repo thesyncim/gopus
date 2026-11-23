@@ -235,11 +235,11 @@ func (s *SILKPLCState) resetForRateChange(fsKHz, frameLength int) {
 // Each decoder channel keeps its own scratch; none of these slices is codec
 // history and every used element is initialized on each concealment call.
 type SILKPLCScratch struct {
-	lpcQ12  [maxLPCOrder]int16
-	randBuf [randBufSize]int32
 	sLTPQ15 []int32
 	sLTP    []int16
 	sLPCQ14 []int32
+	lpcQ12  [maxLPCOrder]int16
+	randBuf [randBufSize]int32
 }
 
 // NewSILKPLCState returns a SILKPLCState initialized to the zero-initialized

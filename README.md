@@ -18,13 +18,13 @@ exact guarantees and tested configurations.
 
 ## Install
 
-gopus v0.2.3 requires Go 1.27.3 or newer.
+gopus v0.2.4 requires Go 1.27.3 or newer.
 
 ```sh
-go get github.com/thesyncim/gopus@v0.2.3
+go get github.com/thesyncim/gopus@v0.2.4
 ```
 
-See the [v0.2.3 documentation](https://github.com/thesyncim/gopus/tree/v0.2.3)
+See the [v0.2.4 documentation](https://github.com/thesyncim/gopus/tree/v0.2.4)
 for this release.
 
 ## Quick start
@@ -536,7 +536,7 @@ paired benchmark samples for both revisions share one runner.
 The API is pre-v1.
 
 `v0.1.0` is retracted: it has no published GitHub Release.
-The [v0.2.3 release](https://github.com/thesyncim/gopus/releases/tag/v0.2.3)
+The [v0.2.4 release](https://github.com/thesyncim/gopus/releases/tag/v0.2.4)
 includes the verification summary and logs.
 
 Required branch checks:

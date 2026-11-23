@@ -39,14 +39,12 @@ func (d *Decoder) projectionDecodeDuration(data []byte, frameSize int) (int, err
 	if len(data) == 0 {
 		return frameSize, nil
 	}
-	packets, err := parseMultistreamPacketScratch(d.packetsScratch, &d.packetParser, &d.reframeArena, data, d.streams)
+	duration, _, err := measureMultistreamPacket(&d.packetParser, data, d.streams, int(d.sampleRate))
 	if err != nil {
+		if err == ErrDurationMismatch {
+			return 0, err
+		}
 		return 0, fmt.Errorf("multistream: parse error: %w", err)
-	}
-	d.packetsScratch = packets
-	duration, err := validateStreamDurationsAtRateScratch(&d.packetParser, packets, int(d.sampleRate))
-	if err != nil {
-		return 0, err
 	}
 	if duration > frameSize {
 		return 0, ErrBufferTooSmall

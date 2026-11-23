@@ -41,21 +41,13 @@ var (
 // rate. A Decoder and its child state belong to one stream; it is not safe for
 // concurrent calls.
 type Decoder struct {
+	// Pointer-bearing fields are grouped first so Go's GC stops scanning at
+	// ptrdata, leaving scalar state and fixed-size value structs in the noscan
+	// tail.
+
 	// Sub-decoders
 	silkDecoder *silk.Decoder
 	celtDecoder *celt.Decoder
-
-	// Note: Resamplers are NOT stored here. We use the SILK decoder's built-in
-	// resamplers via GetResampler() and GetResamplerRightChannel() to ensure
-	// resampler state persists across SILK-only <-> Hybrid mode transitions.
-	// This matches libopus behavior where the silk_DecControl.resampler_state
-	// is shared across all decoding modes.
-
-	// Channel count (1 for mono, 2 for stereo), matching libopus C int state width.
-	channels int32
-	// Decoder API sample rate. Hybrid CELT stays packet-domain internally but
-	// emits API-rate PCM, matching libopus OpusDecoder Fs.
-	apiSampleRate int32
 
 	// Per-decoder PLC state (do not share across decoder instances).
 	plcState *plc.State
@@ -63,21 +55,21 @@ type Decoder struct {
 	// Scratch buffers to reduce per-frame allocations (decoder is not thread-safe).
 	// Max frame size is 960 samples at 48kHz (20ms), stereo needs 960*2 = 1920 samples.
 	scratchSilkUpsampled []float32 // SILK upsampled output (max 960*2 for stereo 20ms)
-	plcMonoScratch       []float32 // mono SILK PLC before stereo duplication
 
 	// fixedHighband, when set, drives the FIXED_POINT integer CELT highband
 	// decode for the in-flight integer-output (DecodeInt16 / DecodeInt24) packet.
-	// It is nil on the float Decode path and in the default build, so the float
-	// hybrid decode is unchanged. When set, decodeFrameWithHookFloat32 captures
-	// the resampled int16 SILK lowband and, once the shared range decoder is
-	// positioned at the CELT start band, hands a clone of it (plus the SILK
-	// lowband) to the hook for the integer accum decode.
 	fixedHighband    FixedHybridHighband
 	fixedRangeClone  rangecoding.Decoder
 	scratchSilkInt16 []int16
 	scratchSilkL     []int16
 	scratchSilkR     []int16
-	filledSilkInt16  int
+
+	// --- Pointer-free (noscan) tail ---
+
+	channels        int32 // Channel count (1 for mono, 2 for stereo)
+	apiSampleRate   int32 // Decoder API sample rate
+	filledSilkInt16 int
+	plcStateVal     plc.State
 }
 
 // FixedHybridHighband receives the data needed to run the FIXED_POINT integer
@@ -134,17 +126,19 @@ func NewDecoderWithSharedDecoders(channels int, silkDec *silk.Decoder, celtDec *
 		celtDec = celt.NewDecoder(channels)
 	}
 
-	return &Decoder{
+	d := &Decoder{
 		silkDecoder: silkDec,
 		celtDecoder: celtDec,
 
 		channels:      int32(channels),
 		apiSampleRate: 48000,
-		plcState:      plc.NewState(),
 
 		// Pre-allocate scratch buffers for zero-alloc decode path
 		scratchSilkUpsampled: make([]float32, maxSamples),
 	}
+	d.plcStateVal.Init()
+	d.plcState = &d.plcStateVal
+	return d
 }
 
 // SetAPISampleRate sets the output rate for Hybrid PCM. Rates of 8, 12, 16, 24,

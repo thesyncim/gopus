@@ -263,7 +263,7 @@ func (d *Decoder) SynthesizeStereoFloat32(coeffsL, coeffsR []float32, transient 
 		return nil
 	}
 	outL := d.synthesizeOverlapOnly(0, coeffsL, transient, shortBlocks, &d.scratchSynthF32, &d.scratchIMDCTF32)
-	outR := d.synthesizeOverlapOnly(1, coeffsR, transient, shortBlocks, &d.scratchSynthRF32, &d.scratchIMDCTF32R)
+	outR := d.synthesizeOverlapOnly(1, coeffsR, transient, shortBlocks, &d.scratchSynthRF32, &d.scratchIMDCTF32)
 	n := min(len(outL), len(outR))
 	stereo := ensureFloat32Slice(&d.scratchStereoF32, n*2)
 	for i := range n {

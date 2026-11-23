@@ -30,6 +30,7 @@ func kfBfly4M1CoreSIMD(fout []kissCpx, n int) {
 	if n <= 0 {
 		return
 	}
+	_ = fout[n*4-1]
 
 	base := unsafe.Pointer(unsafe.SliceData(fout))
 	blocks := n / 2
@@ -86,6 +87,8 @@ func kfBfly5InnerSIMD(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 		kfBfly5InnerScalar(fout, w, m, N, mm, fstride)
 		return
 	}
+	_ = fout[(N-1)*mm+5*m-1]
+	_ = w[max(fstride*2*m, (m-1)*4*fstride)]
 
 	wBase := unsafe.Pointer(unsafe.SliceData(w))
 	ya := *(*kissCpx)(unsafe.Add(wBase, fstride*m*8))
@@ -149,6 +152,8 @@ func kfBfly3InnerSIMD(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 		kfBfly3InnerScalar(fout, w, m, N, mm, fstride)
 		return
 	}
+	_ = fout[(N-1)*mm+3*m-1]
+	_ = w[max(fstride*m, (m-1)*2*fstride)]
 
 	wBase := unsafe.Pointer(unsafe.SliceData(w))
 	epi3i := archsimd.BroadcastFloat32x4((*kissCpx)(unsafe.Add(wBase, fstride*m*8)).i)
@@ -187,6 +192,8 @@ func kfBfly4InnerSIMD(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 		kfBfly4InnerScalar(fout, w, m, N, mm, fstride)
 		return
 	}
+	_ = fout[(N-1)*mm+4*m-1]
+	_ = w[(m-1)*3*fstride]
 
 	wBase := unsafe.Pointer(unsafe.SliceData(w))
 	foutBase := unsafe.Pointer(unsafe.SliceData(fout))

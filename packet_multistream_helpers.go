@@ -45,17 +45,12 @@ func MultistreamPacketPad(data []byte, length, newLen, numStreams int) error {
 		return nil
 	}
 
-	src := make([]byte, length)
-	copy(src, data[:length])
-
-	offset, err := lastMultistreamPacketOffset(src, length, numStreams)
+	offset, err := lastMultistreamPacketOffset(data, length, numStreams)
 	if err != nil {
 		return err
 	}
 
 	data = data[:newLen]
-	copy(data[:length], src)
-
 	lastOldLen := length - offset
 	lastNewLen := lastOldLen + (newLen - length)
 	return PacketPad(data[offset:], lastOldLen, lastNewLen)
@@ -86,15 +81,13 @@ func MultistreamPacketUnpad(data []byte, length, numStreams int) (int, error) {
 		}
 		srcOffset += consumed
 
-		packetCopy := make([]byte, len(packet))
-		copy(packetCopy, packet)
-		newPacketLen, err := PacketUnpad(packetCopy, len(packetCopy))
+		newPacketLen, err := PacketUnpad(packet, len(packet))
 		if err != nil {
 			return 0, err
 		}
 
 		if selfDelimited {
-			selfDelimitedPacket, err := makeSelfDelimitedPacket(packetCopy[:newPacketLen])
+			selfDelimitedPacket, err := makeSelfDelimitedPacket(packet[:newPacketLen])
 			if err != nil {
 				return 0, err
 			}
@@ -110,7 +103,7 @@ func MultistreamPacketUnpad(data []byte, length, numStreams int) (int, error) {
 			return 0, ErrBufferTooSmall
 		}
 
-		copy(data[dstOffset:], packetCopy[:newPacketLen])
+		copy(data[dstOffset:], packet[:newPacketLen])
 		dstOffset += newPacketLen
 	}
 

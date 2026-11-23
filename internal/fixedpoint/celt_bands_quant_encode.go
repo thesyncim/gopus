@@ -171,14 +171,6 @@ func minI32(a, b int32) int32 {
 	return b
 }
 
-// computeThetaEncode ports the encode side of celt/bands.c compute_theta (QEXT
-// off). It searches itheta from X/Y via stereo_itheta, quantizes it (with the
-// avoid_split_noise / theta_round bias), encodes the angle into the range
-// encoder, applies intensity_stereo / stereo_split to X/Y, and fills sctx.
-func computeThetaEncode(ctx *bandEncCtx, sctx *bandSplit, x, y []int32, n int, b *int, B, B0, lm int, stereo bool, fill *int) {
-	computeThetaEncodeQEXT(ctx, sctx, x, y, n, b, B, B0, lm, stereo, fill, nil)
-}
-
 // computeThetaEncodeQEXT ports celt/bands.c compute_theta with the optional
 // fixed-point QEXT theta refinement stream. extBudget is the caller's budget
 // for this partition and is reduced by the bits written to extEnc.
@@ -378,12 +370,7 @@ func quantBandN1Encode(ctx *bandEncCtx, x, y []int32, lowbandOut []int32) uint {
 	return 1
 }
 
-// quantPartitionEncode ports celt/bands.c quant_partition (encode side, QEXT
-// off).
-func quantPartitionEncode(ctx *bandEncCtx, x []int32, n, b, B int, lowband []int32, lm int, gain int32, fill int) uint {
-	return quantPartitionEncodeQEXT(ctx, x, n, b, B, lowband, lm, gain, fill, 0)
-}
-
+// quantPartitionEncodeQEXT ports celt/bands.c quant_partition (encode side).
 func quantPartitionEncodeQEXT(ctx *bandEncCtx, x []int32, n, b, B int, lowband []int32, lm int, gain int32, fill int, extBudget int32) uint {
 	maxBits := 0
 	if lm != -1 {
@@ -536,11 +523,7 @@ func quantPartitionEncodeQEXT(ctx *bandEncCtx, x []int32, n, b, B int, lowband [
 	return uint(fill)
 }
 
-// quantBandEncode ports celt/bands.c quant_band (encode side, QEXT off).
-func quantBandEncode(ctx *bandEncCtx, x []int32, n, b, B int, lowband []int32, lm int, lowbandOut []int32, gain int32, lowbandScratch []int32, fill int) uint {
-	return quantBandEncodeQEXT(ctx, x, n, b, B, lowband, lm, lowbandOut, gain, lowbandScratch, fill, 0)
-}
-
+// quantBandEncodeQEXT ports celt/bands.c quant_band (encode side).
 func quantBandEncodeQEXT(ctx *bandEncCtx, x []int32, n, b, B int, lowband []int32, lm int, lowbandOut []int32, gain int32, lowbandScratch []int32, fill int, extBudget int32) uint {
 	n0 := n
 	nB := n
@@ -631,12 +614,7 @@ func quantBandEncodeQEXT(ctx *bandEncCtx, x []int32, n, b, B int, lowband []int3
 	return cm
 }
 
-// quantBandStereoEncode ports celt/bands.c quant_band_stereo (encode side,
-// QEXT off).
-func quantBandStereoEncode(ctx *bandEncCtx, x, y []int32, n, b, B int, lowband []int32, lm int, lowbandOut []int32, lowbandScratch []int32, fill int) uint {
-	return quantBandStereoEncodeQEXT(ctx, x, y, n, b, B, lowband, lm, lowbandOut, lowbandScratch, fill, 0)
-}
-
+// quantBandStereoEncodeQEXT ports celt/bands.c quant_band_stereo (encode side).
 func quantBandStereoEncodeQEXT(ctx *bandEncCtx, x, y []int32, n, b, B int, lowband []int32, lm int, lowbandOut []int32, lowbandScratch []int32, fill int, extBudget int32) uint {
 	if n == 1 {
 		return quantBandN1Encode(ctx, x, y, lowbandOut)

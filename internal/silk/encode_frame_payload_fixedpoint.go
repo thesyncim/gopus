@@ -298,9 +298,9 @@ func (e *Encoder) silkLBRREncodeFIX(
 		return sideInfoIndices{}, nil, false
 	}
 
-	// Copy NSQ state and indices from the regular encoding.
-	var sNSQLBRR NSQState
-	sNSQLBRR = st.nsq
+	// Copy NSQ state and indices from the regular encoding; share scratch.
+	st.nsq.ensureScratch()
+	sNSQLBRR := st.nsq
 	indicesLBRR := ctrlToIndices(ctrl, gainIndices, seed)
 
 	// Save original gains.
@@ -403,12 +403,12 @@ func (e *Encoder) silkEncodeFramePayloadFIX(ps *silkEncodeFramePayloadFIXState) 
 	gainsIDUpper := int32(-1)
 
 	rangeCopy := *re
-	nsqCopy0 := st.nsq
+	nsqCopy0 := st.nsq.nsqCore
 	seedCopy := seed
 	ecPrevLagIndexCopy := e.ecPrevLagIndex
 	ecPrevSignalTypeCopy := e.ecPrevSignalType
 	rangeCopy2 := *re
-	var nsqCopy1 NSQState
+	var nsqCopy1 nsqCore
 	var lastGainIndexCopy2 int8
 	ecBufCopy := ensureByteSlice(&sc.ecBufCopy, len(re.Buffer()))
 
@@ -432,7 +432,7 @@ gainSearch:
 		default:
 			if iter > 0 {
 				*re = rangeCopy
-				st.nsq = nsqCopy0
+				st.nsq.nsqCore = nsqCopy0
 				frameSeed = seedCopy
 				e.ecPrevLagIndex = ecPrevLagIndexCopy
 				e.ecPrevSignalType = ecPrevSignalTypeCopy
@@ -490,7 +490,7 @@ gainSearch:
 				if offs <= len(ecBufCopy) {
 					copy(re.Buffer()[:offs], ecBufCopy[:offs])
 				}
-				st.nsq = nsqCopy1
+				st.nsq.nsqCore = nsqCopy1
 				currentPrevInd = lastGainIndexCopy2
 			}
 			break
@@ -518,7 +518,7 @@ gainSearch:
 				if offs <= len(ecBufCopy) {
 					copy(ecBufCopy[:offs], re.Buffer()[:offs])
 				}
-				nsqCopy1 = st.nsq
+				nsqCopy1 = st.nsq.nsqCore
 				lastGainIndexCopy2 = currentPrevInd
 			}
 		} else {

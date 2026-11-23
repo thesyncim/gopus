@@ -503,6 +503,7 @@ type TFAnalysisScratch struct {
 	Levels               []celtNorm
 	TfRes                []int32 // Output buffer
 	Metric, Path0, Path1 []int32
+	tfResBuf             [MaxBands]int32
 }
 
 // tfAnalysisMaxLevels bounds tfAnalysisLevels for CELT's largest frame, LM 3.
@@ -522,7 +523,9 @@ func (s *TFAnalysisScratch) EnsureTFAnalysisScratch(nbEBands, maxBandWidth, lm i
 		s.Path1 = ensureInt32Slice(&s.Path1, nbEBands)
 	}
 	s.Levels = ensureNormSliceNoClear(&s.Levels, tfAnalysisLevels(lm)*maxBandWidth)
-	if cap(s.TfRes) < nbEBands {
+	if nbEBands <= MaxBands {
+		s.TfRes = s.tfResBuf[:nbEBands]
+	} else if cap(s.TfRes) < nbEBands {
 		s.TfRes = make([]int32, nbEBands)
 	} else {
 		s.TfRes = s.TfRes[:nbEBands]

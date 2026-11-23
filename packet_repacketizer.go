@@ -332,8 +332,14 @@ func parseSelfDelimitedPacketAndPadding(data []byte) (tocBase byte, frames [][]b
 				offset++
 				if padByte == 255 {
 					paddingLen += 254
+					if offset+paddingLen > len(data) {
+						return 0, nil, nil, 0, 0, ErrInvalidPacket
+					}
 				} else {
 					paddingLen += padByte
+					if offset+paddingLen > len(data) {
+						return 0, nil, nil, 0, 0, ErrInvalidPacket
+					}
 					break
 				}
 			}

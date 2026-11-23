@@ -18,82 +18,37 @@ import (
 //
 // Reference: RFC 6716 Section 4.2
 type Decoder struct {
+	// Pointer-bearing fields are grouped first so Go's GC stops scanning at
+	// ptrdata, leaving the large pointer-free decoder/PLC state arrays in the
+	// noscan tail.
+
 	// Range decoder reference (set per frame)
 	rangeDecoder    *rangecoding.Decoder
 	fecRangeDecoder rangecoding.Decoder
-	apiSampleRate   int
 
-	// Frame state (persists across frames)
-	haveDecoded           bool  // True after first frame decoded
-	previousLogGain       int32 // Last subframe gain (for delta coding)
-	isPreviousFrameVoiced bool  // Was previous frame voiced (for LTP)
-
-	// LPC state (persists across frames)
-	lpcOrder      int32     // Current LPC order (10 for NB/MB, 16 for WB)
-	prevLPCValues []float32 // d_LPC output history for filter continuity
-
-	// LSF state (persists for interpolation)
-	prevLSFQ15 []int16 // Previous frame LSF coefficients (Q15)
-
-	// Excitation/output history (for LTP lookback)
-	// Needs at least max_pitch_lag + LTP_taps/2 + margin samples
-	outputHistory []float32 // Ring buffer for pitch prediction
-	historyIndex  int       // Current write position in ring buffer
-	// historyQ0 holds the decoded int16 samples of the same ring; the
-	// historyPending newest of them are not yet converted into outputHistory
-	// (see syncOutputHistory).
-	historyQ0      []int16
-	historyPending int
-
-	// Stereo state (for stereo unmixing)
-	prevStereoWeights [2]int16 // Previous w0, w1 stereo weights (Q13)
-
-	// libopus-aligned decoder state
-	state                [2]decoderState
-	stereo               stereoDecState
-	prevDecodeOnlyMiddle int32
-	// Active internal channel layout, shared by SILK and Hybrid. libopus
-	// opus_decode_frame retains DecControl.nChannelsInternal through DTX/PLC.
-	internalChannels int32
-
-	// Track previous bandwidth to detect bandwidth changes.
-	// Used to reset sMid state when sample rate changes.
-	prevBandwidth    Bandwidth
-	hasPrevBandwidth bool
-
-	// Resamplers for each bandwidth (created on demand).
+	// Resamplers for each bandwidth (NB=0, MB=1, WB=2), created on demand.
 	// Separate resampler state per channel to match libopus.
-	resamplers map[Bandwidth]*resamplerPair
+	resamplers [3]resamplerPair
 
 	// Per-decoder PLC state (do not share across decoder instances).
 	plcState *plc.State
 
 	// Per-channel SILK PLC state (libopus-style LTP/LPC concealment inputs).
-	silkPLCState     [2]*plc.SILKPLCState
-	plcConcealQ0     [2][]int16
-	plcKernelScratch [2]plc.SILKPLCScratch
+	silkPLCState [2]*plc.SILKPLCState
+	plcViews     [2]*silkPLCChannelView
 
-	// Mono output delay buffer to match libopus behavior.
-	// libopus delays mono SILK output by (1 + inputDelay) samples:
-	// - 1 sample from sMid history prepended before resampler input
-	// - inputDelay samples from resampler delay buffer (4 for 8kHz)
-	monoDelayBuf     []int16 // Delay buffer (size = fsKHz)
-	monoInputDelay   int     // Delay compensation (from delay_matrix_dec)
-	monoDelayBufInit bool    // Whether delay buffer has been initialized
+	dredHookState
+	nativePostfilter nativePostfilterExtras
 
-	// Pre-allocated scratch buffers for hot-path performance.
-	// These eliminate allocations in performance-critical decode loops.
-	// Sizes are based on maximum SILK frame parameters:
-	// - maxSubFrameLength = 80 (5ms * 16kHz)
-	// - maxLPCOrder = 16
-	// - maxLtpMemLength = 320 (20ms * 16kHz)
-	// - maxFrameLength = 320 (4 subframes * 80 samples)
-	// - maxFramesPerPacket = 3
-	//
-	// The fixed-size scratch slices below are carved from three per-type arenas
-	// (one allocation each instead of ~27 separate buffers) in NewDecoder; see
-	// the scratch carve there. They are pure per-frame scratch (overwritten before
-	// read), so sharing a backing per type is bit-exact.
+	// LPC / LSF / excitation history slices
+	prevLPCValues []float32 // d_LPC output history for filter continuity
+	prevLSFQ15    []int16   // Previous frame LSF coefficients (Q15)
+	outputHistory []float32 // Ring buffer for pitch prediction
+	historyQ0     []int16   // Decoded int16 samples of the same ring
+	plcConcealQ0  [2][]int16
+	monoDelayBuf  []int16 // Delay buffer (size = fsKHz)
+
+	// Per-type scratch arenas carved in NewDecoder
 	scratchI16 arena.Bump[int16]
 	scratchI32 arena.Bump[int32]
 	scratchF32 arena.Bump[float32]
@@ -105,19 +60,13 @@ type Decoder struct {
 	scratchOutInt16 []int16   // Size: maxFramesPerPacket * maxFrameLength = 960
 	scratchPulses   []int16   // Size: roundUpShellFrame(maxFrameLength) = 320
 	scratchOutput   []float32 // Size: maxFramesPerPacket * maxFrameLength = 960
-	// scratchFECOut is the multi-frame output accumulator for DecodeFEC. It is
-	// kept distinct from scratchOutInt16 because a no-LBRR sub-frame in an FEC
-	// packet runs concealment (recordPLCLossForState) that writes through
-	// scratchOutInt16; sharing the buffer would corrupt earlier sub-frames'
-	// already-decoded LBRR output.
-	scratchFECOut []int16 // Size: maxFramesPerPacket * maxFrameLength = 960
+	scratchFECOut   []int16   // Size: maxFramesPerPacket * maxFrameLength = 960
 
 	// Scratch buffers for silkDecodeIndices
 	scratchEcIx   []int16 // Size: maxLPCOrder = 16
 	scratchPredQ8 []uint8 // Size: maxLPCOrder = 16
 
 	// Scratch buffers for silkDecodePulses
-	// iter = frameLength >> 4 + 1 = 320/16 + 1 = 21 max
 	scratchSumPulses []int32 // Size: 21
 	scratchNLshifts  []int32 // Size: 21
 
@@ -130,15 +79,9 @@ type Decoder struct {
 	// Scratch buffer for upsampleTo48k
 	upsampleScratch []float32 // Size: maxFramesPerPacket * maxFrameLength * 6 = 5760
 
-	dredHookState
-
-	nativePostfilter nativePostfilterExtras
-
-	// Scratch buffers for applyMonoDelay
-	monoResamplerIn []int16 // Size: maxFramesPerPacket * maxFrameLength = 960
-	monoOutput      []int16 // Size: maxFramesPerPacket * maxFrameLength = 960
-
-	// Scratch buffer for BuildMonoResamplerInput
+	// Scratch buffers for applyMonoDelay and BuildMonoResamplerInput
+	monoResamplerIn       []int16   // Size: maxFramesPerPacket * maxFrameLength = 960
+	monoOutput            []int16   // Size: maxFramesPerPacket * maxFrameLength = 960
 	buildMonoInputScratch []float32 // Size: maxFramesPerPacket * maxFrameLength = 960
 
 	// Scratch buffers for stereo SILK decode paths.
@@ -150,74 +93,57 @@ type Decoder struct {
 	stereoSideFrame   []int16   // Size: maxFrameLength + 2
 
 	// Scratch buffers for stereo SILK packet-loss concealment (decodePLCStereo).
-	// These mirror the stereo good-frame scratch so PLC stays allocation-free.
 	plcMidNative  []float32 // concealed mid at native rate
 	plcSideNative []float32 // concealed side at native rate
 	plcMonoDup    []float32 // mono PLC before duplication into stereo output
 	plcLeftUp     []float32 // resampled left at API rate
 	plcRightUp    []float32 // resampled right at API rate
-	plcPredQ13    [2]int32  // stereo predictor coefficients for MS->LR
 
-	// Cached per-channel PLC views passed into the concealment kernel; created
-	// lazily and reused so packet-loss concealment stays allocation-free.
-	plcViews [2]*silkPLCChannelView
+	// plcLowbandCapture and int16 capture scratch (FIXED_POINT hybrid PLC path).
+	plcLowbandCapture []int16
+	plcConcealI16     []int16
+	plcStereoLI16     []int16
+	plcStereoRI16     []int16
 
-	// Length of the most recent native-rate int16 mono decode written to
-	// scratchOutInt16. Exposed via LatestNativeMono so optional decoder-side
-	// post-processing (e.g. OSCE BWE) can read the pre-resample SILK output
-	// without performing a second decode pass.
-	lastNativeMonoLen int32
-	// Native SILK sample rate in kHz used to produce lastNativeMonoLen samples
-	// (e.g. 16 for WB). Zero until a decode has run.
-	lastNativeMonoFsKHz int32
+	// plcKernelScratch and state sit at the pointer/noscan boundary: each keeps
+	// its slice/table pointers at offset 0, so the trailing arrays and
+	// everything below are excluded from GC scanning.
+	plcKernelScratch [2]plc.SILKPLCScratch
+	state            [2]decoderState
 
-	// Length of the most recent native-rate int16 stereo decode written to
-	// stereoLeftNative / stereoRightNative. Exposed via LatestNativeStereo
-	// so the optional OSCE BWE forward pass can read both pre-resample SILK
-	// lowband channels (libopus runs the BWE forward pass per channel with
-	// its own BBWENet state). Zero until a stereo decode has run.
-	lastNativeStereoLen int32
-	// Native SILK sample rate in kHz used to produce lastNativeStereoLen
-	// samples (e.g. 16 for WB). Zero until a stereo decode has run.
+	// --- Pointer-free (noscan) tail ---
+
+	apiSampleRate         int
+	haveDecoded           bool  // True after first frame decoded
+	previousLogGain       int32 // Last subframe gain (for delta coding)
+	isPreviousFrameVoiced bool  // Was previous frame voiced (for LTP)
+	lpcOrder              int32 // Current LPC order (10 for NB/MB, 16 for WB)
+	historyIndex          int   // Current write position in ring buffer
+	historyPending        int
+	prevStereoWeights     [2]int16 // Previous w0, w1 stereo weights (Q13)
+	prevDecodeOnlyMiddle  int32
+	internalChannels      int32
+	prevBandwidth         Bandwidth
+	hasPrevBandwidth      bool
+	monoInputDelay        int  // Delay compensation (from delay_matrix_dec)
+	monoDelayBufInit      bool // Whether delay buffer has been initialized
+	plcPredQ13            [2]int32
+	lastNativeMonoLen     int32
+	lastNativeMonoFsKHz   int32
+	lastNativeStereoLen   int32
 	lastNativeStereoFsKHz int32
+	lastNativeMidLen      int32
+	lastNativeMidFsKHz    int32
+	plcLowbandCaptured    int
+	plcLowbandCaptureArm  bool
+	lastFrameCtrlSignal   [2]int32
+	lastFrameCtrlValid    [2]bool
 
-	// Length and rate for the most recent internal stereo mid channel before
-	// MS->LR conversion. libopus feeds decoder-side DeepPLC/DRED from SILK
-	// channel 0 only, so parity paths need this native mid channel rather than
-	// post-stereo left/right output.
-	lastNativeMidLen   int32
-	lastNativeMidFsKHz int32
-
-	// lastFrameCtrl caches the most recent silk_decoder_control produced by
-	// `decodeFrameCoreInto` for each channel. The OSCE LACE / NoLACE
-	// postfilter feature extractor reads PredCoef_Q12, LTPCoef_Q14,
-	// Gains_Q16 and pitchL out of this cache after SILK decode completes
-	// (libopus does the equivalent by reading the live psDecCtrl from the
-	// stack frame). Both fields are only valid for the channel/decoded
-	// frames; multi-frame packets retain only the last 20 ms frame's ctrl
-	// (matching the LACE/NoLACE per-frame cadence which only runs at fs=16).
-	lastFrameCtrl       [2]decoderControl
-	lastFrameCtrlSignal [2]int32 // signalType from st.indices for the corresponding ctrl.
-	lastFrameCtrlValid  [2]bool
-
-	// plcLowbandCapture, when non-nil, receives the resampled int16 SILK PLC
-	// lowband (interleaved by channel) produced by the next decodePLC /
-	// decodePLCStereo call. The FIXED_POINT integer hybrid PLC path arms it so
-	// the integer CELT highband concealment can accumulate onto the exact
-	// opus_res SILK lowband (INT16TORES of this int16), matching libopus'
-	// celt_decode_with_ec_dred(NULL, celt_accum=1) on a lost hybrid frame. The
-	// captured int16 is the same value the float PLC resamples to (the float
-	// output is int16/32768), so arming it does not change the float PLC output.
-	plcLowbandCapture    []int16
-	plcLowbandCaptured   int
-	plcLowbandCaptureArm bool
-	// plcConcealI16 is reusable scratch for converting a mono float PLC
-	// concealment frame to int16 before int16 resampling on the capture path.
-	plcConcealI16 []int16
-	// plcStereoLI16 / plcStereoRI16 are reusable per-channel int16 scratch for
-	// the stereo PLC lowband capture path.
-	plcStereoLI16 []int16
-	plcStereoRI16 []int16
+	// Large pointer-free decoder state structs
+	plcStateVal      plc.State
+	scratchPredQ8Buf [maxLPCOrder]uint8
+	stereo           stereoDecState
+	lastFrameCtrl    [2]decoderControl
 }
 
 // ArmPLCLowbandCapture arms (or, with buf==nil, disarms) capture of the next
@@ -263,22 +189,18 @@ func NewDecoder() *Decoder {
 
 	d := &Decoder{
 		apiSampleRate: 48000,
-		prevLPCValues: make([]float32, 16),  // Max for WB (d_LPC = 16)
-		prevLSFQ15:    make([]int16, 16),    // Max for WB (d_LPC = 16)
-		outputHistory: make([]float32, 322), // Max pitch lag (288) + LTP taps (5) + margin
-		historyQ0:     make([]int16, 322),
-
-		// scratchPredQ8 is the only fixed scratch kept standalone (uint8); the rest
-		// are carved from the per-type arenas below.
-		scratchPredQ8: make([]uint8, maxLPCOrder),
-		plcState:      plc.NewState(),
 	}
-	// Carve the fixed-size scratch into one arena per element type (a single
-	// allocation each, in one contiguous cache region, instead of ~27 separate
-	// buffers). All of these are pure per-frame scratch — overwritten before read —
-	// so backing them from a shared per-type arena is bit-exact.
-	d.scratchI16.Ensure(maxSLTPSize + maxPulsesSize + maxLPCOrder + maxResamplerIn +
+	d.plcStateVal.Init()
+	d.plcState = &d.plcStateVal
+	d.scratchPredQ8 = d.scratchPredQ8Buf[:]
+
+	// Carve fixed-size state and scratch slices into one arena per element type
+	// (three allocations total instead of ~30 separate buffers).
+	const historyLen = 322 // Max pitch lag (288) + LTP taps (5) + margin
+	d.scratchI16.Ensure(maxLPCOrder + historyLen + maxSLTPSize + maxPulsesSize + maxLPCOrder + maxResamplerIn +
 		maxResamplerOut + maxResamplerBuf + 7*maxOutInt16Size + 2*(maxFrameLength+2))
+	d.prevLSFQ15 = d.scratchI16.AllocN(maxLPCOrder)
+	d.historyQ0 = d.scratchI16.AllocN(historyLen)
 	d.scratchSLTP = d.scratchI16.AllocN(maxSLTPSize)
 	d.scratchOutInt16 = d.scratchI16.AllocN(maxOutInt16Size)
 	d.scratchFECOut = d.scratchI16.AllocN(maxOutInt16Size)
@@ -302,7 +224,9 @@ func NewDecoder() *Decoder {
 	d.scratchSumPulses = d.scratchI32.AllocN(maxIterSize)
 	d.scratchNLshifts = d.scratchI32.AllocN(maxIterSize)
 
-	d.scratchF32.Ensure(maxOutputSize + maxResamplerOut + maxUpsampleSize + 6*maxOutInt16Size)
+	d.scratchF32.Ensure(maxLPCOrder + historyLen + maxOutputSize + maxResamplerOut + maxUpsampleSize + 6*maxOutInt16Size)
+	d.prevLPCValues = d.scratchF32.AllocN(maxLPCOrder)
+	d.outputHistory = d.scratchF32.AllocN(historyLen)
 	d.scratchOutput = d.scratchF32.AllocN(maxOutputSize)
 	d.resamplerScratchResult = d.scratchF32.AllocN(maxResamplerOut)
 	d.upsampleScratch = d.scratchF32.AllocN(maxUpsampleSize)
@@ -331,7 +255,7 @@ func (d *Decoder) SetAPISampleRate(sampleRate int) {
 		d.apiSampleRate = 48000
 	}
 	d.ensureStereoResamplerScratch(d.outputSampleRate())
-	d.resamplers = nil
+	d.resamplers = [3]resamplerPair{}
 }
 
 // ensureStereoResamplerScratch keeps room for both resampled channels of the
@@ -403,28 +327,33 @@ func (d *Decoder) Reset() {
 
 	// Clear output history
 	clear(d.outputHistory)
+	clear(d.historyQ0)
 	d.historyIndex = 0
 	d.historyPending = 0
 
 	// Clear stereo state
 	d.prevStereoWeights = [2]int16{0, 0}
 
+	prevFrameLen := [2]int{int(d.state[0].frameLength), int(d.state[1].frameLength)}
 	resetDecoderState(&d.state[0])
 	resetDecoderState(&d.state[1])
 	d.stereo = stereoDecState{}
 	d.prevDecodeOnlyMiddle = 0
 	d.internalChannels = 0
+	d.prevBandwidth = 0
+	d.hasPrevBandwidth = false
+	d.plcPredQ13 = [2]int32{}
+	d.plcLowbandCapture = nil
+	d.plcLowbandCaptured = 0
+	d.plcLowbandCaptureArm = false
 
 	// Reset resampler state for a clean stream start
-	for _, pair := range d.resamplers {
-		if pair == nil {
-			continue
+	for i := range d.resamplers {
+		if d.resamplers[i].left != nil {
+			d.resamplers[i].left.Reset()
 		}
-		if pair.left != nil {
-			pair.left.Reset()
-		}
-		if pair.right != nil {
-			pair.right.Reset()
+		if d.resamplers[i].right != nil {
+			d.resamplers[i].right.Reset()
 		}
 	}
 
@@ -532,7 +461,7 @@ func (d *Decoder) Reset() {
 
 	for ch := range d.silkPLCState {
 		if d.silkPLCState[ch] != nil {
-			d.silkPLCState[ch].Reset(int(d.state[ch].frameLength))
+			d.silkPLCState[ch].Reset(prevFrameLen[ch])
 		}
 	}
 }
@@ -905,17 +834,20 @@ func (d *Decoder) GetResamplerRightChannel(bandwidth Bandwidth) *LibopusResample
 	return d.GetResamplerForChannel(bandwidth, 1)
 }
 
+func resamplerIndex(bandwidth Bandwidth) int {
+	switch bandwidth {
+	case BandwidthNarrowband:
+		return 0
+	case BandwidthMediumband:
+		return 1
+	default:
+		return 2
+	}
+}
+
 // GetResamplerForChannel returns the resampler for the specified channel and bandwidth.
 func (d *Decoder) GetResamplerForChannel(bandwidth Bandwidth, channel int) *LibopusResampler {
-	if d.resamplers == nil {
-		d.resamplers = make(map[Bandwidth]*resamplerPair)
-	}
-
-	pair, ok := d.resamplers[bandwidth]
-	if !ok {
-		pair = &resamplerPair{}
-		d.resamplers[bandwidth] = pair
-	}
+	pair := &d.resamplers[resamplerIndex(bandwidth)]
 
 	config := GetBandwidthConfig(bandwidth)
 	if channel == 1 {
@@ -1158,14 +1090,10 @@ func (d *Decoder) ResetSideChannel() {
 	d.setupScratchBuffers()
 	d.stereo.predPrevQ13 = [2]int16{}
 	d.stereo.sSide = [2]int16{}
-	if d.resamplers == nil {
-		return
-	}
-	for _, pair := range d.resamplers {
-		if pair == nil || pair.right == nil {
-			continue
+	for i := range d.resamplers {
+		if d.resamplers[i].right != nil {
+			d.resamplers[i].right.Reset()
 		}
-		pair.right.Reset()
 	}
 }
 
@@ -1211,13 +1139,12 @@ func (d *Decoder) handleBandwidthChange(bandwidth Bandwidth) {
 	if d.hasPrevBandwidth && d.prevBandwidth != bandwidth {
 		// Sample rate changed - reset the resampler for the NEW bandwidth
 		// but keep sMid values to match libopus behavior.
-		if pair, ok := d.resamplers[bandwidth]; ok && pair != nil {
-			if pair.left != nil {
-				pair.left.Reset()
-			}
-			if pair.right != nil {
-				pair.right.Reset()
-			}
+		pair := &d.resamplers[resamplerIndex(bandwidth)]
+		if pair.left != nil {
+			pair.left.Reset()
+		}
+		if pair.right != nil {
+			pair.right.Reset()
 		}
 	}
 	d.prevBandwidth = bandwidth

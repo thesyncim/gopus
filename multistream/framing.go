@@ -187,8 +187,14 @@ func parseOpusPacketInto(scratch *packetScratch, data []byte, selfDelimited bool
 				offset++
 				if padByte == 255 {
 					padding += 254
+					if offset+padding > len(data) {
+						return parsedOpusPacket{}, ErrInvalidPacket
+					}
 				} else {
 					padding += padByte
+					if offset+padding > len(data) {
+						return parsedOpusPacket{}, ErrInvalidPacket
+					}
 					break
 				}
 			}
@@ -342,12 +348,6 @@ func writePaddingLength(dst []byte, length int) int {
 	}
 	dst[offset] = byte(length)
 	return offset + 1
-}
-
-// buildOpusPacketFromFrames assembles an Opus packet from frames.
-// When selfDelimited is true, it writes RFC 6716 Appendix B self-delimited framing.
-func buildOpusPacketFromFrames(tocBase byte, frames [][]byte, selfDelimited bool, dst []byte) (int, error) {
-	return buildOpusPacketFromFramesInto(nil, tocBase, frames, selfDelimited, dst)
 }
 
 func buildOpusPacketFromFramesInto(scratch *packetScratch, tocBase byte, frames [][]byte, selfDelimited bool, dst []byte) (int, error) {

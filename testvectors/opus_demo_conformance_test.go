@@ -467,13 +467,3 @@ func assertEncodeQuality(t *testing.T, c conformanceCell, gopusPackets, refPacke
 			gopusCmp.Q, refCmp.Q, gap, floor)
 	}
 }
-
-// float32sToBytes reinterprets a []float32 as little-endian bytes for exact
-// comparison.
-func float32sToBytes(s []float32) []byte {
-	b := make([]byte, len(s)*4)
-	for i, v := range s {
-		binary.LittleEndian.PutUint32(b[i*4:i*4+4], math.Float32bits(v))
-	}
-	return b
-}

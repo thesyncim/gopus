@@ -3,7 +3,6 @@ package testvectors
 import "fmt"
 
 const (
-	amd64FixtureWaveformMinQ = 95.0
 	// Native amd64 libopus encoder output can drift widely across toolchains on
 	// GitHub runners while still decoding successfully and preserving the parity
 	// surfaces we care about. Keep a looser corruption floor for encoder-fixture

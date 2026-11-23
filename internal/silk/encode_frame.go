@@ -256,7 +256,7 @@ func (e *Encoder) encodeFrame(re *rangecoding.Encoder, condCoding int, maxBits i
 	gainsIDUpper := int32(-1)
 
 	rangeCopy := *e.rangeEncoder
-	nsqCopy0 := *e.nsqState
+	nsqCopy0 := e.nsqState.nsqCore
 	seedCopy := frameIndices.Seed
 	ecPrevLagIndexCopy := e.ecPrevLagIndex
 	ecPrevSignalTypeCopy := e.ecPrevSignalType
@@ -280,7 +280,7 @@ gainSearch:
 		default:
 			if iter > 0 {
 				*e.rangeEncoder = rangeCopy
-				*e.nsqState = nsqCopy0
+				e.nsqState.nsqCore = nsqCopy0
 				frameIndices.Seed = seedCopy
 				e.ecPrevLagIndex = ecPrevLagIndexCopy
 				e.ecPrevSignalType = ecPrevSignalTypeCopy
@@ -482,7 +482,7 @@ gainSearch:
 				if offs <= len(ecBufCopy) {
 					copy(e.rangeEncoder.Buffer()[:offs], ecBufCopy[:offs])
 				}
-				*e.nsqState = e.nsqLowerCopy
+				e.nsqState.nsqCore = e.nsqLowerCopy
 				currentPrevInd = lastGainIndexCopy2
 			}
 			break
@@ -515,7 +515,7 @@ gainSearch:
 				if offs <= len(ecBufCopy) {
 					copy(ecBufCopy[:offs], e.rangeEncoder.Buffer()[:offs])
 				}
-				e.nsqLowerCopy = *e.nsqState
+				e.nsqLowerCopy = e.nsqState.nsqCore
 				lastGainIndexCopy2 = currentPrevInd
 			}
 		} else {

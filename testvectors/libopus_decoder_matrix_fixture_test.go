@@ -112,7 +112,3 @@ func loadLibopusDecoderMatrixFixture() (libopusDecoderMatrixFixtureFile, error) 
 func decodeLibopusDecoderMatrixPackets(c libopusDecoderMatrixCaseFile) ([][]byte, error) {
 	return append([][]byte(nil), c.decodedPackets...), nil
 }
-
-func decodeLibopusDecoderMatrixSamples(c libopusDecoderMatrixCaseFile) ([]float32, error) {
-	return c.decodedSamples, nil
-}

@@ -253,6 +253,20 @@ func NewEncoder(channels int) *Encoder {
 		channels = 2
 	}
 
+	// Carve fixed-size float32 state slices from one contiguous backing array
+	// to minimize heap objects per Encoder.
+	bandLen := MaxBands * channels
+	overlapLen := Overlap * channels
+	delayLen := DelayCompensation * channels
+	prefilterLen := combFilterMaxPeriod * channels
+	stateSlab := make([]float32, 5*bandLen+overlapLen+2*channels+delayLen+prefilterLen)
+	off := 0
+	carve := func(n int) []float32 {
+		s := stateSlab[off : off+n : off+n]
+		off += n
+		return s
+	}
+
 	e := &Encoder{
 		channels:       int32(channels),
 		streamChannels: int32(channels),
@@ -261,17 +275,17 @@ func NewEncoder(channels int) *Encoder {
 		bandwidth:      CELTFullband,
 
 		// Allocate energy arrays for all bands and channels
-		prevEnergy:    make([]celtGLog, MaxBands*channels),
-		prevLogEnergy: make([]celtGLog, MaxBands*channels),
-		prevEnergy2:   make([]celtGLog, MaxBands*channels),
-		energyError:   make([]celtGLog, MaxBands*channels),
+		prevEnergy:    carve(bandLen),
+		prevLogEnergy: carve(bandLen),
+		prevEnergy2:   carve(bandLen),
+		energyError:   carve(bandLen),
 
 		// Overlap buffer for MDCT overlap-add analysis
 		// Size is Overlap (120) samples per channel
-		overlapBuffer: make([]celtSig, Overlap*channels),
+		overlapBuffer: carve(overlapLen),
 
 		// Pre-emphasis filter state, one per channel
-		preemphState: make([]celtSig, channels),
+		preemphState: carve(channels),
 
 		// Initialize RNG to zero (libopus default)
 		rng: 0,
@@ -289,7 +303,7 @@ func NewEncoder(channels int) *Encoder {
 		tapsetDecision: 0,
 
 		// Initialize tonality analysis state
-		prevBandLogEnergy:     make([]celtGLog, MaxBands*channels),
+		prevBandLogEnergy:     carve(bandLen),
 		lastTonality:          opusVal16(0.5), // Start with neutral tonality estimate
 		lastStereoSaving:      0.0,
 		lastPitchChange:       false,
@@ -301,7 +315,7 @@ func NewEncoder(channels int) *Encoder {
 		analysisMaxPitchRatio: 0.0,
 
 		// DC rejection (high-pass) filter memory, one per channel
-		hpMem: make([]opusVal32, channels),
+		hpMem: carve(channels),
 
 		// Apply dc_reject by default for standalone CELT usage
 		dcRejectEnabled: true,
@@ -315,14 +329,14 @@ func NewEncoder(channels int) *Encoder {
 
 		// Delay buffer for lookahead (192 samples at 48kHz = 4ms)
 		// This matches libopus delay_compensation
-		delayBuffer: make([]opusRes, DelayCompensation*channels),
+		delayBuffer: carve(delayLen),
 
 		// Prefilter state (comb filter history) for postfilter signaling.
 		// libopus zero-initializes this state on reset.
 		prefilterPeriod: 0,
 		prefilterGain:   0,
 		prefilterTapset: 0,
-		prefilterMem:    make([]celtSig, combFilterMaxPeriod*channels),
+		prefilterMem:    carve(prefilterLen),
 
 		// A standalone encoder codes VBR at 64 kb/s per channel until
 		// SetBitrate/SetVBR configure it.
@@ -463,7 +477,11 @@ func (e *Encoder) Reset() {
 	e.frameBits = 0
 	e.coarseAvailableBytes = 0
 	e.coarseAvailableSet = false
+	e.coarsePassKept = false
 	e.maxPayloadBytes = 0
+	e.lastDynalloc = DynallocResult{}
+	clear(e.lastBandLogE)
+	clear(e.lastBandLogE2)
 	e.delayedIntra = 1.0
 	e.lastCodedBands = 0
 	e.intensity = 0
@@ -1143,6 +1161,7 @@ type encoderScratch struct {
 	// contiguous allocation instead of ~40 separate ones. See ensureEncodeFloatArena;
 	// the per-field ensure* sizing lines reslice/clear within their cap-pinned slot.
 	f32 arena.Bump[float32]
+	i32 arena.Bump[int32]
 
 	// LSB-depth quantized input buffer
 	quantizedInputF32 []float32
@@ -1169,10 +1188,8 @@ type encoderScratch struct {
 	prefilterXcorr    []float32
 	prefilterYYLookup []float32
 
-	// MDCT coefficient buffers
+	// MDCT coefficient buffer
 	mdctCoeffsF32 []float32
-	mdctLeftF32   []float32
-	mdctRightF32  []float32
 
 	// Band energy buffers
 	energies  []celtGLog
@@ -1193,10 +1210,9 @@ type encoderScratch struct {
 	prev1LogE         []celtGLog
 	dynallocOldBandE  []celtGLog
 
-	// Normalized coefficient buffers
-	normL []celtNorm
-	normR []celtNorm
-	// Interleaved stereo normalized coefficients for spread analysis.
+	// Normalized coefficient buffers (normL/normR alias the two halves of normStereo).
+	normL      []celtNorm
+	normR      []celtNorm
 	normStereo []celtNorm
 
 	// Allocation-related buffers
@@ -1206,12 +1222,6 @@ type encoderScratch struct {
 
 	// TF analysis buffers
 	tfRes []int32
-
-	// PVQ search buffers
-	pvqSignx []byte
-	pvqY     []float32
-	pvqAbsX  []float32
-	pvqIy    []int32
 
 	// MDCT forward transform scratch (float32)
 	mdctF           []float32
@@ -1226,19 +1236,13 @@ type encoderScratch struct {
 	transientX         []float32
 	transientSpreadOld []celtGLog
 
-	// CWRS encoding scratch
-	cwrsU []uint32
-
 	// ComputeAllocation scratch
-	allocBits         []int32
-	allocFineBits     []int32
-	allocFinePrio     []int32
-	allocThresh       []int32
-	allocTrim         []int32
-	allocTrimNormL    []celtNorm
-	allocTrimNormR    []celtNorm
-	allocTrimBandLogE []celtGLog
-	allocCaps         []int32
+	allocBits     []int32
+	allocFineBits []int32
+	allocFinePrio []int32
+	allocThresh   []int32
+	allocTrim     []int32
+	allocCaps     []int32
 	allocResult       AllocationResult // Pre-allocated result struct
 	encoderQEXTScratchFields
 
@@ -1311,13 +1315,12 @@ func (s *encoderScratch) ensureEncodeFloatArena(frameSize, channels, overlap, ma
 	bandCount := modeBands * channels
 	sp2 := (frameSize + overlap) / 2
 	spc := frameSize + overlap
-	const maxPVQN = maxBandWidth * 2
 
 	total := expectedLen*2 + combinedLen + transientLen + prefilterLen*2 +
 		pitchBufLen + xcorrLen + xlp4Len + ylp4Len + yyLookupLen +
-		frameSize*2 + frameSize*2 + bandCount*9 + modeBands*2 +
-		frameSize*2 + frameSize*2 + frameSize + frameSize/2 +
-		sp2*2 + spc + frameSize*2 + maxPVQN*2
+		frameSize*channels + bandCount*8 + modeBands*2 +
+		frameSize*channels + frameSize + frameSize/2 +
+		sp2*2 + spc
 	if s.f32.Cap() >= total {
 		return
 	}
@@ -1333,9 +1336,7 @@ func (s *encoderScratch) ensureEncodeFloatArena(frameSize, channels, overlap, ma
 	s.prefilterXLP4 = s.f32.Alloc(xlp4Len)
 	s.prefilterYLP4 = s.f32.Alloc(ylp4Len)
 	s.prefilterYYLookup = s.f32.Alloc(yyLookupLen)
-	s.mdctCoeffsF32 = s.f32.Alloc(frameSize * 2)
-	s.mdctLeftF32 = s.f32.Alloc(frameSize)
-	s.mdctRightF32 = s.f32.Alloc(frameSize)
+	s.mdctCoeffsF32 = s.f32.Alloc(frameSize * channels)
 	s.energies = s.f32.Alloc(bandCount)
 	s.bandLogE2 = s.f32.Alloc(bandCount)
 	s.bandE = s.f32.Alloc(bandCount)
@@ -1344,21 +1345,16 @@ func (s *encoderScratch) ensureEncodeFloatArena(frameSize, channels, overlap, ma
 	s.quantizedEnergies = s.f32.Alloc(bandCount)
 	s.prev1LogE = s.f32.Alloc(bandCount)
 	s.coarseDecisionE = s.f32.Alloc(bandCount)
-	s.allocTrimBandLogE = s.f32.Alloc(bandCount)
 	s.bandEL = s.f32.Alloc(modeBands)
 	s.bandER = s.f32.Alloc(modeBands)
-	s.normL = s.f32.Alloc(frameSize)
-	s.normR = s.f32.Alloc(frameSize)
-	s.normStereo = s.f32.Alloc(frameSize * 2)
+	s.normStereo = s.f32.Alloc(frameSize * channels)
+	s.normL = nil
+	s.normR = nil
 	s.mdctF = s.f32.Alloc(frameSize)
 	s.mdctBlockCoeffs = s.f32.Alloc(frameSize / 2)
 	s.transientEnergy = s.f32.Alloc(sp2)
 	s.transientEnergyR = s.f32.Alloc(sp2)
 	s.transientX = s.f32.Alloc(spc)
-	s.allocTrimNormL = s.f32.Alloc(frameSize)
-	s.allocTrimNormR = s.f32.Alloc(frameSize)
-	s.pvqY = s.f32.Alloc(maxPVQN)
-	s.pvqAbsX = s.f32.Alloc(maxPVQN)
 }
 
 // ensureScratch ensures all scratch buffers are properly sized for the given frame parameters.
@@ -1429,9 +1425,7 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	s.prefilterYYLookup = ensureFloat32Slice(&s.prefilterYYLookup, yyLookupLen)
 
 	// MDCT coefficients
-	s.mdctCoeffsF32 = ensureFloat32Slice(&s.mdctCoeffsF32, frameSize*2)
-	s.mdctLeftF32 = ensureFloat32Slice(&s.mdctLeftF32, frameSize)
-	s.mdctRightF32 = ensureFloat32Slice(&s.mdctRightF32, frameSize)
+	s.mdctCoeffsF32 = ensureFloat32Slice(&s.mdctCoeffsF32, frameSize*channels)
 
 	// Band energies
 	bandCount := modeBands * channels
@@ -1460,31 +1454,48 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	s.prev1LogE = ensureGLogSlice(&s.prev1LogE, bandCount)
 	s.coarseDecisionE = ensureGLogSlice(&s.coarseDecisionE, bandCount)
 
-	// Normalized coefficients
-	s.normL = ensureNormSliceNoClear(&s.normL, frameSize)
-	s.normR = ensureNormSliceNoClear(&s.normR, frameSize)
-	s.normStereo = ensureNormSliceNoClear(&s.normStereo, frameSize*2)
+	// Normalized coefficients: normL/normR alias the contiguous halves of
+	// normStereo so spreading_decision() needs no per-frame copy.
+	s.normStereo = ensureNormSliceNoClear(&s.normStereo, frameSize*channels)
+	s.normL = s.normStereo[:frameSize:frameSize]
+	if channels == 2 {
+		s.normR = s.normStereo[frameSize : frameSize*2 : frameSize*2]
+	} else {
+		s.normR = nil
+	}
 
-	// Allocation buffers
-	s.caps = ensureInt32Slice(&s.caps, modeBands)
-	s.offsets = ensureInt32Slice(&s.offsets, modeBands)
+	// Allocation and TF int32 scratch carved from one contiguous arena.
+	needI32 := 9 * modeBands
+	if s.i32.Cap() < needI32 {
+		s.i32.Ensure(needI32)
+		s.caps = s.i32.AllocN(modeBands)
+		s.offsets = s.i32.AllocN(modeBands)
+		s.allocBits = s.i32.AllocN(modeBands)
+		s.allocFineBits = s.i32.AllocN(modeBands)
+		s.allocFinePrio = s.i32.AllocN(modeBands)
+		s.allocCaps = s.i32.AllocN(modeBands)
+		s.tfRes = s.i32.AllocN(modeBands)
+		s.allocThresh = s.i32.AllocN(modeBands)
+		s.allocTrim = s.i32.AllocN(modeBands)
+	} else {
+		s.caps = s.caps[:modeBands]
+		s.offsets = s.offsets[:modeBands]
+		s.allocBits = s.allocBits[:modeBands]
+		s.allocFineBits = s.allocFineBits[:modeBands]
+		s.allocFinePrio = s.allocFinePrio[:modeBands]
+		s.allocCaps = s.allocCaps[:modeBands]
+		s.tfRes = s.tfRes[:modeBands]
+		s.allocThresh = s.allocThresh[:modeBands]
+		s.allocTrim = s.allocTrim[:modeBands]
+	}
 	if len(s.logN) < modeBands {
 		s.logN = make([]int16, modeBands)
 	}
-	s.allocBits = ensureInt32Slice(&s.allocBits, modeBands)
-	s.allocFineBits = ensureInt32Slice(&s.allocFineBits, modeBands)
-	s.allocFinePrio = ensureInt32Slice(&s.allocFinePrio, modeBands)
-	s.allocCaps = ensureInt32Slice(&s.allocCaps, modeBands)
 	// Initialize AllocationResult with pre-allocated slices
 	s.allocResult.BandBits = s.allocBits
 	s.allocResult.FineBits = s.allocFineBits
 	s.allocResult.FinePriority = s.allocFinePrio
 	s.allocResult.Caps = s.allocCaps
-
-	// TF results
-	s.tfRes = ensureInt32Slice(&s.tfRes, modeBands)
-
-	// Deinterleave buffers
 
 	// MDCT forward transform scratch (float32)
 	n4 := frameSize / 2 // n4 = frameSize/2 for N=2*frameSize MDCT
@@ -1501,18 +1512,6 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	s.transientEnergyR = ensureFloat32Slice(&s.transientEnergyR, samplesPerChannel/2)
 	s.transientX = ensureFloat32Slice(&s.transientX, samplesPerChannel)
 
-	// CWRS encoding scratch (k can be up to ~128 for typical encoding)
-	s.cwrsU = ensureUint32Slice(&s.cwrsU, 256)
-
-	// ComputeAllocation scratch
-	s.allocBits = ensureInt32Slice(&s.allocBits, modeBands)
-	s.allocFineBits = ensureInt32Slice(&s.allocFineBits, modeBands)
-	s.allocFinePrio = ensureInt32Slice(&s.allocFinePrio, modeBands)
-	s.allocThresh = ensureInt32Slice(&s.allocThresh, modeBands)
-	s.allocTrim = ensureInt32Slice(&s.allocTrim, modeBands)
-	s.allocTrimNormL = ensureNormSliceNoClear(&s.allocTrimNormL, frameSize)
-	s.allocTrimNormR = ensureNormSliceNoClear(&s.allocTrimNormR, frameSize)
-	s.allocTrimBandLogE = ensureGLogSlice(&s.allocTrimBandLogE, modeBands*channels)
 	if extsupport.QEXT && e.qextActive() {
 		qs := s.ensureQEXTScratch()
 		qs.extraBits = ensureInt32Slice(&qs.extraBits, modeBands+nbQEXTBands)
@@ -1532,16 +1531,10 @@ func (e *Encoder) ensureScratch(frameSize int) {
 		qs.normR = ensureNormSliceNoClear(&qs.normR, frameSize)
 	}
 
-	// PVQ search buffers
-	maxPVQN := maxBandWidth * 2 // Max band width with stereo doubling
-	s.pvqSignx = ensureByteSlice(&s.pvqSignx, maxPVQN)
-	s.pvqY = ensureFloat32Slice(&s.pvqY, maxPVQN)
-	s.pvqAbsX = ensureFloat32Slice(&s.pvqAbsX, maxPVQN)
-	s.pvqIy = ensureInt32Slice(&s.pvqIy, maxPVQN)
-
 	// Band encode scratch. Carve the float-family fields (norm, lowbandScratch,
 	// hadamardTmpNorm, pvqY/pvqAbsX/pvqX, theta-RDO slots) from one contiguous
 	// arena first; the sizing/getters below reslice within their cap-pinned slots.
+	const maxPVQN = maxBandWidth * 2 // Max band width with stereo doubling
 	bandScratch := &e.bandEncScratch
 	bandScratch.ensureFloatScratch(channels)
 	bandScratch.collapse = ensureByteSlice(&bandScratch.collapse, channels*modeBands)
@@ -1569,7 +1562,7 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	}
 	bandScratch.qextIy = ensureInt32Slice(&bandScratch.qextIy, maxPVQN)
 	bandScratch.cwrsU = ensureUint32Slice(&bandScratch.cwrsU, 256)
-	bandScratch.hadamardTmpNorm = ensureNormSliceNoClear(&bandScratch.hadamardTmpNorm, maxBandWidth*16)
+	bandScratch.hadamardTmpNorm = ensureNormSliceNoClear(&bandScratch.hadamardTmpNorm, max(maxBand, maxBandWidth))
 	e.tfScratch.EnsureTFAnalysisScratch(modeBands, maxBandWidth, 3)
 }
 
@@ -1608,9 +1601,7 @@ func (e *Encoder) resetScratchLengths(frameSize int) {
 	s.prefilterXLP4 = s.prefilterXLP4[:max(frameSize>>2, 1)]
 	s.prefilterYLP4 = s.prefilterYLP4[:max((frameSize+maxPitch)>>2, 1)]
 	s.prefilterYYLookup = s.prefilterYYLookup[:max((maxPeriod>>1)+1, 1)]
-	s.mdctCoeffsF32 = s.mdctCoeffsF32[:frameSize*2]
-	s.mdctLeftF32 = s.mdctLeftF32[:frameSize]
-	s.mdctRightF32 = s.mdctRightF32[:frameSize]
+	s.mdctCoeffsF32 = s.mdctCoeffsF32[:frameSize*channels]
 
 	bandCount := modeBands * channels
 	s.energies = clearedSlice(s.energies, bandCount)
@@ -1623,9 +1614,13 @@ func (e *Encoder) resetScratchLengths(frameSize int) {
 	s.quantizedEnergies = clearedSlice(s.quantizedEnergies, bandCount)
 	s.prev1LogE = clearedSlice(s.prev1LogE, bandCount)
 	s.coarseDecisionE = clearedSlice(s.coarseDecisionE, bandCount)
-	s.normL = s.normL[:frameSize]
-	s.normR = s.normR[:frameSize]
-	s.normStereo = s.normStereo[:frameSize*2]
+	s.normStereo = s.normStereo[:frameSize*channels]
+	s.normL = s.normStereo[:frameSize:frameSize]
+	if channels == 2 {
+		s.normR = s.normStereo[frameSize : frameSize*2 : frameSize*2]
+	} else {
+		s.normR = nil
+	}
 
 	s.caps = s.caps[:modeBands]
 	s.offsets = s.offsets[:modeBands]
@@ -1649,31 +1644,23 @@ func (e *Encoder) resetScratchLengths(frameSize int) {
 	s.transientEnergy = s.transientEnergy[:samplesPerChannel/2]
 	s.transientEnergyR = s.transientEnergyR[:samplesPerChannel/2]
 	s.transientX = s.transientX[:samplesPerChannel]
-	s.cwrsU = s.cwrsU[:256]
 	s.allocThresh = s.allocThresh[:modeBands]
 	s.allocTrim = s.allocTrim[:modeBands]
-	s.allocTrimNormL = s.allocTrimNormL[:frameSize]
-	s.allocTrimNormR = s.allocTrimNormR[:frameSize]
-	s.allocTrimBandLogE = clearedSlice(s.allocTrimBandLogE, modeBands*channels)
 
 	const maxPVQN = maxBandWidth * 2
-	s.pvqSignx = s.pvqSignx[:maxPVQN]
-	s.pvqY = s.pvqY[:maxPVQN]
-	s.pvqAbsX = s.pvqAbsX[:maxPVQN]
-	s.pvqIy = s.pvqIy[:maxPVQN]
-
 	bandScratch := &e.bandEncScratch
 	edges := e.modeEdges()
 	bandScratch.collapse = bandScratch.collapse[:channels*modeBands]
 	bandScratch.norm = bandScratch.norm[:channels*8*edges[modeBands-1]]
-	bandScratch.lowbandScratch = bandScratch.lowbandScratch[:8*(edges[modeBands]-edges[modeBands-1])]
+	maxBand := 8 * (edges[modeBands] - edges[modeBands-1])
+	bandScratch.lowbandScratch = bandScratch.lowbandScratch[:maxBand]
 	bandScratch.pvqSignx = bandScratch.pvqSignx[:maxPVQN]
 	bandScratch.pvqY = bandScratch.pvqY[:maxPVQN]
 	bandScratch.pvqAbsX = bandScratch.pvqAbsX[:maxPVQN]
 	bandScratch.pvqIy = bandScratch.pvqIy[:maxPVQN]
 	bandScratch.qextIy = bandScratch.qextIy[:maxPVQN]
 	bandScratch.cwrsU = bandScratch.cwrsU[:256]
-	bandScratch.hadamardTmpNorm = bandScratch.hadamardTmpNorm[:maxBandWidth*16]
+	bandScratch.hadamardTmpNorm = bandScratch.hadamardTmpNorm[:max(maxBand, maxBandWidth)]
 	e.tfScratch.EnsureTFAnalysisScratch(modeBands, maxBandWidth, 3)
 }
 

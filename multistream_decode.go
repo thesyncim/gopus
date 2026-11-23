@@ -232,10 +232,7 @@ func (d *MultistreamDecoder) DecodeInt16(data []byte, pcm []int16) (int, error) 
 	}
 	total := n * channels
 	softClipAndFloat32ToInt16Scalar(pcm[:total], samples[:total], n, channels, d.softClipMem)
-
-	if len(data) > 0 {
-		d.lastFrameSize = int32(frameSize)
-	}
+	d.lastFrameSize = int32(frameSize)
 
 	return n, nil
 }
@@ -290,10 +287,7 @@ func (d *MultistreamDecoder) DecodeInt24(data []byte, pcm []int32) (int, error) 
 	total := n * channels
 	float32ToInt24Slice(pcm[:total], samples[:total], n, channels)
 	clear(d.softClipMem)
-
-	if len(data) > 0 {
-		d.lastFrameSize = int32(frameSize)
-	}
+	d.lastFrameSize = int32(frameSize)
 
 	return n, nil
 }
@@ -305,10 +299,15 @@ func (d *MultistreamDecoder) DecodeInt24(data []byte, pcm []int32) (int, error) 
 func (d *MultistreamDecoder) DecodeInt24Slice(data []byte) ([]int32, error) {
 	channels := int(d.channels)
 	sampleRate := int(d.sampleRate)
-	// 60 ms is the maximum Opus frame duration; allocate a buffer large
-	// enough for any valid packet, then trim to the actual decoded length.
-	maxFrameSize := sampleRate * 60 / 1000
-	pcm := make([]int32, maxFrameSize*channels)
+	frameSize := sampleRate * 60 / 1000
+	if len(data) > 0 {
+		duration, err := d.dec.PacketDurationAtRate(data)
+		if err != nil {
+			return nil, err
+		}
+		frameSize = duration
+	}
+	pcm := make([]int32, frameSize*channels)
 	n, err := d.DecodeInt24(data, pcm)
 	if err != nil {
 		return nil, err

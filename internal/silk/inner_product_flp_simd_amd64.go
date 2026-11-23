@@ -3,7 +3,6 @@
 package silk
 
 import (
-	"math"
 	"simd/archsimd"
 )
 
@@ -51,30 +50,6 @@ func innerProductFLPAVX2Vector(a, b []float32, length int) silkCReal {
 	// the caller's scalar code.
 	archsimd.ClearAVXUpperBits()
 	result := (lanes[0] + lanes[2]) + (lanes[1] + lanes[3])
-	for ; i < length; i++ {
-		result += float64(a[i]) * float64(b[i])
-	}
-	return silkCReal(result)
-}
-
-func innerProductFLPAVX2ScalarGo(a, b []float32, length int) silkCReal {
-	var acc0, acc1 [4]float64
-	i := 0
-	for ; i+8 <= length; i += 8 {
-		for lane := range 4 {
-			acc0[lane] = math.FMA(float64(a[i+lane]), float64(b[i+lane]), acc0[lane])
-			acc1[lane] = math.FMA(float64(a[i+4+lane]), float64(b[i+4+lane]), acc1[lane])
-		}
-	}
-	for ; i+4 <= length; i += 4 {
-		for lane := range 4 {
-			acc0[lane] = math.FMA(float64(a[i+lane]), float64(b[i+lane]), acc0[lane])
-		}
-	}
-	for lane := range 4 {
-		acc0[lane] += acc1[lane]
-	}
-	result := (acc0[0] + acc0[2]) + (acc0[1] + acc0[3])
 	for ; i < length; i++ {
 		result += float64(a[i]) * float64(b[i])
 	}

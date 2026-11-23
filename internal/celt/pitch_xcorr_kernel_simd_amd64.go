@@ -215,7 +215,7 @@ func pitchXcorrKernelAVX8(x, y []float32, sum *[8]float32, length int) {
 // tail. The x tail block is prepared once, and a y tail block loads full
 // width wherever y's capacity covers it.
 func pitchXCorrAVX2Blocks(x, y, xcorr []float32, length, maxPitch int) int {
-	if maxPitch < 8 || !libopusFloatPitchXCorrUsesAVX2FMA() {
+	if length <= 0 || maxPitch < 8 || !libopusFloatPitchXCorrUsesAVX2FMA() {
 		return 0
 	}
 	x = x[:length]

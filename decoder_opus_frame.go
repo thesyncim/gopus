@@ -610,67 +610,34 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 			}
 		} else {
 			d.prepareStereoTransition(silkStereo, silkBW)
+			// Normal >=10 ms PLC decodes straight into out with no copy; only
+			// <10 ms requests (where silkDecodeSize == F10 > frameSize) use the
+			// 10 ms decoder scratch and copy the requested prefix.
+			plcDst := out
+			useScratch := frameSize < silkDecodeSize
+			if useScratch {
+				neededPLC := silkDecodeSize * channels
+				if cap(d.scratchSilkPLC) < neededPLC {
+					d.scratchSilkPLC = make([]float32, neededPLC)
+				}
+				plcDst = d.scratchSilkPLC[:neededPLC]
+			}
+			var n int
 			switch {
 			case silkStereo && channels == 2:
-				// Zero-allocation stereo SILK PLC: conceal interleaved L/R into
-				// decoder-owned scratch (sized once at NewDecoder) and copy the
-				// requested frame into out.
-				if cap(d.scratchSilkPLC) < silkDecodeSize*channels {
-					d.scratchSilkPLC = make([]float32, silkDecodeSize*channels)
-				}
-				plcBuf := d.scratchSilkPLC[:silkDecodeSize*channels]
-				var n int
-				n, err = d.silkDecoder.DecodePLCStereoInto(silkBW, silkDecodeSize, plcBuf)
-				if err == nil {
-					silkSamples = n / channels
-					if frameSize < silkDecodeSize {
-						silkSamples = frameSize
-					}
-					copyFloat32(out, plcBuf[:silkSamples*channels])
-				}
+				n, err = d.silkDecoder.DecodePLCStereoInto(silkBW, silkDecodeSize, plcDst)
 			case silkStereo && channels == 1:
-				if cap(d.scratchSilkPLC) < silkDecodeSize {
-					d.scratchSilkPLC = make([]float32, silkDecodeSize)
-				}
-				plcBuf := d.scratchSilkPLC[:silkDecodeSize]
-				var n int
-				n, err = d.silkDecoder.DecodePLCStereoToMonoInto(silkBW, silkDecodeSize, plcBuf)
-				if err == nil {
-					silkSamples = n / channels
-					if frameSize < silkDecodeSize {
-						silkSamples = frameSize
-					}
-					copyFloat32(out, plcBuf[:silkSamples*channels])
-				}
+				n, err = d.silkDecoder.DecodePLCStereoToMonoInto(silkBW, silkDecodeSize, plcDst)
 			case !silkStereo && channels == 2:
-				if cap(d.scratchSilkPLC) < silkDecodeSize*channels {
-					d.scratchSilkPLC = make([]float32, silkDecodeSize*channels)
-				}
-				plcBuf := d.scratchSilkPLC[:silkDecodeSize*channels]
-				var n int
-				n, err = d.silkDecoder.DecodeMonoToStereoPLCInto(silkBW, silkDecodeSize, d.silkDecoder.InternalStereo(), plcBuf)
-				if err == nil {
-					silkSamples = n / channels
-					if frameSize < silkDecodeSize {
-						silkSamples = frameSize
-					}
-					copyFloat32(out, plcBuf[:silkSamples*channels])
-				}
+				n, err = d.silkDecoder.DecodeMonoToStereoPLCInto(silkBW, silkDecodeSize, d.silkDecoder.InternalStereo(), plcDst)
 			default:
-				// Zero-allocation mono SILK PLC: conceal into decoder-owned scratch
-				// (sized once at NewDecoder) and copy the requested frame into out.
-				if cap(d.scratchSilkPLC) < silkDecodeSize {
-					d.scratchSilkPLC = make([]float32, silkDecodeSize)
-				}
-				plcBuf := d.scratchSilkPLC[:silkDecodeSize]
-				var n int
-				n, err = d.silkDecoder.DecodePLCInto(silkBW, silkDecodeSize, plcBuf)
-				if err == nil {
-					silkSamples = n / channels
-					if frameSize < silkDecodeSize {
-						silkSamples = frameSize
-					}
-					copyFloat32(out, plcBuf[:silkSamples*channels])
+				n, err = d.silkDecoder.DecodePLCInto(silkBW, silkDecodeSize, plcDst)
+			}
+			if err == nil {
+				silkSamples = n / channels
+				if useScratch {
+					silkSamples = frameSize
+					copyFloat32(out, plcDst[:frameSize*channels])
 				}
 			}
 		}

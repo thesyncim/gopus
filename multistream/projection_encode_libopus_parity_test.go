@@ -186,18 +186,6 @@ func perStreamConfigs(packet []byte, streams int) []int {
 	return cfgs
 }
 
-func sameInts(a, b []int) bool {
-	if len(a) != len(b) || a == nil || b == nil {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
 // runProjectionEncodeParity calls the matching float or short public entry in
 // both implementations and checks every packet byte and entropy-coder range.
 func runProjectionEncodeParity(t *testing.T, channels, frameSize, frameCount, bitrate, complexity, sampleFormat int, vbr, vbrConstraint bool) {

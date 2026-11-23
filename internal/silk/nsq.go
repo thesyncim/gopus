@@ -20,9 +20,9 @@ const (
 	ltpMemLength      = 320 // LTP_MEM_LENGTH = 20ms * 16kHz
 )
 
-// NSQState holds the noise shaping quantizer state.
-// Mirrors libopus silk_nsq_state structure.
-type NSQState struct {
+// nsqCore holds the persistent, pointer-free noise shaping quantizer state
+// carried across frames and snapshotted during gain-search / LBRR passes.
+type nsqCore struct {
 	// delDecExactXqRound selects the libopus silk_NSQ_del_dec_avx2 rounding
 	// of the delayed-decision xq outputs for the current call.
 	delDecExactXqRound bool
@@ -62,7 +62,12 @@ type NSQState struct {
 
 	// Rewhitening flag
 	rewhiteFlag int
+}
 
+// nsqScratch holds transient per-call NSQ working buffers and delayed-decision
+// state tables. Kept out-of-line from nsqCore so state snapshots copy only the
+// ~4.4 KB persistent state without write barriers or per-call scratch.
+type nsqScratch struct {
 	// Pre-allocated scratch buffers for zero-allocation encoding
 	scratchPulses  []int8  // Size: maxFrameLengthNSQ = 320
 	scratchXq      []int16 // Size: maxFrameLengthNSQ = 320
@@ -78,89 +83,63 @@ type NSQState struct {
 	delDecAVX2 nsqDelDecAVX2State
 }
 
-// NewNSQState creates a new NSQ state with proper initialization.
-func NewNSQState() *NSQState {
-	state := &NSQState{
-		prevGainQ16: 1 << 16, // 1.0 in Q16, matches libopus initialization
-		// Pre-allocate scratch buffers for zero-allocation encoding
+func newNSQScratch() *nsqScratch {
+	return &nsqScratch{
 		scratchPulses:  make([]int8, maxFrameLengthNSQ),
 		scratchXq:      make([]int16, maxFrameLengthNSQ),
 		scratchSLTPQ15: make([]int32, ltpMemLength+maxFrameLengthNSQ),
 		scratchSLTP:    make([]int16, ltpMemLength+maxFrameLengthNSQ),
 		scratchXScQ10:  make([]int32, maxSubFrameLength),
 	}
-	return state
+}
+
+// NSQState holds the noise shaping quantizer state.
+// Mirrors libopus silk_nsq_state structure. scratch is placed first so
+// embedded NSQState values keep the pointer-free nsqCore in the GC noscan tail.
+type NSQState struct {
+	scratch *nsqScratch
+	nsqCore
+}
+
+func (s *NSQState) ensureScratch() *nsqScratch {
+	if s.scratch == nil {
+		s.scratch = newNSQScratch()
+	}
+	return s.scratch
+}
+
+// NewNSQState creates a new NSQ state with proper initialization.
+func NewNSQState() *NSQState {
+	return &NSQState{
+		nsqCore: nsqCore{
+			prevGainQ16: 1 << 16, // 1.0 in Q16, matches libopus initialization
+		},
+		scratch: newNSQScratch(),
+	}
 }
 
 // Clone creates a deep copy of the NSQ state.
 func (s *NSQState) Clone() *NSQState {
-	c := &NSQState{
-		lagPrev:       s.lagPrev,
-		sLTPBufIdx:    s.sLTPBufIdx,
-		sLTPShpBufIdx: s.sLTPShpBufIdx,
-		randSeed:      s.randSeed,
-		prevGainQ16:   s.prevGainQ16,
-		rewhiteFlag:   s.rewhiteFlag,
+	return &NSQState{
+		nsqCore: s.nsqCore,
+		scratch: newNSQScratch(),
 	}
-	copy(c.xq[:], s.xq[:])
-	copy(c.sLTPShpQ14[:], s.sLTPShpQ14[:])
-	copy(c.sLPCQ14[:], s.sLPCQ14[:])
-	copy(c.sAR2Q14[:], s.sAR2Q14[:])
-	c.delDecStates = s.delDecStates
-	c.sLFARShpQ14 = s.sLFARShpQ14
-	c.sDiffShpQ14 = s.sDiffShpQ14
-
-	// Don't need to copy scratch buffers as they are transient per call
-	c.scratchPulses = make([]int8, len(s.scratchPulses))
-	c.scratchXq = make([]int16, len(s.scratchXq))
-	c.scratchSLTPQ15 = make([]int32, len(s.scratchSLTPQ15))
-	c.scratchSLTP = make([]int16, len(s.scratchSLTP))
-	c.scratchXScQ10 = make([]int32, len(s.scratchXScQ10))
-
-	return c
 }
 
 // RestoreFrom copies state from another NSQState.
 func (s *NSQState) RestoreFrom(other *NSQState) {
-	s.lagPrev = other.lagPrev
-	s.sLTPBufIdx = other.sLTPBufIdx
-	s.sLTPShpBufIdx = other.sLTPShpBufIdx
-	s.randSeed = other.randSeed
-	s.prevGainQ16 = other.prevGainQ16
-	s.rewhiteFlag = other.rewhiteFlag
-	copy(s.xq[:], other.xq[:])
-	copy(s.sLTPShpQ14[:], other.sLTPShpQ14[:])
-	copy(s.sLPCQ14[:], other.sLPCQ14[:])
-	copy(s.sAR2Q14[:], other.sAR2Q14[:])
-	s.delDecStates = other.delDecStates
-	s.sLFARShpQ14 = other.sLFARShpQ14
-	s.sDiffShpQ14 = other.sDiffShpQ14
+	s.nsqCore = other.nsqCore
 }
 
 // Reset clears the NSQ state for a new stream.
 func (s *NSQState) Reset() {
-	for i := range s.xq {
-		s.xq[i] = 0
+	s.nsqCore = nsqCore{
+		prevGainQ16: 1 << 16, // 1.0 in Q16, matches libopus initialization
 	}
-	for i := range s.sLTPShpQ14 {
-		s.sLTPShpQ14[i] = 0
+	if s.scratch != nil {
+		s.scratch.delDecStates = [maxDelDecStates]nsqDelDecState{}
+		s.scratch.delDecAVX2 = nsqDelDecAVX2State{}
 	}
-	for i := range s.sLPCQ14 {
-		s.sLPCQ14[i] = 0
-	}
-	for i := range s.sAR2Q14 {
-		s.sAR2Q14[i] = 0
-	}
-	s.delDecStates = [maxDelDecStates]nsqDelDecState{}
-	s.delDecAVX2 = nsqDelDecAVX2State{}
-	s.sLFARShpQ14 = 0
-	s.sDiffShpQ14 = 0
-	s.lagPrev = 0
-	s.sLTPBufIdx = 0
-	s.sLTPShpBufIdx = 0
-	s.randSeed = 0
-	s.prevGainQ16 = 1 << 16 // 1.0 in Q16, matches libopus initialization
-	s.rewhiteFlag = 0
 }
 
 // NSQParams holds parameters for noise shaping quantization.
@@ -245,14 +224,14 @@ func NoiseShapeQuantize(nsq *NSQState, input []int16, params *NSQParams) ([]int8
 	lag := int(nsq.lagPrev)
 
 	// Use pre-allocated output buffers if available, otherwise allocate
+	sc := nsq.ensureScratch()
 	var pulses []int8
-	if nsq.scratchPulses != nil && len(nsq.scratchPulses) >= frameLength {
-		pulses = nsq.scratchPulses[:frameLength]
-		for i := range pulses {
-			pulses[i] = 0
-		}
+	if len(sc.scratchPulses) >= frameLength {
+		pulses = sc.scratchPulses[:frameLength]
+		clear(pulses)
 	} else {
 		pulses = make([]int8, frameLength)
+		sc.scratchPulses = pulses
 	}
 
 	var xq []int16
@@ -261,51 +240,42 @@ func NoiseShapeQuantize(nsq *NSQState, input []int16, params *NSQParams) ([]int8
 	if xqEnd <= len(nsq.xq) {
 		// Use state buffer so LTP rewhitening and history update work correctly.
 		xq = nsq.xq[xqStart:xqEnd]
-		for i := range xq {
-			xq[i] = 0
-		}
-	} else if nsq.scratchXq != nil && len(nsq.scratchXq) >= frameLength {
+		clear(xq)
+	} else if len(sc.scratchXq) >= frameLength {
 		// Fallback to scratch if frame length exceeds state buffer.
-		xq = nsq.scratchXq[:frameLength]
-		for i := range xq {
-			xq[i] = 0
-		}
+		xq = sc.scratchXq[:frameLength]
+		clear(xq)
 	} else {
 		xq = make([]int16, frameLength)
+		sc.scratchXq = xq
 	}
 
 	// Use pre-allocated working buffers if available
 	var sLTPQ15 []int32
-	if nsq.scratchSLTPQ15 != nil && len(nsq.scratchSLTPQ15) >= ltpMemLength+frameLength {
-		sLTPQ15 = nsq.scratchSLTPQ15[:ltpMemLength+frameLength]
-		for i := range sLTPQ15 {
-			sLTPQ15[i] = 0
-		}
+	if len(sc.scratchSLTPQ15) >= ltpMemLength+frameLength {
+		sLTPQ15 = sc.scratchSLTPQ15[:ltpMemLength+frameLength]
+		clear(sLTPQ15)
 	} else {
 		sLTPQ15 = make([]int32, ltpMemLength+frameLength)
-		nsq.scratchSLTPQ15 = sLTPQ15
+		sc.scratchSLTPQ15 = sLTPQ15
 	}
 
 	var sLTP []int16
-	if nsq.scratchSLTP != nil && len(nsq.scratchSLTP) >= ltpMemLength+frameLength {
-		sLTP = nsq.scratchSLTP[:ltpMemLength+frameLength]
-		for i := range sLTP {
-			sLTP[i] = 0
-		}
+	if len(sc.scratchSLTP) >= ltpMemLength+frameLength {
+		sLTP = sc.scratchSLTP[:ltpMemLength+frameLength]
+		clear(sLTP)
 	} else {
 		sLTP = make([]int16, ltpMemLength+frameLength)
-		nsq.scratchSLTP = sLTP
+		sc.scratchSLTP = sLTP
 	}
 
 	var xScQ10 []int32
-	if nsq.scratchXScQ10 != nil && len(nsq.scratchXScQ10) >= subfrLength {
-		xScQ10 = nsq.scratchXScQ10[:subfrLength]
-		for i := range xScQ10 {
-			xScQ10[i] = 0
-		}
+	if len(sc.scratchXScQ10) >= subfrLength {
+		xScQ10 = sc.scratchXScQ10[:subfrLength]
+		clear(xScQ10)
 	} else {
 		xScQ10 = make([]int32, subfrLength)
-		nsq.scratchXScQ10 = xScQ10
+		sc.scratchXScQ10 = xScQ10
 	}
 
 	// Check LSF interpolation
@@ -377,10 +347,10 @@ func NoiseShapeQuantize(nsq *NSQState, input []int16, params *NSQParams) ([]int8
 	}
 
 	// Copy reconstructed samples to scratch BEFORE shifting state.
-	outXQ := nsq.scratchXq
+	outXQ := sc.scratchXq
 	if len(outXQ) < frameLength {
 		outXQ = make([]int16, frameLength)
-		nsq.scratchXq = outXQ
+		sc.scratchXq = outXQ
 	}
 	outXQ = outXQ[:frameLength]
 	copy(outXQ, nsq.xq[ltpMemLength:ltpMemLength+frameLength])

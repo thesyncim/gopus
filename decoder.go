@@ -55,13 +55,13 @@ type Decoder struct {
 	channels         int32
 	maxPacketSamples int
 	maxPacketBytes   int
-	// scratchF32 backs the five fixed float32 decode work buffers below with one
+	// scratchF32 backs the four fixed float32 decode work buffers below with one
 	// contiguous allocation; see NewDecoder.
-	scratchF32         arena.Bump[float32]
-	scratchPCM         []float32
-	scratchTransition  []float32
-	scratchRedundant   []float32
-	scratchSilkPLC     []float32 // SILK PLC concealment output (one chunk at API rate)
+	scratchF32        arena.Bump[float32]
+	scratchPCM        []float32
+	scratchTransition []float32
+	scratchRedundant  []float32
+	scratchSilkPLC    []float32 // 10 ms SILK PLC scratch for <10 ms concealment chunks
 	lastFrameSize      int32
 	lastPacketDuration int32
 	prevMode           Mode // Track last mode for PLC
@@ -85,9 +85,8 @@ type Decoder struct {
 	fecBandwidth  Bandwidth // Bandwidth of the packet containing LBRR
 	fecStereo     bool      // Whether the packet was stereo
 	fecFrameSize  int       // Frame size of the packet containing LBRR
-	fecFrameCount int       // Number of frames in packet
-	hasFEC        bool      // True if fecData contains valid LBRR data
-	scratchFEC    []float32 // Scratch buffer for FEC decode
+	fecFrameCount int  // Number of frames in packet
+	hasFEC        bool // True if fecData contains valid LBRR data
 
 	// Scratch range decoder to avoid per-frame heap allocations
 	scratchRangeDecoder rangecoding.Decoder
@@ -134,22 +133,24 @@ func NewDecoder(cfg DecoderConfig) (*Decoder, error) {
 		return nil, ErrInvalidMaxPacketBytes
 	}
 
-	// The contiguous float32 arena holds three packet-sized buffers and two
-	// transition buffers. Bound its element count by the largest length whose
-	// byte size fits in int before multiplying or constructing decoder state.
-	transitionSamples := max(48000, cfg.SampleRate) / 200 // 5 ms in the largest configured CELT geometry.
-	transLen := transitionSamples * cfg.Channels
-	maxFloatElements := int(^uint(0)>>1) / 4
-	if maxPacketSamples > (maxFloatElements-2*transLen)/(3*cfg.Channels) {
-		return nil, ErrInvalidMaxPacketSamples
-	}
-
 	// Under gopus_qext, 96 kHz requests route through the 48 kHz internal
 	// pipeline with 2x upsampling at the output boundary.
 	// C ref: opus_decoder.c opus_decoder_init() ENABLE_QEXT (Fs != 96000) gate.
 	internalRate := cfg.SampleRate
 	if cfg.SampleRate == 96000 {
 		internalRate = 48000
+	}
+
+	// The contiguous float32 arena holds one packet-sized buffer, two
+	// transition buffers, and one 10 ms SILK PLC buffer. Bound its element
+	// count by the largest length whose byte size fits in int before
+	// multiplying or constructing decoder state.
+	transitionSamples := max(48000, cfg.SampleRate) / 200 // 5 ms in the largest configured CELT geometry.
+	transLen := transitionSamples * cfg.Channels
+	silkPLCLen := (internalRate / 100) * cfg.Channels
+	maxFloatElements := int(^uint(0)>>1) / 4
+	if maxPacketSamples > (maxFloatElements-2*transLen-silkPLCLen)/cfg.Channels {
+		return nil, ErrInvalidMaxPacketSamples
 	}
 
 	silkDec := silk.NewDecoder()
@@ -175,14 +176,13 @@ func NewDecoder(cfg DecoderConfig) (*Decoder, error) {
 		lastBandwidth:    BandwidthFullband,
 		fecData:          make([]byte, maxPacketBytes),
 	}
-	// Back the five fixed float32 decode work buffers with one contiguous arena.
+	// Back the four fixed float32 decode work buffers with one contiguous arena.
 	pcmLen := maxPacketSamples * cfg.Channels
-	d.scratchF32.Ensure(3*pcmLen + 2*transLen)
+	d.scratchF32.Ensure(pcmLen + 2*transLen + silkPLCLen)
 	d.scratchPCM = d.scratchF32.AllocN(pcmLen)
 	d.scratchTransition = d.scratchF32.AllocN(transLen)
 	d.scratchRedundant = d.scratchF32.AllocN(transLen)
-	d.scratchSilkPLC = d.scratchF32.AllocN(pcmLen)
-	d.scratchFEC = d.scratchF32.AllocN(pcmLen)
+	d.scratchSilkPLC = d.scratchF32.AllocN(silkPLCLen)
 	if cfg.SampleRate == 96000 {
 		init96kDecoder(d)
 	}

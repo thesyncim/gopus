@@ -568,13 +568,6 @@ func (e *Encoder) ambisonicsBitrateForAllocation(frameSize int) int {
 	return (e.coupledStreams+e.streams)*(fs+60*fs/frameSize) + e.streams*15000
 }
 
-func (e *Encoder) totalBitrateForAllocation(frameSize int) int {
-	if e.isAmbisonicsMapping() {
-		return e.ambisonicsBitrateForAllocation(frameSize)
-	}
-	return e.bitrateForAllocation(frameSize)
-}
-
 func (e *Encoder) allocateSurroundRates(rates []int, frameSize int) {
 	fs := int(e.sampleRate)
 	if fs <= 0 {

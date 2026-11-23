@@ -150,7 +150,28 @@ func deemphasisChannel(y []float32, yStride int, x []float32, xStride, n, downsa
 		x = x[:n:n]
 		y = y[:n:n]
 		verySmall, scale := deemphasisLoopConsts[0], deemphasisLoopConsts[1]
-		for j := range x {
+		j := 0
+		for ; j+4 <= n; j += 4 {
+			// Pre-add verySmall in parallel so the IIR recurrence depends only
+			// on a single add + multiply per sample (bit-exact with x[j]+verySmall+m).
+			a0 := x[j] + verySmall
+			a1 := x[j+1] + verySmall
+			a2 := x[j+2] + verySmall
+			a3 := x[j+3] + verySmall
+			t0 := a0 + m
+			m = mul32(coef, t0)
+			y[j] = scale * t0
+			t1 := a1 + m
+			m = mul32(coef, t1)
+			y[j+1] = scale * t1
+			t2 := a2 + m
+			m = mul32(coef, t2)
+			y[j+2] = scale * t2
+			t3 := a3 + m
+			m = mul32(coef, t3)
+			y[j+3] = scale * t3
+		}
+		for ; j < n; j++ {
 			tmp := x[j] + verySmall + m
 			m = mul32(coef, tmp)
 			y[j] = scale * tmp
@@ -251,14 +272,33 @@ func deemphasisStereo(y []float32, x0, x1 []float32, xStride, n, downsample int,
 		x0 = x0[:n:n]
 		x1 = x1[:n:n]
 		verySmall, scale := deemphasisLoopConsts[0], deemphasisLoopConsts[1]
-		for k := 0; k+1 < len(y); k += 2 {
-			j := k >> 1
+		j := 0
+		for ; j+2 <= n; j += 2 {
+			a0 := x0[j] + verySmall
+			b0 := x1[j] + verySmall
+			a1 := x0[j+1] + verySmall
+			b1 := x1[j+1] + verySmall
+			t0 := a0 + m0
+			u0 := b0 + m1
+			m0 = mul32(coef, t0)
+			m1 = mul32(coef, u0)
+			k := j * 2
+			y[k] = scale * t0
+			y[k+1] = scale * u0
+			t1 := a1 + m0
+			u1 := b1 + m1
+			m0 = mul32(coef, t1)
+			m1 = mul32(coef, u1)
+			y[k+2] = scale * t1
+			y[k+3] = scale * u1
+		}
+		for ; j < n; j++ {
 			tmp0 := x0[j] + verySmall + m0
 			tmp1 := x1[j] + verySmall + m1
 			m0 = mul32(coef, tmp0)
 			m1 = mul32(coef, tmp1)
-			y[k] = scale * tmp0
-			y[k+1] = scale * tmp1
+			y[2*j] = scale * tmp0
+			y[2*j+1] = scale * tmp1
 		}
 		return m0, m1
 	}

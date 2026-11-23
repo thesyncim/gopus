@@ -720,18 +720,3 @@ func (m *CustomMode) InScaledBandFamily() bool {
 	}
 	return !m.isStandard && m.Fs == 400*m.ShortMdctSize
 }
-
-// celtConfig derives the celt.CustomModeConfig that parameterizes the CELT
-// control plane for this family member.
-func (m *CustomMode) celtConfig() celt.CustomModeConfig {
-	return celt.CustomModeConfig{
-		Fs:            m.Fs,
-		FrameSize:     m.FrameSize,
-		ShortMdctSize: m.ShortMdctSize,
-		NbShortMdcts:  m.NbShortMdcts,
-		LM:            m.MaxLM,
-		Overlap:       m.Overlap,
-		EffBands:      m.EffEBands,
-		Preemph:       m.Preemph,
-	}
-}

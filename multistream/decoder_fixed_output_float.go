@@ -40,16 +40,13 @@ func (d *Decoder) decodeFixedOutputFloat32(data []byte, output []float32, frameS
 	}
 
 	// Determine the packet duration and validate caller capacity before the
-	// fixed decoder advances any per-stream state. DecodeToResFixed repeats this
-	// parse as part of its own all-stream preflight.
-	packets, err := parseMultistreamPacketScratch(d.packetsScratch, &d.packetParser, &d.reframeArena, data, d.streams)
+	// fixed decoder advances any per-stream state.
+	duration, _, err := measureMultistreamPacket(&d.packetParser, data, d.streams, int(d.sampleRate))
 	if err != nil {
+		if err == ErrDurationMismatch {
+			return 0, false, err
+		}
 		return 0, false, fmt.Errorf("multistream: parse error: %w", err)
-	}
-	d.packetsScratch = packets
-	duration, err := validateStreamDurationsAtRateScratch(&d.packetParser, packets, int(d.sampleRate))
-	if err != nil {
-		return 0, false, err
 	}
 	if duration > frameSize {
 		return 0, false, ErrBufferTooSmall

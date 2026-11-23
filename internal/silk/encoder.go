@@ -11,6 +11,9 @@ import "github.com/thesyncim/gopus/internal/rangecoding"
 //
 // Reference: RFC 6716 Section 5.2, draft-vos-silk-01
 type Encoder struct {
+	// Pointer-bearing fields are grouped first so Go's GC stops scanning at
+	// ptrdata, leaving the large pointer-free state arrays in the noscan tail.
+
 	// silkEncoderFixedFields carries the FIXED_POINT integer SILK encode state
 	// added under the gopus_fixed_point build. It is empty (zero-size) in the
 	// default build.
@@ -19,23 +22,9 @@ type Encoder struct {
 	// Range encoder the current frame is coded into.
 	rangeEncoder *rangecoding.Encoder
 
-	// Input buffering (sCmn.inputBuf / inputBufIx). The resampler writes the
-	// frame at inputBuf[2:]; the VAD and the frame encoder read inputBuf[1:].
-	inputBuf   [maxFrameLength + 2]int16
-	inputBufIx int32
-	resampler  *LibopusResampler // API rate -> internal rate (sCmn.resampler_state)
-
-	// Sampling rates (silk_control_encoder): the API rate of the input, the
-	// API rate the resampler was set up for, and the limits and the request for
-	// the internal rate.
-	apiFsHz             int32 // sCmn.API_fs_Hz
-	prevAPIFsHz         int32 // sCmn.prev_API_fs_Hz
-	maxInternalFsHz     int32 // sCmn.maxInternal_fs_Hz
-	minInternalFsHz     int32 // sCmn.minInternal_fs_Hz
-	desiredInternalFsHz int32 // sCmn.desiredInternal_fs_Hz
-	// allowBandwidthSwitch is sCmn.allow_bandwidth_switch, the packet encoder's
-	// flag handed to silk_control_audio_bandwidth.
-	allowBandwidthSwitch bool
+	resampler       *LibopusResampler // API rate -> internal rate (sCmn.resampler_state)
+	nsqState        *NSQState         // Noise shaping quantizer state for proper libopus-matching
+	noiseShapeState *NoiseShapeState  // Noise shaping analysis state for adaptive parameters
 
 	// silk_setup_resamplers scratch: x_buf as int16 at the internal rate and
 	// at the API rate, and the resampler taking x_buf back to the API rate.
@@ -43,9 +32,125 @@ type Encoder struct {
 	xBufAPI         []int16
 	xBufAPIResample LibopusResampler
 
+	vadScratch []int16
+
+	// x_buf: LTP memory, the frame being encoded and the noise shaping
+	// lookahead, in silk_float normalized to [-1, 1].
+	xBuf []float32
+
+	lbrrPulses [maxFramesPerPacket][]int8 // LBRR pulses per frame
+
+	// Scratch buffers for zero-allocation encoding
+	scratchPaddedPulses []int8  // encodePulses: padded pulses
+	scratchAbsPulses    []int32 // encodePulses: absolute value pulses (opus_int-width)
+	scratchSumPulses    []int32 // encodePulses: sum per shell block (opus_int-width)
+	scratchNRshifts     []int32 // encodePulses: right shifts per shell block (opus_int-width)
+	scratchLSFQ15       []int16 // lpcToLSF: LSF result in Q15
+	scratchLPCQ16       []int32 // silkA2NLSF: LPC coefficients in Q16
+
+	// Pitch detection scratch buffers
+	scratchFrame8kHz      []float32 // detectPitch: downsampled to 8kHz
+	scratchFrame4kHz      []float32 // detectPitch: downsampled to 4kHz
+	scratchFrame16Fix     []int16   // detectPitch: input in int16 scale
+	scratchFrame8Fix      []int16   // detectPitch: 8kHz int16 samples
+	scratchFrame4Fix      []int16   // detectPitch: 4kHz int16 samples
+	scratchResampler      []int32   // detectPitch: resampler buffer (int32)
+	scratchPitchC         []float32 // detectPitch: autocorrelation (silk_float)
+	scratchDSrch          []int32   // detectPitch: candidate lags
+	scratchDComp          []int16   // detectPitch: expanded search
+	scratchPitchLags      []int32   // detectPitch: output pitch lags
+	scratchPitchCorrSt3   []float32 // detectPitch: stage3 correlations (silk_float)
+	scratchPitchEnergySt3 []float32 // detectPitch: stage3 energies (silk_float)
+	scratchPitchXcorr     []float32 // detectPitch: celt_pitch_xcorr scratch
+
+	// NSQ (computeNSQExcitation) scratch buffers
+	scratchInputQ0          []int16 // PCM converted to int16
+	scratchGainsUnqQ16      []int32 // unquantized gains in Q16 format
+	scratchGainsQ16         []int32 // gains in Q16 format
+	scratchLBRRGainsQ16     []int32 // LBRR dequantized gains (must not alias scratchGainsQ16)
+	scratchPitchL           []int32 // pitch lags for NSQ
+	scratchArShpQ13         []int16 // AR shaping coefficients
+	scratchLtpCoefQ14       []int16 // LTP coefficients
+	scratchPredCoefQ12      []int16 // prediction coefficients
+	scratchHarmShapeGainQ14 []int32 // harmonic shaping gain (opus_int-width)
+	scratchTiltQ14          []int32 // tilt values (opus_int-width)
+	scratchLfShpQ14         []int32 // low-frequency shaping
+	scratchEcBufCopy        []byte  // range encoder buffer snapshot
+
+	// LPC/Burg scratch buffers. The Burg work arrays mirror C double arrays
+	// in libopus silk/float/burg_modified_FLP.c; input/output stay silk_float.
+	scratchLpcQ12        []int16     // computeLPCAndNLSFWithInterp: output LPC Q12
+	scratchBurgAf        []silkCReal // burgModifiedFLPZeroAllocF32: Af buffer
+	scratchBurgCFirstRow []silkCReal // burgModifiedFLPZeroAllocF32: CFirstRow
+	scratchBurgCLastRow  []silkCReal // burgModifiedFLPZeroAllocF32: CLastRow
+	scratchBurgCAf       []silkCReal // burgModifiedFLPZeroAllocF32: CAf
+	scratchBurgCAb       []silkCReal // burgModifiedFLPZeroAllocF32: CAb
+	scratchBurgResult    []float32   // burgModifiedFLPZeroAllocF32: result (silk_float)
+
+	// LTP analysis scratch buffers
+	scratchPitchRes32   []float32 // Pitch analysis: residual as float32
+	scratchPitchInput32 []float32 // Pitch analysis: input buffer (float32)
+	scratchPitchWsig32  []float32 // Pitch analysis: windowed signal (float32)
+	scratchPitchAuto32  []float32 // Pitch analysis: autocorrelation (float32)
+	scratchPitchRefl32  []float32 // Pitch analysis: reflection coefficients (float32)
+	scratchPitchA32     []float32 // Pitch analysis: LPC coefficients (float32)
+
+	scratchLtpResF32    []float32 // LTP analysis: LTP residual with pre-length
+	scratchLpcResF32    []float32 // Residual energy: LPC residual scratch (float32)
+	scratchResNrg       []float32 // Gain processing: residual energies (silk_float)
+	scratchPredCoefF32A []float32 // Gain processing: LPC coeffs (first half, float32)
+	scratchPredCoefF32B []float32 // Gain processing: LPC coeffs (second half, float32)
+
+	// FindLPC interpolation scratch buffers
+	scratchLpcX        []float32 // FindLPC input (silk_float)
+	scratchLpcResidual []float32 // LPC residual for energy (silk_float)
+
+	// LSF quantization scratch buffers
+	scratchLsfResiduals   []int32 // computeStage2ResidualsLibopus: residuals
+	scratchEcIx           []int16 // computeStage2ResidualsLibopus / NLSF decode: ecIx
+	scratchPredQ8         []uint8 // computeStage2ResidualsLibopus / NLSF decode: predQ8
+	scratchResQ10         []int16 // computeStage2ResidualsLibopus / NLSF decode: resQ10
+	scratchNLSFIndices    []int8  // NLSF decode indices (stage1 + residuals)
+	scratchNLSFWeights    []int16 // NLSF VQ weights (Laroia)
+	scratchNLSFWeightsTmp []int16 // NLSF weights for interpolated vector
+	scratchNLSFTempQ15    []int16 // Interpolated NLSF scratch
+
+	// Gain encoding scratch buffers
+	scratchGains   []float32 // computeSubframeGains: output gains
+	scratchGainInd []int8    // silkGainsQuant: gain indices
+
+	// frameF32 holds the LP-filtered frame as silk_float normalized to [-1, 1].
+	frameF32 []float32
+
+	// lbrrNSQState sits at the pointer/noscan boundary: its only pointer
+	// (scratch *nsqScratch) is at offset 0 of NSQState, so its 4.3 KB nsqCore
+	// and everything below are excluded from GC scanning.
+	lbrrNSQState NSQState // copy of nsqState the LBRR quantization runs on
+
+	// --- Pointer-free (noscan) tail ---
+
+	// nsqLowerCopy is sNSQ_copy[1] of silk_encode_frame_FLP: the persistent NSQ
+	// state of the best under-budget gain pass, written only when that pass is
+	// found. Stored as pointer-free nsqCore to avoid write barriers on snapshot.
+	nsqLowerCopy nsqCore
+
+	// Input buffering (sCmn.inputBuf / inputBufIx). The resampler writes the
+	// frame at inputBuf[2:]; the VAD and the frame encoder read inputBuf[1:].
+	inputBuf   [maxFrameLength + 2]int16
+	inputBufIx int32
+
+	// Sampling rates (silk_control_encoder): the API rate of the input, the
+	// API rate the resampler was set up for, and the limits and the request for
+	// the internal rate.
+	apiFsHz              int32 // sCmn.API_fs_Hz
+	prevAPIFsHz          int32 // sCmn.prev_API_fs_Hz
+	maxInternalFsHz      int32 // sCmn.maxInternal_fs_Hz
+	minInternalFsHz      int32 // sCmn.minInternal_fs_Hz
+	desiredInternalFsHz  int32 // sCmn.desiredInternal_fs_Hz
+	allowBandwidthSwitch bool  // sCmn.allow_bandwidth_switch
+
 	// Voice activity detection (sCmn.sVAD and the silk_encode_do_VAD_FLP outputs).
 	vad             silkVADState
-	vadScratch      []int16
 	vadFlags        [maxFramesPerPacket]bool // sCmn.VAD_flags
 	noSpeechCounter int32
 	inDTX           bool
@@ -86,11 +191,6 @@ type Encoder struct {
 	inputTiltQ15         int32    // Spectral tilt in Q15 from VAD
 	inputQualityBandsQ15 [4]int32 // Quality in each VAD band (Q15)
 
-	// NSQ (Noise Shaping Quantization) state
-	nsqState        *NSQState        // Noise shaping quantizer state for proper libopus-matching
-	lbrrNSQState    NSQState         // copy of nsqState the LBRR quantization runs on
-	noiseShapeState *NoiseShapeState // Noise shaping analysis state for adaptive parameters
-
 	// Encoder control parameters (persists across frames)
 	targetRateBps          int32   // sCmn.TargetRate_bps, the rate silk_control_SNR last mapped
 	snrDBQ7                int32   // Target SNR in dB (Q7 format, e.g., 25 dB = 25 * 128)
@@ -117,18 +217,12 @@ type Encoder struct {
 	lastLPCGain     float32 // Initial prediction gain from pitch analysis (silk_float)
 	lastNumSamples  int32   // Number of samples analyzed
 
-	// x_buf: LTP memory, the frame being encoded and the noise shaping
-	// lookahead, in silk_float normalized to [-1, 1].
-	xBuf []float32
-
 	// Internal sampling rate (sCmn.fs_kHz, 0 until the first
 	// silk_control_encoder) and the bandwidth it codes.
 	fsKHz     int32
 	bandwidth Bandwidth
 
 	// FEC/LBRR (Low Bitrate Redundancy) state
-	// LBRR provides forward error correction by encoding redundant data
-	// for the previous frame at a lower quality in the current packet.
 	// Reference: libopus silk/structs.h silk_encoder_state
 	lbrrEnabled         bool                                // LBRR_enabled for the current packet (silk_setup_LBRR)
 	lbrrGainIncreases   int32                               // Gain increase for LBRR encoding
@@ -136,35 +230,11 @@ type Encoder struct {
 	lbrrFlags           [maxFramesPerPacket]int32           // LBRR flags per frame in packet
 	lbrrFlag            int8                                // LBRR flag for current packet header
 	lbrrIndices         [maxFramesPerPacket]sideInfoIndices // LBRR indices per frame
-	lbrrPulses          [maxFramesPerPacket][]int8          // LBRR pulses per frame
 	lbrrFrameLength     [maxFramesPerPacket]int32           // LBRR frame length per frame
 	lbrrNbSubfr         [maxFramesPerPacket]int32           // LBRR subframe count per frame
 	packetLossPercent   int32                               // Expected packet loss (0-100)
 	nFramesEncoded      int32                               // Number of frames encoded in current packet
 	nFramesPerPacket    int32                               // Number of frames per packet
-
-	// Scratch buffers for zero-allocation encoding
-	scratchPaddedPulses []int8  // encodePulses: padded pulses
-	scratchAbsPulses    []int32 // encodePulses: absolute value pulses (opus_int-width)
-	scratchSumPulses    []int32 // encodePulses: sum per shell block (opus_int-width)
-	scratchNRshifts     []int32 // encodePulses: right shifts per shell block (opus_int-width)
-	scratchLSFQ15       []int16 // lpcToLSF: LSF result in Q15
-	scratchLPCQ16       []int32 // silkA2NLSF: LPC coefficients in Q16
-
-	// Pitch detection scratch buffers
-	scratchFrame8kHz      []float32 // detectPitch: downsampled to 8kHz
-	scratchFrame4kHz      []float32 // detectPitch: downsampled to 4kHz
-	scratchFrame16Fix     []int16   // detectPitch: input in int16 scale
-	scratchFrame8Fix      []int16   // detectPitch: 8kHz int16 samples
-	scratchFrame4Fix      []int16   // detectPitch: 4kHz int16 samples
-	scratchResampler      []int32   // detectPitch: resampler buffer (int32)
-	scratchPitchC         []float32 // detectPitch: autocorrelation (silk_float)
-	scratchDSrch          []int32   // detectPitch: candidate lags
-	scratchDComp          []int16   // detectPitch: expanded search
-	scratchPitchLags      []int32   // detectPitch: output pitch lags
-	scratchPitchCorrSt3   []float32 // detectPitch: stage3 correlations (silk_float)
-	scratchPitchEnergySt3 []float32 // detectPitch: stage3 energies (silk_float)
-	scratchPitchXcorr     []float32 // detectPitch: celt_pitch_xcorr scratch
 
 	// Shell encoder scratch buffers (fixed sizes)
 	scratchShellPulses1 [8]int32 // shellEncoder: level 1 (opus_int-width)
@@ -172,76 +242,16 @@ type Encoder struct {
 	scratchShellPulses3 [2]int32 // shellEncoder: level 3 (opus_int-width)
 	scratchShellPulses4 [1]int32 // shellEncoder: level 4 (opus_int-width)
 
-	// NSQ (computeNSQExcitation) scratch buffers
-	scratchInputQ0          []int16 // PCM converted to int16
-	scratchGainsUnqQ16      []int32 // unquantized gains in Q16 format
-	scratchGainsQ16         []int32 // gains in Q16 format
-	scratchLBRRGainsQ16     []int32 // LBRR dequantized gains (must not alias scratchGainsQ16)
-	scratchPitchL           []int32 // pitch lags for NSQ
-	scratchArShpQ13         []int16 // AR shaping coefficients
-	scratchLtpCoefQ14       []int16 // LTP coefficients
-	scratchPredCoefQ12      []int16 // prediction coefficients
-	scratchHarmShapeGainQ14 []int32 // harmonic shaping gain (opus_int-width)
-	scratchTiltQ14          []int32 // tilt values (opus_int-width)
-	scratchLfShpQ14         []int32 // low-frequency shaping
-	scratchEcBufCopy        []byte  // range encoder buffer snapshot
-	// nsqLowerCopy is sNSQ_copy[1] of silk_encode_frame_FLP: the NSQ state of
-	// the best under-budget gain pass, written only when that pass is found.
-	nsqLowerCopy NSQState
-
-	// LPC/Burg scratch buffers. The Burg work arrays mirror C double arrays
-	// in libopus silk/float/burg_modified_FLP.c; input/output stay silk_float.
-	scratchLpcQ12        []int16     // computeLPCAndNLSFWithInterp: output LPC Q12
-	scratchBurgAf        []silkCReal // burgModifiedFLPZeroAllocF32: Af buffer
-	scratchBurgCFirstRow []silkCReal // burgModifiedFLPZeroAllocF32: CFirstRow
-	scratchBurgCLastRow  []silkCReal // burgModifiedFLPZeroAllocF32: CLastRow
-	scratchBurgCAf       []silkCReal // burgModifiedFLPZeroAllocF32: CAf
-	scratchBurgCAb       []silkCReal // burgModifiedFLPZeroAllocF32: CAb
-	scratchBurgResult    []float32   // burgModifiedFLPZeroAllocF32: result (silk_float)
-
-	// LTP analysis scratch buffers
-	scratchPitchRes32   []float32 // Pitch analysis: residual as float32
-	scratchPitchInput32 []float32 // Pitch analysis: input buffer (float32)
-	scratchPitchWsig32  []float32 // Pitch analysis: windowed signal (float32)
-	scratchPitchAuto32  []float32 // Pitch analysis: autocorrelation (float32)
-	scratchPitchRefl32  []float32 // Pitch analysis: reflection coefficients (float32)
-	scratchPitchA32     []float32 // Pitch analysis: LPC coefficients (float32)
-
-	scratchLtpResF32    []float32 // LTP analysis: LTP residual with pre-length
-	scratchLpcResF32    []float32 // Residual energy: LPC residual scratch (float32)
-	scratchResNrg       []float32 // Gain processing: residual energies (silk_float)
-	scratchPredCoefF32A []float32 // Gain processing: LPC coeffs (first half, float32)
-	scratchPredCoefF32B []float32 // Gain processing: LPC coeffs (second half, float32)
-
 	// A2NLSF scratch buffers (used by a2nlsfFLPInto / silkA2NLSFInto)
 	scratchA2nlsfP    [9]int32  // silkA2NLSFInto: P polynomial (dd+1, max dd=8)
 	scratchA2nlsfQ    [9]int32  // silkA2NLSFInto: Q polynomial
 	scratchA2nlsfAQ16 [16]int32 // a2nlsfFLPInto: LPC Q16 conversion
 	scratchA2nlsfNLSF [16]int16 // a2nlsfFLPInto: NLSF result
 
-	// FindLPC interpolation scratch buffers
-	scratchLpcX        []float32   // FindLPC input (silk_float)
-	scratchNlsf0Q15    [16]int16   // interpolated NLSF
-	scratchLpcATmp     [16]float32 // silk_NLSF2A_FLP output (silk_float)
-	scratchLpcAQ12     [16]int16   // silk_NLSF2A_FLP fixed bridge coefficients
-	scratchLpcResidual []float32   // LPC residual for energy (silk_float)
-
-	// LSF quantization scratch buffers
-	scratchLsfResiduals   []int32 // computeStage2ResidualsLibopus: residuals
-	scratchEcIx           []int16 // computeStage2ResidualsLibopus / NLSF decode: ecIx
-	scratchPredQ8         []uint8 // computeStage2ResidualsLibopus / NLSF decode: predQ8
-	scratchResQ10         []int16 // computeStage2ResidualsLibopus / NLSF decode: resQ10
-	scratchNLSFIndices    []int8  // NLSF decode indices (stage1 + residuals)
-	scratchNLSFWeights    []int16 // NLSF VQ weights (Laroia)
-	scratchNLSFWeightsTmp []int16 // NLSF weights for interpolated vector
-	scratchNLSFTempQ15    []int16 // Interpolated NLSF scratch
-
-	// Gain encoding scratch buffers
-	scratchGains   []float32 // computeSubframeGains: output gains
-	scratchGainInd []int8    // silkGainsQuant: gain indices
-
-	// frameF32 holds the LP-filtered frame as silk_float normalized to [-1, 1].
-	frameF32 []float32
+	// FindLPC fixed-size interpolation scratch
+	scratchNlsf0Q15 [16]int16   // interpolated NLSF
+	scratchLpcATmp  [16]float32 // silk_NLSF2A_FLP output (silk_float)
+	scratchLpcAQ12  [16]int16   // silk_NLSF2A_FLP fixed bridge coefficients
 }
 
 // ensureInt8Slice ensures the slice has at least n elements.

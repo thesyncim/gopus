@@ -354,9 +354,8 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 			} else if lead := limit1 - i; mdctUseNeonMidFold && lead >= 4 {
 				blocks := lead >> 2
 				done := blocks * 4
-				if xp2-n2-2*done+2 >= 0 && wp2-2*done+2 >= 0 &&
-					xp1+n2+2*done-1 < len(samples) && xp2+1 < len(samples) &&
-					wp1+2*done-1 < len(window) && wp2+1 < len(window) {
+				if xp1+n2+2*done-1 < len(samples) && xp2 < len(samples) && xp2-n2-2*done+1 >= 0 &&
+					wp1+2*done-1 < len(window) && wp2 < len(window) && wp2-2*done+1 >= 0 {
 					mdctFold1StoreNeon(fftStage, bitrev, samples, window, trig, i, n4, n2, xp1, xp2, wp1, wp2, blocks, preScale)
 					i += done
 					xp1 += 2 * done
@@ -477,9 +476,8 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 			} else if tail := n4 - i; mdctUseNeonMidFold && tail >= 4 {
 				blocks := tail >> 2
 				done := blocks * 4
-				if xp2-2*done+2 >= 0 && wp2-2*done+2 >= 0 && xp1-n2 >= 0 &&
-					xp1+2*done-1 < len(samples) && xp2+n2+1 < len(samples) &&
-					wp1+2*done-1 < len(window) && wp2+1 < len(window) {
+				if xp1-n2 >= 0 && xp1+2*done-1 < len(samples) && xp2+n2 < len(samples) && xp2-2*done+1 >= 0 &&
+					wp1+2*done-1 < len(window) && wp2 < len(window) && wp2-2*done+1 >= 0 {
 					mdctFold3StoreNeon(fftStage, bitrev, samples, window, trig, i, n4, n2, xp1, xp2, wp1, wp2, blocks, preScale)
 					i += done
 					xp1 += 2 * done
