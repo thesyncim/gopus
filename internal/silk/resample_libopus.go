@@ -616,14 +616,7 @@ func ResampleStereoInt16(l, r *LibopusResampler, left, right []int16) (outL, out
 // right[i] to dst[2i] and dst[2i+1] for i < len(left), as silk_Decode's stereo
 // output loop does.
 func InterleaveInt16AsFloat32(dst []float32, left, right []int16) {
-	const inv32768 = 1.0 / 32768.0
-	right = right[:len(left)]
-	dst = dst[:2*len(left)]
-	for i, l := range left {
-		pair := (*[2]float32)(dst[2*i : 2*i+2])
-		pair[0] = float32(l) * inv32768
-		pair[1] = float32(right[i]) * inv32768
-	}
+	interleaveInt16AsFloat32Core(dst, left, right)
 }
 
 // ProcessIntoBoth resamples float32 input, writing the resampler output to outF32

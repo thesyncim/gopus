@@ -30,6 +30,8 @@ func (s *TonalityAnalysisState) analysisBinsSIMD(out *[480]complex64, tonality, 
 		reM := reverse4F32(mlo.ConcatEven(mhi).BitsToFloat32())
 		imM := reverse4F32(mlo.ConcatOdd(mhi).BitsToFloat32())
 
+		imM.MulAdd(imM, im.MulAdd(im, re.MulAdd(re, reM.Mul(reM)))).StoreArray((*[4]float32)(s.scratchBinE[i : i+4]))
+
 		x1r := re.Add(reM)
 		x1i := im.Sub(imM)
 		x2r := im.Add(imM)
@@ -106,4 +108,28 @@ func analysisAtan2x4NEON(y, x archsimd.Float32x4) archsimd.Float32x4 {
 
 func analysisFloat2Intx4NEON(x archsimd.Float32x4) archsimd.Float32x4 {
 	return x.Round().ConvertToInt32().ConvertToFloat32()
+}
+
+// smoothAnalysisTonality runs the per-bin tonality smoothing pass over bins
+// 2..238 four NEON lanes at a time, matching minf/maxf bit-for-bit.
+func smoothAnalysisTonality(tonality, tonality2 []float32) {
+	tonality = tonality[:240:240]
+	tonality2 = tonality2[:240:240]
+	c09 := archsimd.BroadcastFloat32x4(0.9)
+	c01 := archsimd.BroadcastFloat32x4(0.1)
+	i := 2
+	for ; i+4 <= 239; i += 4 {
+		prev := archsimd.LoadFloat32x4Array((*[4]float32)(tonality2[i-1 : i+3]))
+		cur := archsimd.LoadFloat32x4Array((*[4]float32)(tonality2[i : i+4]))
+		next := archsimd.LoadFloat32x4Array((*[4]float32)(tonality2[i+1 : i+5]))
+		hi := prev.IfElse(prev.Greater(next), next)
+		tt := cur.IfElse(cur.Less(hi), hi)
+		t := archsimd.LoadFloat32x4Array((*[4]float32)(tonality[i : i+4]))
+		ttSub := tt.Sub(c01)
+		c09.Mul(t.IfElse(t.Greater(ttSub), ttSub)).StoreArray((*[4]float32)(tonality[i : i+4]))
+	}
+	for ; i < 239; i++ {
+		tt := minf(tonality2[i], maxf(tonality2[i-1], tonality2[i+1]))
+		tonality[i] = 0.9 * maxf(tonality[i], tt-0.1)
+	}
 }

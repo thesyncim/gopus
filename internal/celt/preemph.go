@@ -3,7 +3,11 @@
 
 package celt
 
-import "math"
+import (
+	"math"
+
+	"github.com/thesyncim/gopus/internal/opusmath"
+)
 
 // DCRejectCutoffHz is the cutoff frequency for the DC rejection high-pass filter.
 // libopus uses 3 Hz at the Opus encoder level.
@@ -24,19 +28,29 @@ const CELTSigScale = 32768.0
 func rawMaxAbsStep(maxVal, minVal, sample float32) (float32, float32) {
 	// celt_maxabs16 updates both extrema with MAX16/MIN16. Their second
 	// operand wins a tie or an unordered comparison, including signed zero.
-	if !(maxVal > sample) {
-		maxVal = sample
-	}
-	if !(minVal < sample) {
-		minVal = sample
-	}
-	return maxVal, minVal
+	return opusmath.MaxF32(maxVal, sample), opusmath.MinF32(minVal, sample)
 }
 
 // rawMaxMinScanScalar is celt_maxabs16's sequential MAX16/MIN16 loop.
 func rawMaxMinScanScalar(x []float32, maxVal, minVal float32) (float32, float32) {
-	for _, sample := range x {
-		maxVal, minVal = rawMaxAbsStep(maxVal, minVal, sample)
+	n := len(x)
+	x = x[:n:n]
+	i := 0
+	for ; i+3 < n; i += 4 {
+		s0, s1, s2, s3 := x[i], x[i+1], x[i+2], x[i+3]
+		maxVal = opusmath.MaxF32(maxVal, s0)
+		minVal = opusmath.MinF32(minVal, s0)
+		maxVal = opusmath.MaxF32(maxVal, s1)
+		minVal = opusmath.MinF32(minVal, s1)
+		maxVal = opusmath.MaxF32(maxVal, s2)
+		minVal = opusmath.MinF32(minVal, s2)
+		maxVal = opusmath.MaxF32(maxVal, s3)
+		minVal = opusmath.MinF32(minVal, s3)
+	}
+	for ; i < n; i++ {
+		s := x[i]
+		maxVal = opusmath.MaxF32(maxVal, s)
+		minVal = opusmath.MinF32(minVal, s)
 	}
 	return maxVal, minVal
 }

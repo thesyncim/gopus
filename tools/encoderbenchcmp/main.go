@@ -162,20 +162,37 @@ func run(cfg runConfig) error {
 		return err
 	}
 
+	specByName := make(map[string]string, len(workloads))
+	for i, w := range workloads {
+		specByName[w.Name] = caseSpecs[i]
+	}
+
 	var results []benchmarkResult
 	for _, duration := range durations {
 		runCfg := cfg
 		runCfg.minDuration = duration
-		gopusResults, err := runGopusBenchmarks(cases, runCfg)
-		if err != nil {
-			return err
+		// Run libopus immediately before gopus for each case so both
+		// implementations experience the same host load and thermal state.
+		for _, benchCase := range cases {
+			cCfg := runCfg
+			specs := caseSpecs
+			if benchCase.name == "all" {
+				cCfg.cases = "aggregate"
+			} else {
+				cCfg.cases = "per-case"
+				specs = []string{specByName[benchCase.name]}
+			}
+			libopusResults, err := runLibopusBenchmarks(helper, specs, cCfg)
+			if err != nil {
+				return err
+			}
+			gopusResult, err := runGopusBenchmarkCase(benchCase, runCfg)
+			if err != nil {
+				return err
+			}
+			results = append(results, libopusResults...)
+			results = append(results, gopusResult)
 		}
-		libopusResults, err := runLibopusBenchmarks(helper, caseSpecs, runCfg)
-		if err != nil {
-			return err
-		}
-		results = append(results, gopusResults...)
-		results = append(results, libopusResults...)
 	}
 	sortResults(results)
 
@@ -368,18 +385,6 @@ func makeBenchmarkCases(workloads []encoderWorkload, cases string) []benchmarkCa
 		}
 	}
 	return out
-}
-
-func runGopusBenchmarks(cases []benchmarkCase, cfg runConfig) ([]benchmarkResult, error) {
-	results := make([]benchmarkResult, 0, len(cases))
-	for _, benchCase := range cases {
-		result, err := runGopusBenchmarkCase(benchCase, cfg)
-		if err != nil {
-			return nil, err
-		}
-		results = append(results, result)
-	}
-	return results, nil
 }
 
 func runGopusBenchmarkCase(benchCase benchmarkCase, cfg runConfig) (benchmarkResult, error) {

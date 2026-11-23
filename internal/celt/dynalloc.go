@@ -700,10 +700,13 @@ func DynallocAnalysisWithScratch(
 		Importance:   scratch.Importance[:nbBands],
 	}
 	clear(result.Offsets)
-	clear(result.SpreadWeight)
 	clear(result.Importance)
 	if end <= 0 {
+		clear(result.SpreadWeight)
 		return result
+	}
+	if end < nbBands {
+		clear(result.SpreadWeight[end:])
 	}
 
 	// Every loop below indexes [0,end) of a channel, so each channel view is
@@ -714,43 +717,51 @@ func DynallocAnalysisWithScratch(
 	}
 	bandLogE = scratch.dynallocPadded(bandLogE, total, &scratch.padE)
 	bandLogE2 = scratch.dynallocPadded(bandLogE2, total, &scratch.padE2)
-	e0 := bandLogE[:end]
-	var e1 []celtGLog
-	if channels == 2 {
-		e1 = bandLogE[nbBands:][:end]
-	}
+	e0 := bandLogE[:end:end]
 
-	noiseFloor := scratch.NoiseFloor[:end]
-	for i := range noiseFloor {
-		logNVal := int16(0)
-		if i < len(logN) {
-			logNVal = logN[i]
-		}
-		noiseFloor[i] = computeNoiseFloor32(i, lsbDepth, logNVal)
-	}
-
+	noiseFloor := scratch.NoiseFloor[:end:end]
+	mask := scratch.Mask[:end:end]
+	sig := scratch.Sig[:end:end]
 	maxDepth := float32(result.MaxDepth)
-	for c := range channels {
-		ec := bandLogE[c*nbBands:][:end]
-		for i, v := range ec {
-			maxDepth = opusmath.MaxF32(maxDepth, v-noiseFloor[i])
+	var e1 []celtGLog
+	if channels == 1 {
+		for i := range end {
+			logNVal := int16(0)
+			if i < len(logN) {
+				logNVal = logN[i]
+			}
+			nf := computeNoiseFloor32(i, lsbDepth, logNVal)
+			noiseFloor[i] = nf
+			d := e0[i] - nf
+			maxDepth = opusmath.MaxF32(maxDepth, d)
+			mask[i] = d
+			sig[i] = d
+		}
+	} else {
+		e1 = bandLogE[nbBands : nbBands+end : nbBands+end]
+		for i := range end {
+			logNVal := int16(0)
+			if i < len(logN) {
+				logNVal = logN[i]
+			}
+			nf := computeNoiseFloor32(i, lsbDepth, logNVal)
+			noiseFloor[i] = nf
+			d0 := e0[i] - nf
+			maxDepth = opusmath.MaxF32(maxDepth, d0)
+			mask[i] = d0
+		}
+		for i := range end {
+			d1 := e1[i] - noiseFloor[i]
+			maxDepth = opusmath.MaxF32(maxDepth, d1)
+			m := opusmath.MaxF32(mask[i], d1)
+			mask[i] = m
+			sig[i] = m
 		}
 	}
 	result.MaxDepth = celtGLog(maxDepth)
 
 	// Masking model for the spreading decision. The MAXG/MING steps are
 	// conditional moves with C's operand order: MAXG(a, b) is a > b ? a : b.
-	mask := scratch.Mask[:end]
-	sig := scratch.Sig[:end]
-	for i, v := range e0 {
-		mask[i] = v - noiseFloor[i]
-	}
-	if channels == 2 {
-		for i, v := range e1[:len(mask)] {
-			mask[i] = opusmath.MaxF32(mask[i], v-noiseFloor[i])
-		}
-	}
-	copy(sig, mask)
 	for i := 1; i < end; i++ {
 		mask[i] = opusmath.MaxF32(mask[i], mask[i-1]-2.0)
 	}

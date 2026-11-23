@@ -834,6 +834,10 @@ func cwrsiTableLookup32(n, k int, i uint32, y []int32) uint32 {
 		y[j] = int32(yj)
 		yy += uint32(yj * yj)
 		j++
+		if k == 0 {
+			clear(y[j:])
+			return yy
+		}
 	}
 
 	p := uint32(2*k + 1)

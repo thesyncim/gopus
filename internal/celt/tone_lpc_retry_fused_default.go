@@ -2,4 +2,6 @@
 
 package celt
 
-const toneLPCRetry48kMonoUseFused = true
+func toneLPCRetry48kMonoFast(x []float32, maxDelay int) (float32, float32, bool, int) {
+	return toneLPCRetry48kMonoScalarFused(x, maxDelay)
+}

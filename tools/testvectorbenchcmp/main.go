@@ -144,16 +144,29 @@ func run(cfg runConfig) error {
 	for _, duration := range durations {
 		runCfg := cfg
 		runCfg.minDuration = duration
-		gopusResults, err := runGopusBenchmarks(paths, cases, runCfg)
-		if err != nil {
-			return err
+		// Run libopus immediately before gopus for each path/case so both
+		// implementations experience the same host load and thermal state.
+		for _, path := range paths {
+			for _, benchCase := range cases {
+				cCfg := runCfg
+				cCfg.paths = strings.ToLower(path)
+				if benchCase.name == "all" {
+					cCfg.cases = "aggregate"
+				} else {
+					cCfg.cases = "per-vector"
+				}
+				libopusResults, err := runLibopusBenchmarks(helper, benchCase.vectors, cCfg)
+				if err != nil {
+					return err
+				}
+				gopusResult, err := runGopusCase(path, benchCase, runCfg)
+				if err != nil {
+					return err
+				}
+				results = append(results, libopusResults...)
+				results = append(results, gopusResult)
+			}
 		}
-		libopusResults, err := runLibopusBenchmarks(helper, vectors, runCfg)
-		if err != nil {
-			return err
-		}
-		results = append(results, gopusResults...)
-		results = append(results, libopusResults...)
 	}
 	sortResults(results)
 
@@ -332,20 +345,6 @@ func summarize(vectors []benchmarkVector) (packetCount int64, packetBytes int64)
 		packetBytes += vector.packetBytes
 	}
 	return packetCount, packetBytes
-}
-
-func runGopusBenchmarks(paths []string, cases []benchmarkCase, cfg runConfig) ([]benchmarkResult, error) {
-	var results []benchmarkResult
-	for _, path := range paths {
-		for _, benchCase := range cases {
-			result, err := runGopusCase(path, benchCase, cfg)
-			if err != nil {
-				return nil, err
-			}
-			results = append(results, result)
-		}
-	}
-	return results, nil
 }
 
 func runGopusCase(path string, benchCase benchmarkCase, cfg runConfig) (benchmarkResult, error) {

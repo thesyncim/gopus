@@ -44,6 +44,12 @@ func (s *TonalityAnalysisState) analysisBinsAVX2(out *[480]complex64, tonality, 
 		reM := mhi.ConcatPermuteScalars(2, 0, 6, 4, mlo)
 		imM := mhi.ConcatPermuteScalars(3, 1, 7, 5, mlo)
 
+		if analysisAvgModFMAEnabled {
+			imM.MulAdd(imM, im.MulAdd(im, re.MulAdd(re, reM.Mul(reM)))).StoreArray((*[4]float32)(s.scratchBinE[i : i+4]))
+		} else {
+			reM.Mul(reM).Add(re.Mul(re)).Add(im.Mul(im)).Add(imM.Mul(imM)).StoreArray((*[4]float32)(s.scratchBinE[i : i+4]))
+		}
+
 		x1r := re.Add(reM)
 		x1i := im.Sub(imM)
 		x2r := im.Add(imM)
@@ -122,4 +128,13 @@ func analysisAtan2x4(y, x archsimd.Float32x4) archsimd.Float32x4 {
 // even, with the out-of-range INT_MIN of cvtss2si.
 func analysisFloat2Intx4(x archsimd.Float32x4) archsimd.Float32x4 {
 	return x.Round().ConvertToInt32().ConvertToFloat32()
+}
+
+func smoothAnalysisTonality(tonality, tonality2 []float32) {
+	tonality = tonality[:240:240]
+	tonality2 = tonality2[:240:240]
+	for i := 2; i < 239; i++ {
+		tt := minf(tonality2[i], maxf(tonality2[i-1], tonality2[i+1]))
+		tonality[i] = 0.9 * maxf(tonality[i], tt-0.1)
+	}
 }

@@ -18,7 +18,7 @@ exact guarantees and tested configurations.
 
 ## Install
 
-gopus v0.2.4 requires Go 1.27.3 or newer.
+gopus v0.2.4 requires Go 1.27.4 or newer.
 
 ```sh
 go get github.com/thesyncim/gopus@v0.2.4

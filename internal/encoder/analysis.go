@@ -128,8 +128,8 @@ func silkResamplerDown2HPMono(s []float32, out []float32, pcm []float32) float32
 	if len2 <= 0 {
 		return 0
 	}
-	_ = pcm[2*len2-1]
-	_ = out[len2-1]
+	pcm = pcm[: 2*len2 : 2*len2]
+	out = out[:len2:len2]
 	s0, s1, s2 := s[0], s[1], s[2]
 	var hpEner, hp, sample float32
 	for k := range len2 {
@@ -151,8 +151,8 @@ func silkResamplerDown2HPStereo(s []float32, out []float32, pcm []float32) float
 	if len2 <= 0 {
 		return 0
 	}
-	_ = pcm[4*len2-1]
-	_ = out[len2-1]
+	pcm = pcm[: 4*len2 : 4*len2]
+	out = out[:len2:len2]
 	s0, s1, s2 := s[0], s[1], s[2]
 	var hpEner, hp, sample float32
 	for k := range len2 {
@@ -165,14 +165,6 @@ func silkResamplerDown2HPStereo(s []float32, out []float32, pcm []float32) float
 	}
 	s[0], s[1], s[2] = s0, s1, s2
 	return hpEner
-}
-
-// analysisBinEnergy is the energy of the bin pair i and 480-i of the analysis
-// FFT, out[i].r² + out[N-i].r² + out[i].i² + out[N-i].i² in analysis.c's order.
-func analysisBinEnergy(out []complex64, i int) float32 {
-	a, b := real(out[i]), real(out[480-i])
-	c, d := imag(out[i]), imag(out[480-i])
-	return fma32(a, a, round32(b*b)) + c*c + d*d
 }
 
 // analysisIsDigitalSilence32 is is_digital_silence32 (src/analysis.c) in the
@@ -193,16 +185,16 @@ func analysisIsDigitalSilence32(pcm []float32, lsbDepth int) bool {
 // downmixCap is downmix_float's +6 dBFS cap (src/opus_encoder.c): it clamps the
 // SIG-scale sample to ±65536 and zeroes NaN.
 func downmixCap(v float32) float32 {
+	if v >= -65536 && v <= 65536 {
+		return v
+	}
 	if v < -65536 {
-		v = -65536
+		return -65536
 	}
 	if v > 65536 {
-		v = 65536
+		return 65536
 	}
-	if v != v {
-		v = 0
-	}
-	return v
+	return 0
 }
 
 // downmixAndResample is downmix_and_resample (src/analysis.c) driven by
@@ -296,10 +288,14 @@ func (s *TonalityAnalysisState) analysisBins(out *[480]complex64, tonality, tona
 // analysisBinsScalar is analysisBins for bins from..239.
 func (s *TonalityAnalysisState) analysisBinsScalar(out *[480]complex64, from int, tonality, tonality2, noisiness []float32) {
 	for i := from; i < 240; i++ {
-		x1r := real(out[i]) + real(out[480-i])
-		x1i := imag(out[i]) - imag(out[480-i])
-		x2r := imag(out[i]) + imag(out[480-i])
-		x2i := real(out[480-i]) - real(out[i])
+		a, c := real(out[i]), imag(out[i])
+		b, d := real(out[480-i]), imag(out[480-i])
+		s.scratchBinE[i] = fma32(a, a, round32(b*b)) + c*c + d*d
+
+		x1r := a + b
+		x1i := c - d
+		x2r := c + d
+		x2i := b - a
 
 		angle := round32(analysisAtanScale * analysisAtan2(x1i, x1r))
 		dAngle := angle - s.Angle[i]
@@ -512,7 +508,7 @@ type TonalityAnalysisState struct {
 
 	// Fixed-size scratch buffers (pointer-free, no per-stream heap allocs).
 	scratchFFTKiss   [480]celt.KissCpx
-	scratchBinE      [236]float32 // precomputed bin energies for bins 4..239
+	scratchBinE      [240]float32 // precomputed bin energies for bins 1..239
 	scratchFFTIn     [480]complex64
 	scratchFFTOut    [480]complex64
 	scratchTonality  [240]float32
@@ -744,10 +740,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	tonality2 := s.scratchTonality2[:]
 	noisiness := s.scratchNoisiness[:]
 	s.analysisBins(&s.scratchFFTOut, tonality, tonality2, noisiness)
-	for i := 2; i < 239; i++ {
-		tt := minf(tonality2[i], maxf(tonality2[i-1], tonality2[i+1]))
-		tonality[i] = 0.9 * maxf(tonality[i], tt-0.1)
-	}
+	smoothAnalysisTonality(tonality, tonality2)
 
 	frameNoisiness := float32(0)
 	frameStationarity := float32(0)
@@ -780,24 +773,17 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		x1r := 2 * real(outBuf[0])
 		x2r := 2 * imag(outBuf[0])
 		E := fma32(x1r, x1r, round32(x2r*x2r))
-		for i := 1; i < 4; i++ {
-			E += analysisBinEnergy(outBuf, i)
-		}
+		E += s.scratchBinE[1]
+		E += s.scratchBinE[2]
+		E += s.scratchBinE[3]
 		E *= s.analysisEnergyScale()
 		bandLog2[0] = log2Scale * opusmath.LogF32(E+1e-10)
 	}
 
-	// Precompute bin energies for all analysis bins to improve memory access patterns.
-	// Range: tbands[0]=4 to tbands[NbTBands]=240, so bins 4..239 = 236 entries.
+	// Bin energies for bins 1..239 were precomputed during analysisBins while
+	// out[i] and out[480-i] were already loaded in registers.
 	const binStart = 4 // tbands[0]
-	const binEnd = 240 // tbands[NbTBands]
-	const numBins = binEnd - binStart
-	binEArr := s.scratchBinE[:numBins]
-	{
-		for i := binStart; i < binEnd; i++ {
-			binEArr[i-binStart] = analysisBinEnergy(outBuf, i)
-		}
-	}
+	binEArr := s.scratchBinE[binStart:240]
 	analysisBinScale := s.analysisEnergyScale()
 
 	// Band energies and tonal metrics using precomputed bin energies.

@@ -68,89 +68,79 @@ func toneLPCRetryNeeded(lpc0, lpc1 float32, success bool) bool {
 // toneLPCRetry48kMono fuses the 48 kHz mono retry-delay correlations while
 // preserving the ascending accumulation order used by separate toneLPC calls.
 func toneLPCRetry48kMono(x []float32, maxDelay int) (float32, float32, bool, int) {
-	if !toneLPCRetry48kMonoUseFused {
-		return toneLPCRetry48kMonoSequential(x, maxDelay)
-	}
+	return toneLPCRetry48kMonoFast(x, maxDelay)
+}
 
+func toneLPCRetry48kMonoScalarFused(x []float32, maxDelay int) (float32, float32, bool, int) {
 	n := len(x)
-	_ = x[n-1]
 	cnt2 := n - 4
 	cnt4 := n - 8
 	cnt8 := n - 16
 	cnt16 := n - 32
 	cnt32 := n - 64
 
-	var r002, r012, r022 float32
-	var r004, r014, r024 float32
-	var r008, r018, r028 float32
-	var r0016, r0116, r0216 float32
-	var r0032, r0132, r0232 float32
+	x0 := x[:cnt2:cnt2]
+	x2 := x[2 : 2+cnt2 : 2+cnt2]
+	x4 := x[4 : 4+cnt2 : 4+cnt2]
+	x8 := x[8 : 8+cnt4 : 8+cnt4]
+	x16 := x[16 : 16+cnt8 : 16+cnt8]
+	x32 := x[32 : 32+cnt16 : 32+cnt16]
+	x64 := x[64 : 64+cnt32 : 64+cnt32]
+
+	// All 15 correlation sums across delays 2, 4, 8, 16, 32 share 7 prefix sums:
+	// r00 is common to every delay, and r02(d) == r01(2d) over the common prefix.
+	var s0, s2, s4, s8, s16, s32, s64 float32
 
 	i := 0
 	for ; i < cnt32; i++ {
-		xi := x[i]
-		xi2 := xi * xi
-		r002 += xi2
-		r012 += xi * x[i+2]
-		r022 += xi * x[i+4]
-		r004 += xi2
-		r014 += xi * x[i+4]
-		r024 += xi * x[i+8]
-		r008 += xi2
-		r018 += xi * x[i+8]
-		r028 += xi * x[i+16]
-		r0016 += xi2
-		r0116 += xi * x[i+16]
-		r0216 += xi * x[i+32]
-		r0032 += xi2
-		r0132 += xi * x[i+32]
-		r0232 += xi * x[i+64]
+		xi := x0[i]
+		s0 += xi * xi
+		s2 += xi * x2[i]
+		s4 += xi * x4[i]
+		s8 += xi * x8[i]
+		s16 += xi * x16[i]
+		s32 += xi * x32[i]
+		s64 += xi * x64[i]
 	}
+	r0032, r0132, r0232 := s0, s32, s64
+
 	for ; i < cnt16; i++ {
-		xi := x[i]
-		xi2 := xi * xi
-		r002 += xi2
-		r012 += xi * x[i+2]
-		r022 += xi * x[i+4]
-		r004 += xi2
-		r014 += xi * x[i+4]
-		r024 += xi * x[i+8]
-		r008 += xi2
-		r018 += xi * x[i+8]
-		r028 += xi * x[i+16]
-		r0016 += xi2
-		r0116 += xi * x[i+16]
-		r0216 += xi * x[i+32]
+		xi := x0[i]
+		s0 += xi * xi
+		s2 += xi * x2[i]
+		s4 += xi * x4[i]
+		s8 += xi * x8[i]
+		s16 += xi * x16[i]
+		s32 += xi * x32[i]
 	}
+	r0016, r0116, r0216 := s0, s16, s32
+
 	for ; i < cnt8; i++ {
-		xi := x[i]
-		xi2 := xi * xi
-		r002 += xi2
-		r012 += xi * x[i+2]
-		r022 += xi * x[i+4]
-		r004 += xi2
-		r014 += xi * x[i+4]
-		r024 += xi * x[i+8]
-		r008 += xi2
-		r018 += xi * x[i+8]
-		r028 += xi * x[i+16]
+		xi := x0[i]
+		s0 += xi * xi
+		s2 += xi * x2[i]
+		s4 += xi * x4[i]
+		s8 += xi * x8[i]
+		s16 += xi * x16[i]
 	}
+	r008, r018, r028 := s0, s8, s16
+
 	for ; i < cnt4; i++ {
-		xi := x[i]
-		xi2 := xi * xi
-		r002 += xi2
-		r012 += xi * x[i+2]
-		r022 += xi * x[i+4]
-		r004 += xi2
-		r014 += xi * x[i+4]
-		r024 += xi * x[i+8]
+		xi := x0[i]
+		s0 += xi * xi
+		s2 += xi * x2[i]
+		s4 += xi * x4[i]
+		s8 += xi * x8[i]
 	}
+	r004, r014, r024 := s0, s4, s8
+
 	for ; i < cnt2; i++ {
-		xi := x[i]
-		r002 += xi * xi
-		r012 += xi * x[i+2]
-		r022 += xi * x[i+4]
+		xi := x0[i]
+		s0 += xi * xi
+		s2 += xi * x2[i]
+		s4 += xi * x4[i]
 	}
+	r002, r012, r022 := s0, s2, s4
 
 	delay := 2
 	lpc0, lpc1, success := toneLPCSolveFromCorr(x, delay, r002, r012, r022)
@@ -433,8 +423,8 @@ func (e *Encoder) transientAnalysisMonoFloat32(pcm []float32, frameSize int, all
 	)
 	var mask float32
 	mean := float32(0)
-	src := pcm[:samplesPerChannel]
-	_ = src[2*len2-1]
+	src := pcm[: 2*len2 : 2*len2]
+	energy = energy[:len2:len2]
 
 	// Keep the high-pass recurrence in the same two-state form as
 	// celt/celt_encoder.c transient_analysis(). On arm64 the selected libopus
@@ -442,7 +432,20 @@ func (e *Encoder) transientAnalysisMonoFloat32(pcm []float32, frameSize int, all
 	// the Go compiler lowers this source order to the same sequence. The
 	// algebraically reduced second-order recurrence changes float32 rounding.
 	var hp0, hp1 float32
-	for i := range len2 {
+	warm := min(warmupPairs, len2)
+	for i := range warm {
+		j := i << 1
+		x0 := src[j]
+		hp00 := hp0
+		hp0 = hp0 - x0 + hpFeedback*hp1
+		hp1 = x0 - hp00
+		x1 := src[j+1]
+		hp00 = hp0
+		hp0 = hp0 - x1 + hpFeedback*hp1
+		hp1 = x1 - hp00
+		energy[i] = 0
+	}
+	for i := warm; i < len2; i++ {
 		j := i << 1
 
 		x0 := src[j]
@@ -456,11 +459,6 @@ func (e *Encoder) transientAnalysisMonoFloat32(pcm []float32, frameSize int, all
 		hp00 = hp0
 		hp0 = hp0 - x1 + hpFeedback*hp1
 		hp1 = x1 - hp00
-
-		if i < warmupPairs {
-			y0 = 0
-			y1 = 0
-		}
 
 		pair := y0*y0 + y1*y1
 		mean += pair
@@ -607,96 +605,15 @@ func (e *Encoder) transientAnalysisScratchF32(pcm []float32, frameSize int, allo
 			energyR = make([]float32, len2)
 		}
 
-		const (
-			hpFeedback     = float32(0.5)
-			backwardRetain = float32(0.875)
-			backwardScale  = float32(0.125)
-			warmupPairs    = 6
-		)
-		var hp0L, hp1L float32
-		var hp0R, hp1R float32
-		var maskL, maskR float32
-		meanL := float32(0)
-		meanR := float32(0)
 		energyR = energyR[:len(energy)]
 		// pcm is planar with channel stride samplesPerChannel, as C indexes
 		// in[i+c*len].
 		srcL := pcm[:2*len(energy)]
 		srcR := pcm[samplesPerChannel : samplesPerChannel+2*len(energy)]
 		if deferStereoToneDetect {
-			tone := toneBuf[:2*len(energy)]
-			for k := range tone {
-				tone[k] = srcL[k] + srcR[k]
-			}
+			toneSumStereo(toneBuf[:2*len(energy)], srcL, srcR)
 		}
-		warm := min(warmupPairs, len(energy))
-		for i := range warm {
-			xL0, xL1 := srcL[2*i], srcL[2*i+1]
-			xR0, xR1 := srcR[2*i], srcR[2*i+1]
-			hp00L := hp0L
-			hp00R := hp0R
-			hp0L = hp0L - xL0 + hpFeedback*hp1L
-			hp0R = hp0R - xR0 + hpFeedback*hp1R
-			hp1L = xL0 - hp00L
-			hp1R = xR0 - hp00R
-			hp00L = hp0L
-			hp00R = hp0R
-			hp0L = hp0L - xL1 + hpFeedback*hp1L
-			hp0R = hp0R - xR1 + hpFeedback*hp1R
-			hp1L = xL1 - hp00L
-			hp1R = xR1 - hp00R
-			energy[i] = 0
-			energyR[i] = 0
-		}
-		for i := warm; i < len(energy); i++ {
-			idx := 2 * i
-			xL0, xL1 := srcL[idx], srcL[idx+1]
-			xR0, xR1 := srcR[idx], srcR[idx+1]
-			// L and R high-pass filter computations interleaved so the CPU
-			// can overlap their independent chains to hide IIR multiply latency.
-			yL0 := hp0L + xL0
-			yR0 := hp0R + xR0
-			hp00L := hp0L
-			hp00R := hp0R
-			hp0L = hp0L - xL0 + hpFeedback*hp1L
-			hp0R = hp0R - xR0 + hpFeedback*hp1R
-			hp1L = xL0 - hp00L
-			hp1R = xR0 - hp00R
-
-			yL1 := hp0L + xL1
-			yR1 := hp0R + xR1
-			hp00L = hp0L
-			hp00R = hp0R
-			hp0L = hp0L - xL1 + hpFeedback*hp1L
-			hp0R = hp0R - xR1 + hpFeedback*hp1R
-			hp1L = xL1 - hp00L
-			hp1R = xR1 - hp00R
-
-			// Energy and masking for both channels interleaved.
-			pairL := yL0*yL0 + yL1*yL1
-			pairR := yR0*yR0 + yR1*yR1
-			meanL += pairL
-			meanR += pairR
-			maskL = pairL + forwardRetain*maskL
-			maskR = pairR + forwardRetain*maskR
-			energy[i] = forwardDecay * maskL
-			energyR[i] = forwardDecay * maskR
-		}
-
-		var maxEL, maxER float32
-		maskL = 0
-		maskR = 0
-		for i := len(energy) - 1; i >= 0; i-- {
-			maskL = energy[i] + backwardRetain*maskL
-			maskR = energyR[i] + backwardRetain*maskR
-			eiL := backwardScale * maskL
-			eiR := backwardScale * maskR
-			energy[i] = eiL
-			energyR[i] = eiR
-			// MAX16(maxE, 0.125f*mem0) as a conditional move.
-			maxEL = opusmath.MaxF32(maxEL, eiL)
-			maxER = opusmath.MaxF32(maxER, eiR)
-		}
+		meanL, meanR, maxEL, maxER := transientStereoForwardBackward(srcL, srcR, energy, energyR, forwardDecay, forwardRetain)
 
 		const epsilon = 1e-15
 		normEL := float32(64*len2) / (transientFrameEnergy(meanL, maxEL, len2) + epsilon)

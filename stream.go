@@ -7,41 +7,54 @@ import (
 	"errors"
 	"io"
 	"math"
-	"unsafe"
 )
 
-// hostIsLittleEndian reports whether the running host stores multibyte values
-// little-endian. Detected once at init via a uint16 byte view; on LE hosts the
-// streaming Reader can copy decoded PCM straight to its output buffer instead
-// of re-encoding each sample.
-var hostIsLittleEndian = func() bool {
-	probe := [2]byte{1, 0}
-	return binary.NativeEndian.Uint16(probe[:]) == 1
-}()
-
-// float32SliceAsBytes returns a read-only byte view of s on little-endian
-// hosts.
-//
-// Safety: float32 is a 4-byte scalar with no pointers or padding; the returned
-// slice shares s's backing array and preserves its exact byte bounds
-// (4*len(s)). Callers only copy out of it while s remains live.
-func float32SliceAsBytes(s []float32) []byte {
-	if len(s) == 0 {
-		return nil
+// encodeFloat32LE encodes src as little-endian IEEE-754 float32 bytes into dst.
+// dst must have length at least 4*len(src).
+func encodeFloat32LE(dst []byte, src []float32) {
+	n := len(src)
+	if n == 0 {
+		return
 	}
-	return unsafe.Slice((*byte)(unsafe.Pointer(unsafe.SliceData(s))), len(s)*4)
+	dst = dst[: 4*n : 4*n]
+	src = src[:n:n]
+	i := 0
+	for ; i+4 <= n; i += 4 {
+		o := i * 4
+		d := dst[o : o+16 : o+16]
+		s := src[i : i+4 : i+4]
+		binary.LittleEndian.PutUint32(d[0:4], math.Float32bits(s[0]))
+		binary.LittleEndian.PutUint32(d[4:8], math.Float32bits(s[1]))
+		binary.LittleEndian.PutUint32(d[8:12], math.Float32bits(s[2]))
+		binary.LittleEndian.PutUint32(d[12:16], math.Float32bits(s[3]))
+	}
+	for ; i < n; i++ {
+		binary.LittleEndian.PutUint32(dst[i*4:], math.Float32bits(src[i]))
+	}
 }
 
-// int16SliceAsBytes returns a read-only byte view of s on little-endian hosts.
-//
-// Safety: int16 is a 2-byte scalar with no pointers or padding; the returned
-// slice shares s's backing array and preserves its exact byte bounds
-// (2*len(s)). Callers only copy out of it while s remains live.
-func int16SliceAsBytes(s []int16) []byte {
-	if len(s) == 0 {
-		return nil
+// encodeInt16LE encodes src as little-endian two's-complement int16 bytes into
+// dst. dst must have length at least 2*len(src).
+func encodeInt16LE(dst []byte, src []int16) {
+	n := len(src)
+	if n == 0 {
+		return
 	}
-	return unsafe.Slice((*byte)(unsafe.Pointer(unsafe.SliceData(s))), len(s)*2)
+	dst = dst[: 2*n : 2*n]
+	src = src[:n:n]
+	i := 0
+	for ; i+4 <= n; i += 4 {
+		o := i * 2
+		d := dst[o : o+8 : o+8]
+		s := src[i : i+4 : i+4]
+		binary.LittleEndian.PutUint16(d[0:2], uint16(s[0]))
+		binary.LittleEndian.PutUint16(d[2:4], uint16(s[1]))
+		binary.LittleEndian.PutUint16(d[4:6], uint16(s[2]))
+		binary.LittleEndian.PutUint16(d[6:8], uint16(s[3]))
+	}
+	for ; i < n; i++ {
+		binary.LittleEndian.PutUint16(dst[i*2:], uint16(src[i]))
+	}
 }
 
 // SampleFormat specifies the PCM sample format for streaming.
@@ -201,26 +214,15 @@ func (r *Reader) Read(p []byte) (int, error) {
 			}
 			nTotal := nSamples * int(r.dec.channels)
 			byteLen := nTotal * 4
-			if hostIsLittleEndian && len(p) >= byteLen {
-				if nTotal > 0 {
-					copy(p, float32SliceAsBytes(r.pcmFloat[:nTotal]))
-				}
+			if len(p) >= byteLen {
+				encodeFloat32LE(p, r.pcmFloat[:nTotal])
 				return byteLen, nil
 			}
 			if cap(r.byteBuf) < byteLen {
 				r.byteBuf = make([]byte, byteLen)
 			}
 			r.byteBuf = r.byteBuf[:byteLen]
-			if hostIsLittleEndian && nTotal > 0 {
-				// On LE hosts the in-memory float32 layout already matches
-				// FormatFloat32LE on the wire; copy the bytes directly.
-				copy(r.byteBuf, float32SliceAsBytes(r.pcmFloat[:nTotal]))
-			} else {
-				for i := range nTotal {
-					bits := math.Float32bits(r.pcmFloat[i])
-					binary.LittleEndian.PutUint32(r.byteBuf[i*4:], bits)
-				}
-			}
+			encodeFloat32LE(r.byteBuf, r.pcmFloat[:nTotal])
 		case FormatInt16LE:
 			nSamples, decErr := r.dec.DecodeInt16(packet, r.pcmInt16)
 			if decErr != nil {
@@ -228,23 +230,15 @@ func (r *Reader) Read(p []byte) (int, error) {
 			}
 			nTotal := nSamples * int(r.dec.channels)
 			byteLen := nTotal * 2
-			if hostIsLittleEndian && len(p) >= byteLen {
-				if nTotal > 0 {
-					copy(p, int16SliceAsBytes(r.pcmInt16[:nTotal]))
-				}
+			if len(p) >= byteLen {
+				encodeInt16LE(p, r.pcmInt16[:nTotal])
 				return byteLen, nil
 			}
 			if cap(r.byteBuf) < byteLen {
 				r.byteBuf = make([]byte, byteLen)
 			}
 			r.byteBuf = r.byteBuf[:byteLen]
-			if hostIsLittleEndian && nTotal > 0 {
-				copy(r.byteBuf, int16SliceAsBytes(r.pcmInt16[:nTotal]))
-			} else {
-				for i := range nTotal {
-					binary.LittleEndian.PutUint16(r.byteBuf[i*2:], uint16(r.pcmInt16[i]))
-				}
-			}
+			encodeInt16LE(r.byteBuf, r.pcmInt16[:nTotal])
 		default:
 			return 0, ErrInvalidSampleFormat
 		}
