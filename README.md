@@ -408,25 +408,25 @@ The Go/C time ratio divides Go time by C time: below `1.0` is a Go win; above
 These measurements use **Apple M4 Max, darwin/arm64, Go 1.27.4, Apple Clang
 21.0.0**, `GOMAXPROCS=1`, and identical C/Go workloads. Go explicitly uses the
 checked-in **`default.pgo`** (SHA-256 `a85d5274259f…`; profile source `18eaa63b8`);
-C uses `-O3` without PGO. The measured codec source is `754efd160`. Values are
+C uses `-O3` without PGO. The measured codec source is `683c56d07`. Values are
 medians across five runs of at least 300 ms. Every Go row reports **0 allocs/op**
 after warmup; C allocations are not measured.
 
 | Workload | C SIMD ns/sample | Go SIMD ns/sample | Go/C time | Result |
 |---|---:|---:|---:|---|
-| Encode aggregate | 154.31 | 146.49 | 0.949× | Go faster |
-| Encode CELT, fullband, 20 ms stereo, 128 kbps | 82.27 | 104.23 | 1.267× | Go slower |
-| Encode CELT, fullband, 5 ms mono, 64 kbps | 36.55 | 43.67 | 1.195× | Go slower |
-| Encode SILK, wideband, 20 ms mono, 32 kbps | 357.36 | 291.34 | 0.815× | Go faster |
-| Encode Hybrid, fullband, 20 ms mono, 64 kbps | 178.93 | 170.94 | 0.955× | Go faster |
-| Encode Hybrid, fullband, 20 ms stereo, 96 kbps | 94.61 | 106.00 | 1.120× | Go slower |
-| Decode RFC vectors, float32 | 19.56 | 18.76 | 0.959× | Go faster |
-| Decode RFC vectors, int16 | 21.23 | 19.15 | 0.902× | Go faster |
+| Encode aggregate | 150.78 | 145.70 | 0.966× | Go faster |
+| Encode CELT, fullband, 20 ms stereo, 128 kbps | 79.63 | 86.30 | 1.084× | Go slower |
+| Encode CELT, fullband, 5 ms mono, 64 kbps | 36.12 | 43.23 | 1.197× | Go slower |
+| Encode SILK, wideband, 20 ms mono, 32 kbps | 350.10 | 302.18 | 0.863× | Go faster |
+| Encode Hybrid, fullband, 20 ms mono, 64 kbps | 180.47 | 173.12 | 0.959× | Go faster |
+| Encode Hybrid, fullband, 20 ms stereo, 96 kbps | 95.19 | 97.28 | 1.022× | Go slower |
+| Decode RFC vectors, float32 | 19.64 | 18.09 | 0.921× | Go faster |
+| Decode RFC vectors, int16 | 20.23 | 18.93 | 0.936× | Go faster |
 
-With this profile, SIMD aggregate encoding takes **5.1% less time** than libopus;
-SILK encoding takes **18.5% less**, mono Hybrid takes **4.5% less**, and
-float32/int16 RFC decode take **4.1%/9.8% less**. CELT 20 ms/5 ms encoding and
-stereo Hybrid take **26.7%/19.5%/12.0% more time**. Small differences can include
+With this profile, SIMD aggregate encoding takes **3.4% less time** than libopus;
+SILK encoding takes **13.7% less**, mono Hybrid takes **4.1% less**, and
+float32/int16 RFC decode take **7.9%/6.4% less**. CELT 20 ms/5 ms encoding and
+stereo Hybrid take **8.4%/19.7%/2.2% more time**. Small differences can include
 measurement noise.
 The encoder aggregate weights five workloads equally by samples per channel;
 it does not imply a win on every stream. RFC decode covers 20,075 packets.
