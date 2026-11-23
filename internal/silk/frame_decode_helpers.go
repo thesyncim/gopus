@@ -165,7 +165,7 @@ func (d *Decoder) skipMonoLBRRFrames(rd *rangecoding.Decoder, st *decoderState, 
 		}
 		silkDecodeIndices(st, rd, true, lbrrCondCoding(st, i))
 		pulses := d.pulseBuffer(frameLength)
-		silkDecodePulsesWithScratch(rd, pulses, int(st.indices.signalType), int(st.indices.quantOffsetType), frameLength, st.scratchSumPulses, st.scratchNLshifts)
+		silkDecodePulses(rd, pulses, int(st.indices.signalType), int(st.indices.quantOffsetType), frameLength)
 	}
 }
 
@@ -193,7 +193,7 @@ func (d *Decoder) skipStereoLBRRFrames(rd *rangecoding.Decoder, stMid, stSide *d
 			silkDecodeIndices(st, rd, true, lbrrCondCoding(st, i))
 			frameLength := int(st.frameLength)
 			pulses := d.pulseBuffer(frameLength)
-			silkDecodePulsesWithScratch(rd, pulses, int(st.indices.signalType), int(st.indices.quantOffsetType), frameLength, st.scratchSumPulses, st.scratchNLshifts)
+			silkDecodePulses(rd, pulses, int(st.indices.signalType), int(st.indices.quantOffsetType), frameLength)
 		}
 	}
 }
@@ -217,7 +217,7 @@ func (d *Decoder) decodeFrameCoreInto(
 	silkDecodeIndices(st, rd, vad, condCoding)
 	frameLength := int(st.frameLength)
 	pulses := d.pulseBuffer(frameLength)
-	silkDecodePulsesWithScratch(rd, pulses, int(st.indices.signalType), int(st.indices.quantOffsetType), frameLength, st.scratchSumPulses, st.scratchNLshifts)
+	silkDecodePulses(rd, pulses, int(st.indices.signalType), int(st.indices.quantOffsetType), frameLength)
 
 	var ctrl decoderControl
 	silkDecodeParameters(st, &ctrl, condCoding)

@@ -23,8 +23,50 @@ import (
 //
 // Reference: RFC 6716 Section 4.3
 type Encoder struct {
+	// Pointer-bearing fields are grouped first so Go's GC stops scanning at
+	// ptrdata, leaving scalar state and fixed-size value arrays (including
+	// tfScratch) in the noscan tail.
+
 	// Range encoder reference (set per frame)
 	rangeEncoder *rangecoding.Encoder
+	// perMode carries the per-mode CELT tables (band edges, widths, logN,
+	// allocVectors, pulse cache) for a non-standard Opus Custom mode whose band
+	// layout differs from the static 21-band 48 kHz tables (e.g. 48000/640,
+	// nbEBands=19). It is nil for the standard, family, hybrid and QEXT paths,
+	// which then stay byte-identical. Populated only by EnablePerModeTables,
+	// called from the gopus_custom_modes celt<->custom plumbing.
+	perMode *perModeTables
+
+	// Energy state (persists across frames, mirrors decoder)
+	prevEnergy        []celtGLog  // Current oldBandE history [MaxBands * channels]
+	prevLogEnergy     []celtGLog  // Current oldLogE history [MaxBands * channels]
+	prevEnergy2       []celtGLog  // Current oldLogE2 history [MaxBands * channels]
+	energyError       []celtGLog  // Previous coarse quantization residuals [MaxBands * channels]
+	overlapBuffer     []celtSig   // MDCT overlap [Overlap * channels]
+	preemphState      []celtSig   // Pre-emphasis filter state [channels]
+	prevBandLogEnergy []celtGLog  // Previous frame log-energy per band for spectral flux
+	energyMask        []celtGLog  // Per-band surround masking: [21] mono, [42] stereo
+	hpMem             []opusVal32 // High-pass filter memory [channels]
+	delayBuffer       []opusRes   // Size = delayCompensation * channels
+	prefilterMem      []celtSig
+	lastBandLogE      []celtGLog // bandLogE (primary MDCT energies)
+	lastBandLogE2     []celtGLog // bandLogE2 (secondary MDCT for transients)
+
+	encoderQEXTFields
+	encodeStageTrace encodeStageTraceState
+	scratchShape     encodeScratchShape
+
+	// Pointer-bearing scratch structs and dynamic allocation result
+	scratch         encoderScratch
+	bandEncScratch  bandEncodeScratch
+	tonalityScratch tonalityScratch
+	dynallocScratch DynallocScratch
+	lastDynalloc    DynallocResult
+
+	// --- Pointer-free (noscan) tail ---
+
+	// Scratch buffers for TF analysis (pointer-free fixed arrays)
+	tfScratch TFAnalysisScratch
 
 	// Configuration (mirrors decoder)
 	channels       int32         // libopus CELTEncoder.channels
@@ -39,15 +81,6 @@ type Encoder struct {
 	// with Nu = N/upsample). 0/1 both mean no upsampling.
 	upsample int32
 
-	// Energy state (persists across frames, mirrors decoder)
-	prevEnergy    []celtGLog // Current oldBandE history [MaxBands * channels]
-	prevLogEnergy []celtGLog // Current oldLogE history [MaxBands * channels]
-	prevEnergy2   []celtGLog // Current oldLogE2 history [MaxBands * channels]
-	energyError   []celtGLog // Previous coarse quantization residuals [MaxBands * channels]
-
-	// Analysis state for overlap (mirrors decoder's synthesis state)
-	overlapBuffer []celtSig // MDCT overlap [Overlap * channels]
-	preemphState  []celtSig // Pre-emphasis filter state [channels]
 	// hd96kOverlap and hd96kPreemph hold the native 96 kHz HD analysis
 	// parameters (overlap 240, 2-tap HD pre-emphasis). hd96kOverlap == 0
 	// selects the 48 kHz path (Overlap constant), keeping the default build
@@ -63,13 +96,6 @@ type Encoder struct {
 	// customEffBands is the effEBands clamp for the active custom mode (0 selects
 	// the standard 21-band clamp).
 	customEffBands int
-	// perMode carries the per-mode CELT tables (band edges, widths, logN,
-	// allocVectors, pulse cache) for a non-standard Opus Custom mode whose band
-	// layout differs from the static 21-band 48 kHz tables (e.g. 48000/640,
-	// nbEBands=19). It is nil for the standard, family, hybrid and QEXT paths,
-	// which then stay byte-identical. Populated only by EnablePerModeTables,
-	// called from the gopus_custom_modes celt<->custom plumbing.
-	perMode *perModeTables
 	// overlapMax mirrors libopus st->overlap_max for CELT silence detection.
 	// It tracks max absolute amplitude over the last overlap region.
 	overlapMax opusVal32
@@ -118,8 +144,6 @@ type Encoder struct {
 	vbrDrift     int32
 	vbrCount     int32
 
-	encoderQEXTFields
-
 	// Complexity control (0-10)
 	complexity int32
 
@@ -130,12 +154,11 @@ type Encoder struct {
 	tapsetDecision int32 // Tapset decision (0, 1, or 2)
 
 	// Tonality analysis state (for VBR decisions)
-	prevBandLogEnergy []celtGLog // Previous frame log-energy per band for spectral flux
-	lastTonality      opusVal16  // Running average tonality for smoothing
-	lastStereoSaving  opusVal16  // Running stereo_saving estimate from alloc_trim analysis
-	lastPitchChange   bool       // pitch_change of the most recent hybrid prefilter run
-	specAvg           celtGLog   // Smoothed spectral average for temporal VBR (libopus st->spec_avg)
-	lastTemporalVBR   celtGLog   // temporal_vbr of the most recently analysed frame (compute_vbr input)
+	lastTonality    opusVal16 // Running average tonality for smoothing
+	lastStereoSaving opusVal16 // Running stereo_saving estimate from alloc_trim analysis
+	lastPitchChange bool      // pitch_change of the most recent hybrid prefilter run
+	specAvg         celtGLog  // Smoothed spectral average for temporal VBR (libopus st->spec_avg)
+	lastTemporalVBR celtGLog  // temporal_vbr of the most recently analysed frame (compute_vbr input)
 
 	// Analysis bandwidth state used by bit allocation gating.
 	// This mirrors libopus use of st->analysis.bandwidth for clt_compute_allocation().
@@ -146,14 +169,6 @@ type Encoder struct {
 	analysisTonality      opusVal16
 	analysisTonalitySlope opusVal16
 	analysisMaxPitchRatio opusVal16
-	// energyMask stores per-band surround masking provided by multistream control.
-	// Layout matches libopus OPUS_SET_ENERGY_MASK: [21] for mono, [42] for stereo.
-	energyMask []celtGLog
-
-	// Dynamic allocation analysis state (for VBR decisions)
-	// These are computed from the previous frame and used for current frame's VBR target.
-	// Reference: libopus celt_encoder.c dynalloc_analysis()
-	lastDynalloc DynallocResult
 
 	// Hybrid mode flag
 	// When true, postfilter flag encoding is skipped per RFC 6716 Section 3.2
@@ -174,11 +189,6 @@ type Encoder struct {
 	// When true, disables stereo phase inversion decorrelation
 	phaseInversionDisabled bool
 
-	// DC rejection filter state (high-pass filter to remove DC offset)
-	// libopus applies this at the Opus encoder level before CELT processing
-	// Reference: libopus src/opus_encoder.c dc_reject()
-	hpMem []opusVal32 // High-pass filter memory [channels]
-
 	// dcRejectEnabled controls whether EncodeFrame applies dc_reject().
 	// When CELT is driven by the Opus encoder, dc_reject is already applied,
 	// so this should be false to avoid double filtering.
@@ -195,47 +205,14 @@ type Encoder struct {
 	// top-level Opus wiring should disable it to avoid double-compensation.
 	delayCompensationEnabled bool
 
-	// Delay buffer for lookahead compensation (matches libopus delay_compensation)
-	// libopus uses Fs/250 = 192 samples at 48kHz for delay compensation.
-	// This provides a 4ms lookahead that allows for better transient handling.
-	// Reference: libopus src/opus_encoder.c delay_compensation
-	delayBuffer []opusRes // Size = delayCompensation * channels
-
 	// Prefilter (comb filter) state for postfilter signaling.
 	// These mirror libopus CELT encoder fields used by run_prefilter().
-	prefilterPeriod int
-	prefilterGain   float32
-	prefilterTapset int
-	prefilterMem    []celtSig
-	// scratchShape is the shape ensureScratch last sized the scratch for;
-	// scratchShapeValid reports whether it may be reused.
-	scratchShape      encodeScratchShape
+	prefilterPeriod   int
+	prefilterGain     float32
+	prefilterTapset   int
 	scratchShapeValid bool
 	// Packet loss expectation (0-100) for prefilter gain scaling.
 	packetLoss int32
-
-	// Last frame's band energies retained for dynalloc analysis.
-	lastBandLogE  []celtGLog // bandLogE (primary MDCT energies)
-	lastBandLogE2 []celtGLog // bandLogE2 (secondary MDCT for transients)
-
-	// Scratch buffers for hot path to eliminate heap allocations
-	scratch encoderScratch
-
-	// encodeStageTraceState is empty outside the opt-in CELT encoder trace build.
-	// Its capture methods are no-ops there, leaving the encode path unchanged.
-	encodeStageTrace encodeStageTraceState
-
-	// Scratch buffers for band encoding (PVQ, theta RDO, etc.)
-	bandEncScratch bandEncodeScratch
-
-	// Scratch buffers for tonality analysis (zero-alloc)
-	tonalityScratch tonalityScratch
-
-	// Scratch buffers for TF analysis (zero-alloc)
-	tfScratch TFAnalysisScratch
-
-	// Scratch buffers for dynalloc analysis (zero-alloc)
-	dynallocScratch DynallocScratch
 }
 
 // NewEncoder creates a new CELT encoder with the given number of channels.
@@ -1225,6 +1202,7 @@ type encoderScratch struct {
 
 	// MDCT forward transform scratch (float32)
 	mdctF           []float32
+	mdctCpx         []complex64 // Backing storage for mdctFFTIn and mdctFFTOut
 	mdctFFTIn       []complex64
 	mdctFFTOut      []complex64
 	mdctFFTTmp      []kissCpx
@@ -1253,6 +1231,10 @@ type encoderScratch struct {
 	coarseStartState rangecoding.EncoderState
 	coarseOldStart   []celtGLog
 	coarseIntraState rangecoding.EncoderState
+
+	// Inline backing storage for fixed-size range-encoder and logN scratch.
+	reBufStorage [256]byte
+	logNStorage  [MaxBands]int16
 	coarseIntraOldE  []celtGLog
 	coarseIntraErr   []celtGLog
 
@@ -1318,7 +1300,7 @@ func (s *encoderScratch) ensureEncodeFloatArena(frameSize, channels, overlap, ma
 
 	total := expectedLen*2 + combinedLen + transientLen + prefilterLen*2 +
 		pitchBufLen + xcorrLen + xlp4Len + ylp4Len + yyLookupLen +
-		frameSize*channels + bandCount*8 + modeBands*2 +
+		frameSize*channels + bandCount*12 + modeBands*2 +
 		frameSize*channels + frameSize + frameSize/2 +
 		sp2*2 + spc
 	if s.f32.Cap() >= total {
@@ -1345,6 +1327,10 @@ func (s *encoderScratch) ensureEncodeFloatArena(frameSize, channels, overlap, ma
 	s.quantizedEnergies = s.f32.Alloc(bandCount)
 	s.prev1LogE = s.f32.Alloc(bandCount)
 	s.coarseDecisionE = s.f32.Alloc(bandCount)
+	s.analysisEnergies = s.f32.Alloc(bandCount)
+	s.dynallocOldBandE = s.f32.Alloc(bandCount)
+	s.transientSpreadOld = s.f32.Alloc(bandCount)
+	s.coarseOldStart = s.f32.Alloc(bandCount)
 	s.bandEL = s.f32.Alloc(modeBands)
 	s.bandER = s.f32.Alloc(modeBands)
 	s.normStereo = s.f32.Alloc(frameSize * channels)
@@ -1442,7 +1428,7 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	// Range encoder buffer
 	bufSize := 256
 	if len(s.reBuf) < bufSize {
-		s.reBuf = make([]byte, bufSize)
+		s.reBuf = s.reBufStorage[:]
 	}
 	if extsupport.QEXT && e.qextActive() {
 		qs := s.ensureQEXTScratch()
@@ -1489,7 +1475,11 @@ func (e *Encoder) ensureScratch(frameSize int) {
 		s.allocTrim = s.allocTrim[:modeBands]
 	}
 	if len(s.logN) < modeBands {
-		s.logN = make([]int16, modeBands)
+		if modeBands <= len(s.logNStorage) {
+			s.logN = s.logNStorage[:modeBands]
+		} else {
+			s.logN = make([]int16, modeBands)
+		}
 	}
 	// Initialize AllocationResult with pre-allocated slices
 	s.allocResult.BandBits = s.allocBits
@@ -1500,8 +1490,11 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	// MDCT forward transform scratch (float32)
 	n4 := frameSize / 2 // n4 = frameSize/2 for N=2*frameSize MDCT
 	s.mdctF = ensureFloat32Slice(&s.mdctF, frameSize)
-	s.mdctFFTIn = ensureComplex64Slice(&s.mdctFFTIn, n4)
-	s.mdctFFTOut = ensureComplex64Slice(&s.mdctFFTOut, n4)
+	if cap(s.mdctCpx) < 2*n4 {
+		s.mdctCpx = make([]complex64, 2*n4)
+	}
+	s.mdctFFTIn = s.mdctCpx[:n4:n4]
+	s.mdctFFTOut = s.mdctCpx[n4 : 2*n4 : 2*n4]
 	s.mdctFFTTmp = ensureKissCpxSlice(&s.mdctFFTTmp, n4)
 	// For short MDCT: max short size is frameSize/8 (for 8 short blocks)
 	s.mdctBlockCoeffs = ensureFloat32Slice(&s.mdctBlockCoeffs, frameSize/2)

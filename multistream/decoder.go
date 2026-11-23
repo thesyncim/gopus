@@ -834,65 +834,35 @@ func (d *streamState) decodePacketToFloat32(data []byte, frameSize int) ([]float
 // interleaved output channels. It retains decoding state and is not safe for
 // concurrent use.
 type Decoder struct {
-	// sampleRate is the output sample rate (8000, 12000, 16000, 24000, or 48000 Hz;
-	// 96000 Hz is available in gopus_qext builds).
-	sampleRate int32
-
-	// outputChannels is the total number of output channels (1-255).
-	outputChannels int
-
-	// streams is the total number of elementary streams (N).
-	streams int
-
-	// coupledStreams is the number of coupled (stereo) streams (M).
-	// The first M streams produce 2 channels each, the remaining N-M produce 1 channel.
-	coupledStreams int
-
-	// mapping is the channel mapping table.
-	// mapping[i] indicates which decoded channel feeds output channel i.
-	// Values 0 to 2*M-1 are from coupled streams (even=left, odd=right).
-	// Values 2*M to N+M-1 are from uncoupled streams.
-	// Value 255 indicates a silent channel.
-	mapping []byte
-
-	// decoders contains one decoder per stream.
-	// First M decoders are stereo (for coupled streams).
-	// Remaining N-M decoders are mono (for uncoupled streams).
-	decoders []streamDecoder
-
-	// Per-decoder PLC state (do not share across decoder instances).
-	plcState *plc.State
-
-	// Optional projection demixing matrix in column-major S16 layout.
+	// Pointer-bearing fields are grouped first so Go's GC stops scanning at
+	// ptrdata, leaving scalar configuration and flags in the noscan tail.
+	mapping                []byte
+	decoders               []streamDecoder
+	plcState               *plc.State
+	dnnBlob                *dnnblob.Blob
 	projectionDemixing     []int16
-	projectionCols         int
 	projectionScratch      []float32
 	projectionInt24Scratch []int32
-	ignoreExtensions       bool
-	dnnBlob                *dnnblob.Blob
+	packetsScratch         [][]byte
+	decodedStreamsScratch  [][]float32
+	outputScratch          []float32
+	silenceScratch         []float32
+	packetParser           packetScratch
+	reframeArena           arena.Bump[byte]
 	decoderDREDFields
 	decoderOSCEFields
 	decoderFixedFields
+
+	// --- Pointer-free (noscan) tail ---
+	sampleRate        int32
+	outputChannels    int
+	streams           int
+	coupledStreams    int
+	projectionCols    int
+	ignoreExtensions  bool
 	pitchDNNLoaded    bool
 	plcModelLoaded    bool
 	farganModelLoaded bool
-
-	// Per-call decode scratch reused across Decode calls to reduce the
-	// steady-state decode allocation footprint. These slice headers are
-	// intra-call scratch that never escape the decoder; their element buffers
-	// alias packet data / elementary-decoder-owned outputs that are copied into
-	// the channel-mapped result within the same call.
-	packetsScratch        [][]byte
-	decodedStreamsScratch [][]float32
-	outputScratch         []float32
-	silenceScratch        []float32
-
-	// packetParser holds reusable parse/build working buffers, and reframeArena
-	// backs the N-1 self-delimited packets reframed to standard form for the
-	// elementary decoders. The arena slices coexist across the per-stream decode
-	// loop but never escape the decode call.
-	packetParser packetScratch
-	reframeArena arena.Bump[byte]
 }
 
 // NewDecoder returns a multistream decoder for channels of interleaved PCM.

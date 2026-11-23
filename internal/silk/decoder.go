@@ -50,25 +50,12 @@ type Decoder struct {
 
 	// Per-type scratch arenas carved in NewDecoder
 	scratchI16 arena.Bump[int16]
-	scratchI32 arena.Bump[int32]
 	scratchF32 arena.Bump[float32]
 
-	scratchSLPC     []int32   // Size: maxSubFrameLength + maxLPCOrder = 96
-	scratchSLTP     []int16   // Size: maxLtpMemLength = 320
-	scratchSLTPQ15  []int32   // Size: maxLtpMemLength + maxFrameLength = 640
-	scratchPresQ14  []int32   // Size: maxSubFrameLength = 80
 	scratchOutInt16 []int16   // Size: maxFramesPerPacket * maxFrameLength = 960
 	scratchPulses   []int16   // Size: roundUpShellFrame(maxFrameLength) = 320
 	scratchOutput   []float32 // Size: maxFramesPerPacket * maxFrameLength = 960
 	scratchFECOut   []int16   // Size: maxFramesPerPacket * maxFrameLength = 960
-
-	// Scratch buffers for silkDecodeIndices
-	scratchEcIx   []int16 // Size: maxLPCOrder = 16
-	scratchPredQ8 []uint8 // Size: maxLPCOrder = 16
-
-	// Scratch buffers for silkDecodePulses
-	scratchSumPulses []int32 // Size: 21
-	scratchNLshifts  []int32 // Size: 21
 
 	// Scratch buffers for resampler - eliminate allocations in Process()
 	resamplerScratchIn     []int16   // Size: max input samples (fsInKHz * 10 = 160)
@@ -105,13 +92,15 @@ type Decoder struct {
 	plcStereoLI16     []int16
 	plcStereoRI16     []int16
 
-	// plcKernelScratch and state sit at the pointer/noscan boundary: each keeps
-	// its slice/table pointers at offset 0, so the trailing arrays and
-	// everything below are excluded from GC scanning.
-	plcKernelScratch [2]plc.SILKPLCScratch
-	state            [2]decoderState
+	// plcKernelScratch sits at the pointer/noscan boundary: its three slice
+	// headers sit at offset 0 so its trailing arrays and everything below
+	// (including both pointer-free decoderState channels) are excluded from GC
+	// scanning.
+	plcKernelScratch plc.SILKPLCScratch
 
 	// --- Pointer-free (noscan) tail ---
+
+	state [2]decoderState
 
 	apiSampleRate         int
 	haveDecoded           bool  // True after first frame decoded
@@ -140,10 +129,9 @@ type Decoder struct {
 	lastFrameCtrlValid    [2]bool
 
 	// Large pointer-free decoder state structs
-	plcStateVal      plc.State
-	scratchPredQ8Buf [maxLPCOrder]uint8
-	stereo           stereoDecState
-	lastFrameCtrl    [2]decoderControl
+	plcStateVal   plc.State
+	stereo        stereoDecState
+	lastFrameCtrl [2]decoderControl
 }
 
 // ArmPLCLowbandCapture arms (or, with buf==nil, disarms) capture of the next
@@ -171,16 +159,11 @@ func NewDecoder() *Decoder {
 	// - maxFrameLength = 320 (4 subframes * 80)
 	// - maxFramesPerPacket = 3
 	const (
-		maxSLPCSize     = 80 + 16   // maxSubFrameLength + maxLPCOrder
-		maxSLTPSize     = 320       // maxLtpMemLength
-		maxSLTPQ15Size  = 320 + 320 // maxLtpMemLength + maxFrameLength
-		maxPresQ14Size  = 80        // maxSubFrameLength
-		maxOutInt16Size = 3 * 320   // maxFramesPerPacket * maxFrameLength
-		maxPulsesSize   = 320       // roundUpShellFrame(maxFrameLength)
-		maxOutputSize   = 3 * 320   // maxFramesPerPacket * maxFrameLength
+		maxOutInt16Size = 3 * 320 // maxFramesPerPacket * maxFrameLength
+		maxPulsesSize   = 320     // roundUpShellFrame(maxFrameLength)
+		maxOutputSize   = 3 * 320 // maxFramesPerPacket * maxFrameLength
 
 		// Additional scratch buffer sizes
-		maxIterSize     = 21   // (maxFrameLength >> 4) + 1
 		maxResamplerIn  = 160  // 16kHz * 10ms = 160 samples
 		maxResamplerOut = 480  // 48kHz * 10ms = 480 samples
 		maxResamplerBuf = 328  // 2 * 160 + 8 = 328 (2*batchSize + resamplerOrderFIR12)
@@ -192,20 +175,17 @@ func NewDecoder() *Decoder {
 	}
 	d.plcStateVal.Init()
 	d.plcState = &d.plcStateVal
-	d.scratchPredQ8 = d.scratchPredQ8Buf[:]
 
 	// Carve fixed-size state and scratch slices into one arena per element type
-	// (three allocations total instead of ~30 separate buffers).
+	// (two allocations total instead of ~25 separate buffers).
 	const historyLen = 322 // Max pitch lag (288) + LTP taps (5) + margin
-	d.scratchI16.Ensure(maxLPCOrder + historyLen + maxSLTPSize + maxPulsesSize + maxLPCOrder + maxResamplerIn +
+	d.scratchI16.Ensure(maxLPCOrder + historyLen + maxPulsesSize + maxResamplerIn +
 		maxResamplerOut + maxResamplerBuf + 7*maxOutInt16Size + 2*(maxFrameLength+2))
 	d.prevLSFQ15 = d.scratchI16.AllocN(maxLPCOrder)
 	d.historyQ0 = d.scratchI16.AllocN(historyLen)
-	d.scratchSLTP = d.scratchI16.AllocN(maxSLTPSize)
 	d.scratchOutInt16 = d.scratchI16.AllocN(maxOutInt16Size)
 	d.scratchFECOut = d.scratchI16.AllocN(maxOutInt16Size)
 	d.scratchPulses = d.scratchI16.AllocN(maxPulsesSize)
-	d.scratchEcIx = d.scratchI16.AllocN(maxLPCOrder)
 	d.resamplerScratchIn = d.scratchI16.AllocN(maxResamplerIn)
 	d.resamplerScratchOut = d.scratchI16.AllocN(maxResamplerOut)
 	d.resamplerScratchBuf = d.scratchI16.AllocN(maxResamplerBuf)
@@ -216,13 +196,6 @@ func NewDecoder() *Decoder {
 	d.stereoMidNative = d.scratchI16.AllocN(maxOutInt16Size)
 	d.stereoMidFrame = d.scratchI16.AllocN(maxFrameLength + 2)
 	d.stereoSideFrame = d.scratchI16.AllocN(maxFrameLength + 2)
-
-	d.scratchI32.Ensure(maxSLPCSize + maxSLTPQ15Size + maxPresQ14Size + 2*maxIterSize)
-	d.scratchSLPC = d.scratchI32.AllocN(maxSLPCSize)
-	d.scratchSLTPQ15 = d.scratchI32.AllocN(maxSLTPQ15Size)
-	d.scratchPresQ14 = d.scratchI32.AllocN(maxPresQ14Size)
-	d.scratchSumPulses = d.scratchI32.AllocN(maxIterSize)
-	d.scratchNLshifts = d.scratchI32.AllocN(maxIterSize)
 
 	d.scratchF32.Ensure(maxLPCOrder + historyLen + maxOutputSize + maxResamplerOut + maxUpsampleSize + 6*maxOutInt16Size)
 	d.prevLPCValues = d.scratchF32.AllocN(maxLPCOrder)
@@ -238,9 +211,6 @@ func NewDecoder() *Decoder {
 	d.stereoMidFloat = d.scratchF32.AllocN(maxOutInt16Size)
 	resetDecoderState(&d.state[0])
 	resetDecoderState(&d.state[1])
-
-	// Wire up scratch buffers to decoderState for hot-path optimization
-	d.setupScratchBuffers()
 
 	return d
 }
@@ -283,28 +253,6 @@ func (d *Decoder) outputSampleRate() int {
 
 func (d *Decoder) frameDurationFromAPISamples(samples int) FrameDuration {
 	return FrameDurationFromSamples(samples, d.outputSampleRate())
-}
-
-// setupScratchBuffers wires the pre-allocated scratch buffers to both decoderState instances.
-// This enables silkDecodeCore and related functions to use pre-allocated memory.
-func (d *Decoder) setupScratchBuffers() {
-	d.state[0].scratchSLPC = d.scratchSLPC
-	d.state[0].scratchSLTP = d.scratchSLTP
-	d.state[0].scratchSLTPQ15 = d.scratchSLTPQ15
-	d.state[0].scratchPresQ14 = d.scratchPresQ14
-	d.state[0].scratchEcIx = d.scratchEcIx
-	d.state[0].scratchPredQ8 = d.scratchPredQ8
-	d.state[0].scratchSumPulses = d.scratchSumPulses
-	d.state[0].scratchNLshifts = d.scratchNLshifts
-
-	d.state[1].scratchSLPC = d.scratchSLPC
-	d.state[1].scratchSLTP = d.scratchSLTP
-	d.state[1].scratchSLTPQ15 = d.scratchSLTPQ15
-	d.state[1].scratchPresQ14 = d.scratchPresQ14
-	d.state[1].scratchEcIx = d.scratchEcIx
-	d.state[1].scratchPredQ8 = d.scratchPredQ8
-	d.state[1].scratchSumPulses = d.scratchSumPulses
-	d.state[1].scratchNLshifts = d.scratchNLshifts
 }
 
 // Reset clears decoder state for a new stream.
@@ -365,18 +313,6 @@ func (d *Decoder) Reset() {
 	// Clear scratch buffers (zero them for clean state).
 	// Note: We don't reallocate - the buffers remain allocated
 	// and are reused across stream resets for performance.
-	for i := range d.scratchSLPC {
-		d.scratchSLPC[i] = 0
-	}
-	for i := range d.scratchSLTP {
-		d.scratchSLTP[i] = 0
-	}
-	for i := range d.scratchSLTPQ15 {
-		d.scratchSLTPQ15[i] = 0
-	}
-	for i := range d.scratchPresQ14 {
-		d.scratchPresQ14[i] = 0
-	}
 	for i := range d.scratchOutInt16 {
 		d.scratchOutInt16[i] = 0
 	}
@@ -401,18 +337,6 @@ func (d *Decoder) Reset() {
 	}
 	for i := range d.scratchOutput {
 		d.scratchOutput[i] = 0
-	}
-	for i := range d.scratchEcIx {
-		d.scratchEcIx[i] = 0
-	}
-	for i := range d.scratchPredQ8 {
-		d.scratchPredQ8[i] = 0
-	}
-	for i := range d.scratchSumPulses {
-		d.scratchSumPulses[i] = 0
-	}
-	for i := range d.scratchNLshifts {
-		d.scratchNLshifts[i] = 0
 	}
 	for i := range d.resamplerScratchIn {
 		d.resamplerScratchIn[i] = 0
@@ -450,9 +374,6 @@ func (d *Decoder) Reset() {
 	for i := range d.stereoSideFrame {
 		d.stereoSideFrame[i] = 0
 	}
-
-	// Re-wire scratch buffers after resetDecoderState cleared them
-	d.setupScratchBuffers()
 
 	if d.plcState == nil {
 		d.plcState = plc.NewState()
@@ -1087,7 +1008,6 @@ func (d *Decoder) ResetSideChannel() {
 			NbSubfr:     2,
 		}
 	}
-	d.setupScratchBuffers()
 	d.stereo.predPrevQ13 = [2]int16{}
 	d.stereo.sSide = [2]int16{}
 	for i := range d.resamplers {

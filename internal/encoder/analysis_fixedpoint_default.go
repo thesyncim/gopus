@@ -2,8 +2,6 @@
 
 package encoder
 
-import "github.com/thesyncim/gopus/internal/celt"
-
 type fixedAnalysisState struct{}
 
 func (s *TonalityAnalysisState) analysisDownmixAndResample(pcm []float32, channels, dstStart, subframe, offset int) float32 {
@@ -28,10 +26,7 @@ func (s *TonalityAnalysisState) analysisShiftInput() {
 }
 
 func (s *TonalityAnalysisState) analysisRunFFT() {
-	if cap(s.scratchFFTKiss) < 480 {
-		s.scratchFFTKiss = make([]celt.KissCpx, 480)
-	}
-	fft480(&s.scratchFFTOut, &s.scratchFFTIn, s.scratchFFTKiss[:480])
+	fft480(&s.scratchFFTOut, &s.scratchFFTIn, s.scratchFFTKiss[:])
 }
 
 func (s *TonalityAnalysisState) analysisEnergyScale() float32 {

@@ -90,15 +90,14 @@ func (e *Encoder) lbrrEncode(
 
 	// LBRR quantizes from a copy of the primary NSQ state (sNSQ_LBRR in
 	// silk_LBRR_encode_FLP); the scratch buffers are per call and shared.
-	e.lbrrNSQState = *e.nsqState
-	lbrrNSQ := &e.lbrrNSQState
+	lbrrNSQ := *e.nsqState
 	signalType := int(e.lbrrIndices[frameIdx].signalType)
 	quantOffset := int(e.lbrrIndices[frameIdx].quantOffsetType)
 	ltpScaleQ14 := int32(0)
 	if signalType == typeVoiced {
 		ltpScaleQ14 = int32(silk_LTPScales_table_Q14[ltpScaleIndex])
 	}
-	pulses, seedOut := e.computeNSQExcitation(inputQ0, lpcQ12, predCoefQ12, interpIdx, lbrrGainsQ16, pitchLags, ltpCoeffs, ltpScaleQ14, signalType, quantOffset, speechActivityQ8, noiseParams, seed, numSubframes, subframeSamples, frameSamples, lbrrNSQ)
+	pulses, seedOut := e.computeNSQExcitation(inputQ0, lpcQ12, predCoefQ12, interpIdx, lbrrGainsQ16, pitchLags, ltpCoeffs, ltpScaleQ14, signalType, quantOffset, speechActivityQ8, noiseParams, seed, numSubframes, subframeSamples, frameSamples, &lbrrNSQ)
 	e.lbrrIndices[frameIdx].Seed = int8(seedOut)
 
 	lbrrPulses := e.lbrrPulses[frameIdx]

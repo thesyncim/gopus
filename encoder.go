@@ -108,18 +108,18 @@ type EncoderConfig struct {
 // stream. Encode, EncodeInt16, and EncodeInt24 write packets into caller-provided
 // buffers; the Slice methods return owned packet slices.
 type Encoder struct {
-	enc                 *encoder.Encoder
+	// Pointer-bearing fields are grouped first to minimize GC ptrdata.
+	enc          *encoder.Encoder
+	dnnBlob      *dnnblob.Blob
+	scratchPCM32 []float32 // int16 to float32 conversion buffer
+	encoderHD96kFields
+
 	sampleRate          int32
 	channels            int32
 	frameSize           int32
 	expertFrameDuration ExpertFrameDuration
 	application         Application
 	modeSet             bool
-
-	// Scratch buffers for zero-allocation encoding
-	scratchPCM32 []float32 // int16 to float32 conversion buffer
-	dnnBlob      *dnnblob.Blob
-	encoderHD96kFields
 }
 
 // NewEncoder returns an initialized Encoder for cfg. Its configured frame size

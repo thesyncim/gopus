@@ -1009,6 +1009,9 @@ func pitchXCorrFloat32Quality(x, y, xcorr []float32, length, maxPitch int) {
 // (arm64 && !nosimd).
 func pitchXCorrFloat32NeonFMA(x, y, xcorr []float32, length, maxPitch int) {
 	i := 0
+	for ; i <= maxPitch-16; i += 16 {
+		xcorrKernel16Float32NeonOrdered(x, y[i:], (*[16]float32)(xcorr[i:]), length)
+	}
 	for ; i < maxPitch-3; i += 4 {
 		var sum [4]float32
 		xcorrKernel4Float32NeonOrdered(x, y[i:], &sum, length)

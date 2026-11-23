@@ -80,35 +80,32 @@ func noiseShapeQuantizeDelDec(nsq *NSQState, input []int16, params *NSQParams, e
 	}
 
 	sc := nsq.ensureScratch()
-	pulses := sc.scratchPulses
-	if len(pulses) < frameLength {
+	var pulses []int8
+	if frameLength <= len(sc.scratchPulses) {
+		pulses = sc.scratchPulses[:frameLength]
+	} else {
 		pulses = make([]int8, frameLength)
-		sc.scratchPulses = pulses
 	}
-	pulses = pulses[:frameLength]
 
 	var sLTPQ15 []int32
-	if len(sc.scratchSLTPQ15) >= ltpMemLength+frameLength {
+	if ltpMemLength+frameLength <= len(sc.scratchSLTPQ15) {
 		sLTPQ15 = sc.scratchSLTPQ15[:ltpMemLength+frameLength]
 	} else {
 		sLTPQ15 = make([]int32, ltpMemLength+frameLength)
-		sc.scratchSLTPQ15 = sLTPQ15
 	}
 
 	var sLTP []int16
-	if len(sc.scratchSLTP) >= ltpMemLength+frameLength {
+	if ltpMemLength+frameLength <= len(sc.scratchSLTP) {
 		sLTP = sc.scratchSLTP[:ltpMemLength+frameLength]
 	} else {
 		sLTP = make([]int16, ltpMemLength+frameLength)
-		sc.scratchSLTP = sLTP
 	}
 
 	var xScQ10 []int32
-	if len(sc.scratchXScQ10) >= subfrLength {
+	if subfrLength <= len(sc.scratchXScQ10) {
 		xScQ10 = sc.scratchXScQ10[:subfrLength]
 	} else {
 		xScQ10 = make([]int32, subfrLength)
-		sc.scratchXScQ10 = xScQ10
 	}
 
 	// LSF interpolation flag

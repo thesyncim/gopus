@@ -37,78 +37,32 @@ type Encoder struct {
 	// 96000 Hz is available in gopus_qext builds).
 	sampleRate int32
 
-	// inputChannels is the total number of input channels (1-255).
-	inputChannels int
-
-	// streams is the total number of elementary streams (N).
-	streams int
-
-	// coupledStreams is the number of coupled (stereo) streams (M).
-	// The first M encoders produce stereo output, the remaining N-M produce mono.
-	coupledStreams int
-
-	// mapping is the channel mapping table.
-	// mapping[i] indicates which stream channel receives input channel i.
-	// Values 0 to 2*M-1 are for coupled streams (even=left, odd=right).
-	// Values 2*M to N+M-1 are for uncoupled streams.
-	// Value 255 indicates a silent input channel (ignored).
-	mapping []byte
-
-	// encoders contains one encoder per stream.
-	// First M encoders are stereo (for coupled streams).
-	// Remaining N-M encoders are mono (for uncoupled streams).
-	encoders []*encoder.Encoder
-
-	// dnnBlob retains a validated USE_WEIGHTS_FILE blob and is propagated to all
-	// stream encoders when present.
-	dnnBlob *dnnblob.Blob
-
-	// bitrate is the total bitrate in bits per second, distributed across streams.
-	bitrate int
-
-	// mappingFamily indicates the channel mapping family used:
-	//   0: RTP mapping (mono or stereo only)
-	//   1: Vorbis-style mapping (1-8 channels)
-	//   2: Ambisonics ACN/SN3D (mostly mono streams)
-	//   3: Ambisonics with projection (paired stereo streams)
-	//   255: Discrete channels (no predefined mapping)
-	mappingFamily int
-
-	// lfeStream is the stream index that carries LFE, or -1 when absent.
-	lfeStream int
-
-	// restrictedSilk mirrors st->application == OPUS_APPLICATION_RESTRICTED_SILK,
-	// which skips surround_analysis() and the energy masks.
-	restrictedSilk bool
-
-	// Optional projection-family mixing matrix coefficients (column-major S16).
-	projectionMixing []int16
-	projectionCols   int
-	projectionRows   int
-	projectionShortResFields
-
-	// projectionDemixingGain stores the gain field from the internal demixing matrix,
-	// matching OPUS_PROJECTION_GET_DEMIXING_MATRIX_GAIN.
-	// Reference: libopus src/opus_projection_encoder.c:opus_projection_encoder_ctl
-	projectionDemixingGain int
-
-	// streamBitrates stores per-stream rates computed by allocation policy.
-	streamBitrates []int
-
-	// surroundAnalysis owns per-channel history and typed scratch matching the
-	// active libopus float or FIXED_POINT build.
-	surroundAnalysis surroundAnalysisState
-
-	// Per-call encode scratch reused across Encode calls so the steady-state
-	// encode path is allocation-free.
+	// Pointer-bearing fields are grouped first so Go's GC stops scanning at
+	// ptrdata, leaving scalar fields in the noscan tail.
+	mapping              []byte
+	encoders             []*encoder.Encoder
+	dnnBlob              *dnnblob.Blob
+	projectionMixing     []int16
+	streamBitrates       []int
 	streamInputScratch   [][]float32 // routed per-stream input buffers
 	analysisInputScratch [][]float32 // routed per-stream analysis buffers (distinct length)
 	int16Scratch         []float32   // opus_res view of 16-bit analysis input
 	int16CodedScratch    []float32   // opus_res view of 16-bit coded input when it is not the analysis prefix
+	surroundAnalysis     surroundAnalysisState
+	packetParser         packetScratch
+	projectionShortResFields
 
-	// packetParser holds reusable parse/build working buffers for the
-	// self-delimited reframing of the first N-1 stream packets.
-	packetParser packetScratch
+	// --- Pointer-free (noscan) tail ---
+	inputChannels          int
+	streams                int
+	coupledStreams         int
+	bitrate                int
+	mappingFamily          int
+	lfeStream              int
+	restrictedSilk         bool
+	projectionCols         int
+	projectionRows         int
+	projectionDemixingGain int
 }
 
 const surroundBands = 21

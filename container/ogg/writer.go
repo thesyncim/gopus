@@ -60,16 +60,18 @@ const maxPagePayload = 255 * 255
 // safe for concurrent use. Close writes the EOS page but does not flush or close
 // the underlying writer.
 type Writer struct {
-	w           io.Writer
-	config      WriterConfig
-	serial      uint32 // Random bitstream serial number
-	pageSeq     uint32 // Page sequence counter
-	granulePos  uint64 // Sample position (at 48kHz)
-	headersDone bool   // Headers written?
-	closed      bool   // Stream closed?
+	// Pointer-bearing fields sit ahead of pageScratch so Go's GC does not scan
+	// the 4 KB inline page buffer.
+	w         io.Writer
+	largePage []byte // Reused storage for larger pages
+	config    WriterConfig
 
+	serial      uint32                   // Random bitstream serial number
+	pageSeq     uint32                   // Page sequence counter
+	granulePos  uint64                   // Sample position (at 48kHz)
+	headersDone bool                     // Headers written?
+	closed      bool                     // Stream closed?
 	pageScratch [oggPageScratchSize]byte // Inline buffer for typical pages
-	largePage   []byte                   // Reused storage for larger pages
 }
 
 // NewWriter returns a Writer with the default mapping family for mono or

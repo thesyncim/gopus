@@ -144,8 +144,8 @@ func TestNoiseShapeQuantizeDelDecAVX2MatchesStates(t *testing.T) {
 			got.RestoreFrom(ref)
 			gotSc := got.ensureScratch()
 			refSc := ref.ensureScratch()
-			gotSc.scratchSLTPQ15 = append(gotSc.scratchSLTPQ15[:0], refSc.scratchSLTPQ15...)
-			gotSc.scratchSLTP = append(gotSc.scratchSLTP[:0], refSc.scratchSLTP...)
+			gotSc.scratchSLTPQ15 = refSc.scratchSLTPQ15
+			gotSc.scratchSLTP = refSc.scratchSLTP
 			if !nsqDelDecAVX2Supports(tc.params) {
 				t.Fatalf("trial %d frame %d: unsupported params", trial, frame)
 			}

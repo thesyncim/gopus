@@ -412,6 +412,11 @@ type AnalysisInfo struct {
 // src/analysis.c; unexported scratch fields are Go-only reuse buffers and carry
 // no analyzer state across Reset.
 type TonalityAnalysisState struct {
+	// Pointer-bearing scratch slices sit at offset 0 so the large fixed-size
+	// analyzer arrays below live in Go's GC noscan tail.
+	scratchMono       []float32
+	scratchResample3x []float32
+
 	// Fs is the analyzer input sample rate in Hz (libopus "Fs").
 	Fs int32
 	// LSBDepth is the input bit depth (8..24) used to set the noise floor
@@ -505,16 +510,14 @@ type TonalityAnalysisState struct {
 	// digital silence, for which the Info ring repeats the previous entry.
 	silentWindow bool
 
-	// Scratch buffers for zero-allocation analysis
-	scratchMono       []float32
-	scratchResample3x []float32
-	scratchFFTKiss     []celt.KissCpx
-	scratchBinE        []float32 // precomputed bin energies for band loop
-	scratchFFTIn       [480]complex64
-	scratchFFTOut      [480]complex64
-	scratchTonality    [240]float32
-	scratchTonality2   [240]float32
-	scratchNoisiness   [240]float32
+	// Fixed-size scratch buffers (pointer-free, no per-stream heap allocs).
+	scratchFFTKiss   [480]celt.KissCpx
+	scratchBinE      [236]float32 // precomputed bin energies for bins 4..239
+	scratchFFTIn     [480]complex64
+	scratchFFTOut    [480]complex64
+	scratchTonality  [240]float32
+	scratchTonality2 [240]float32
+	scratchNoisiness [240]float32
 }
 
 // NewTonalityAnalysisState allocates and initializes a tonality analyzer for the
@@ -541,16 +544,12 @@ func (s *TonalityAnalysisState) Reset() {
 	lsbDepth := s.LSBDepth
 	scratchMono := s.scratchMono[:0]
 	scratchResample3x := s.scratchResample3x[:0]
-	scratchFFTKiss := s.scratchFFTKiss
-	scratchBinE := s.scratchBinE[:0]
 
 	*s = TonalityAnalysisState{
-		Fs:                fs,
-		LSBDepth:          lsbDepth,
 		scratchMono:       scratchMono,
 		scratchResample3x: scratchResample3x,
-		scratchFFTKiss:    scratchFFTKiss,
-		scratchBinE:       scratchBinE,
+		Fs:                fs,
+		LSBDepth:          lsbDepth,
 	}
 }
 
@@ -788,9 +787,6 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	const binStart = 4 // tbands[0]
 	const binEnd = 240 // tbands[NbTBands]
 	const numBins = binEnd - binStart
-	if cap(s.scratchBinE) < numBins {
-		s.scratchBinE = make([]float32, numBins)
-	}
 	binEArr := s.scratchBinE[:numBins]
 	{
 		for i := binStart; i < binEnd; i++ {

@@ -48,13 +48,12 @@ func DefaultDecoderConfig(sampleRate, channels int) DecoderConfig {
 // not safe for concurrent use; use one Decoder per stream. Construct it with
 // [NewDecoder]; the zero value is not ready for use.
 type Decoder struct {
-	silkDecoder      *silk.Decoder   // SILK-only mode decoder
-	celtDecoder      *celt.Decoder   // CELT-only mode decoder
-	hybridDecoder    *hybrid.Decoder // Hybrid mode decoder
-	sampleRate       int32
-	channels         int32
-	maxPacketSamples int
-	maxPacketBytes   int
+	// Pointer-bearing fields are grouped first so Go's GC stops scanning at
+	// ptrdata, leaving scalar state in the noscan tail.
+	silkDecoder   *silk.Decoder   // SILK-only mode decoder
+	celtDecoder   *celt.Decoder   // CELT-only mode decoder
+	hybridDecoder *hybrid.Decoder // Hybrid mode decoder
+	dnnBlob       *dnnblob.Blob
 	// scratchF32 backs the four fixed float32 decode work buffers below with one
 	// contiguous allocation; see NewDecoder.
 	scratchF32        arena.Bump[float32]
@@ -62,6 +61,20 @@ type Decoder struct {
 	scratchTransition []float32
 	scratchRedundant  []float32
 	scratchSilkPLC    []float32 // 10 ms SILK PLC scratch for <10 ms concealment chunks
+	fecData           []byte    // Stored packet data containing LBRR for FEC recovery
+	// Scratch range decoder to avoid per-frame heap allocations
+	scratchRangeDecoder rangecoding.Decoder
+	decoderDREDFields
+	decoderOSCEFields
+	decoderHD96kFields
+	decoderFixedFields
+	fixedQEXT decoderFixedQEXTFields
+
+	// --- Pointer-free (noscan) tail ---
+	sampleRate         int32
+	channels           int32
+	maxPacketSamples   int
+	maxPacketBytes     int
 	lastFrameSize      int32
 	lastPacketDuration int32
 	prevMode           Mode // Track last mode for PLC
@@ -80,25 +93,15 @@ type Decoder struct {
 
 	// FEC (Forward Error Correction) state
 	// Stages the following packet's LBRR payload to recover the missing audio.
-	fecData       []byte    // Stored packet data containing LBRR for FEC recovery
 	fecMode       Mode      // Mode of the packet containing LBRR
 	fecBandwidth  Bandwidth // Bandwidth of the packet containing LBRR
 	fecStereo     bool      // Whether the packet was stereo
 	fecFrameSize  int       // Frame size of the packet containing LBRR
-	fecFrameCount int  // Number of frames in packet
-	hasFEC        bool // True if fecData contains valid LBRR data
-
-	// Scratch range decoder to avoid per-frame heap allocations
-	scratchRangeDecoder rangecoding.Decoder
+	fecFrameCount int       // Number of frames in packet
+	hasFEC        bool      // True if fecData contains valid LBRR data
 
 	// Soft clipping memory (float decode uses none; int16 decode uses this)
 	softClipMem [2]float32
-	dnnBlob     *dnnblob.Blob
-	decoderDREDFields
-	decoderOSCEFields
-	decoderHD96kFields
-	decoderFixedFields
-	fixedQEXT decoderFixedQEXTFields
 
 	// Decoder-side DNN readiness mirrors the validated model families retained
 	// by OPUS_SET_DNN_BLOB; optional paths require their corresponding models.

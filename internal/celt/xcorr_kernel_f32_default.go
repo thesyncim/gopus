@@ -11,3 +11,14 @@ const pitchXcorrUsesNeonFMA = false
 func xcorrKernel4Float32NeonOrdered(x, y []float32, sum *[4]float32, length int) {
 	xcorrKernel4Float32(x, y, sum, length)
 }
+
+func xcorrKernel16Float32NeonOrdered(x, y []float32, dst *[16]float32, length int) {
+	for k := 0; k < 16; k += 4 {
+		var sum [4]float32
+		xcorrKernel4Float32(x, y[k:], &sum, length)
+		dst[k] = sum[0]
+		dst[k+1] = sum[1]
+		dst[k+2] = sum[2]
+		dst[k+3] = sum[3]
+	}
+}

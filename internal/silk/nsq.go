@@ -66,14 +66,15 @@ type nsqCore struct {
 
 // nsqScratch holds transient per-call NSQ working buffers and delayed-decision
 // state tables. Kept out-of-line from nsqCore so state snapshots copy only the
-// ~4.4 KB persistent state without write barriers or per-call scratch.
+// ~4.4 KB persistent state without write barriers or per-call scratch. It is
+// completely pointer-free so Go allocates it in a noscan span (0 GC scan cost).
 type nsqScratch struct {
-	// Pre-allocated scratch buffers for zero-allocation encoding
-	scratchPulses  []int8  // Size: maxFrameLengthNSQ = 320
-	scratchXq      []int16 // Size: maxFrameLengthNSQ = 320
-	scratchSLTPQ15 []int32 // Size: ltpMemLength + maxFrameLengthNSQ = 640
-	scratchSLTP    []int16 // Size: ltpMemLength + maxFrameLengthNSQ = 640
-	scratchXScQ10  []int32 // Size: maxSubFrameLength = 80
+	// Inline fixed-size scratch buffers for zero-allocation encoding
+	scratchPulses  [maxFrameLengthNSQ]int8
+	scratchXq      [maxFrameLengthNSQ]int16
+	scratchSLTPQ15 [ltpMemLength + maxFrameLengthNSQ]int32
+	scratchSLTP    [ltpMemLength + maxFrameLengthNSQ]int16
+	scratchXScQ10  [maxSubFrameLength]int32
 
 	// Delayed decision states (NSQ_del_dec)
 	delDecStates [maxDelDecStates]nsqDelDecState
@@ -84,13 +85,7 @@ type nsqScratch struct {
 }
 
 func newNSQScratch() *nsqScratch {
-	return &nsqScratch{
-		scratchPulses:  make([]int8, maxFrameLengthNSQ),
-		scratchXq:      make([]int16, maxFrameLengthNSQ),
-		scratchSLTPQ15: make([]int32, ltpMemLength+maxFrameLengthNSQ),
-		scratchSLTP:    make([]int16, ltpMemLength+maxFrameLengthNSQ),
-		scratchXScQ10:  make([]int32, maxSubFrameLength),
-	}
+	return &nsqScratch{}
 }
 
 // NSQState holds the noise shaping quantizer state.
@@ -223,15 +218,14 @@ func NoiseShapeQuantize(nsq *NSQState, input []int16, params *NSQParams) ([]int8
 	// Set unvoiced lag to previous, overwrite for voiced
 	lag := int(nsq.lagPrev)
 
-	// Use pre-allocated output buffers if available, otherwise allocate
+	// Use inline scratch output buffers
 	sc := nsq.ensureScratch()
 	var pulses []int8
-	if len(sc.scratchPulses) >= frameLength {
+	if frameLength <= len(sc.scratchPulses) {
 		pulses = sc.scratchPulses[:frameLength]
 		clear(pulses)
 	} else {
 		pulses = make([]int8, frameLength)
-		sc.scratchPulses = pulses
 	}
 
 	var xq []int16
@@ -241,41 +235,37 @@ func NoiseShapeQuantize(nsq *NSQState, input []int16, params *NSQParams) ([]int8
 		// Use state buffer so LTP rewhitening and history update work correctly.
 		xq = nsq.xq[xqStart:xqEnd]
 		clear(xq)
-	} else if len(sc.scratchXq) >= frameLength {
+	} else if frameLength <= len(sc.scratchXq) {
 		// Fallback to scratch if frame length exceeds state buffer.
 		xq = sc.scratchXq[:frameLength]
 		clear(xq)
 	} else {
 		xq = make([]int16, frameLength)
-		sc.scratchXq = xq
 	}
 
-	// Use pre-allocated working buffers if available
+	// Use inline working buffers
 	var sLTPQ15 []int32
-	if len(sc.scratchSLTPQ15) >= ltpMemLength+frameLength {
+	if ltpMemLength+frameLength <= len(sc.scratchSLTPQ15) {
 		sLTPQ15 = sc.scratchSLTPQ15[:ltpMemLength+frameLength]
 		clear(sLTPQ15)
 	} else {
 		sLTPQ15 = make([]int32, ltpMemLength+frameLength)
-		sc.scratchSLTPQ15 = sLTPQ15
 	}
 
 	var sLTP []int16
-	if len(sc.scratchSLTP) >= ltpMemLength+frameLength {
+	if ltpMemLength+frameLength <= len(sc.scratchSLTP) {
 		sLTP = sc.scratchSLTP[:ltpMemLength+frameLength]
 		clear(sLTP)
 	} else {
 		sLTP = make([]int16, ltpMemLength+frameLength)
-		sc.scratchSLTP = sLTP
 	}
 
 	var xScQ10 []int32
-	if len(sc.scratchXScQ10) >= subfrLength {
+	if subfrLength <= len(sc.scratchXScQ10) {
 		xScQ10 = sc.scratchXScQ10[:subfrLength]
 		clear(xScQ10)
 	} else {
 		xScQ10 = make([]int32, subfrLength)
-		sc.scratchXScQ10 = xScQ10
 	}
 
 	// Check LSF interpolation
@@ -347,12 +337,12 @@ func NoiseShapeQuantize(nsq *NSQState, input []int16, params *NSQParams) ([]int8
 	}
 
 	// Copy reconstructed samples to scratch BEFORE shifting state.
-	outXQ := sc.scratchXq
-	if len(outXQ) < frameLength {
+	var outXQ []int16
+	if frameLength <= len(sc.scratchXq) {
+		outXQ = sc.scratchXq[:frameLength]
+	} else {
 		outXQ = make([]int16, frameLength)
-		sc.scratchXq = outXQ
 	}
-	outXQ = outXQ[:frameLength]
 	copy(outXQ, nsq.xq[ltpMemLength:ltpMemLength+frameLength])
 
 	// Update state for next frame
