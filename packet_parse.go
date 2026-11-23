@@ -112,20 +112,10 @@ func parsePacketInto(data []byte, scratch *[maxRepacketizerFrames]int) (PacketIn
 
 		// Parse padding if present
 		if hasPadding {
-			for {
-				if offset >= len(data) {
-					return PacketInfo{}, ErrPacketTooShort
-				}
-				padByte := int(data[offset])
-				offset++
-				if padByte == 255 {
-					padding += 254
-				} else {
-					padding += padByte
-				}
-				if padByte < 255 {
-					break
-				}
+			var err error
+			offset, padding, err = parseCode3Padding(data, offset)
+			if err != nil {
+				return PacketInfo{}, err
 			}
 		}
 		info.FrameCount = frameCount
@@ -220,18 +210,10 @@ func validatePacketFraming(data []byte) error {
 		offset := 2
 		padding := 0
 		if hasPadding {
-			for {
-				if offset >= len(data) {
-					return ErrPacketTooShort
-				}
-				b := int(data[offset])
-				offset++
-				if b == 255 {
-					padding += 254
-				} else {
-					padding += b
-					break
-				}
+			var err error
+			offset, padding, err = parseCode3Padding(data, offset)
+			if err != nil {
+				return err
 			}
 		}
 		if vbr {
@@ -256,6 +238,33 @@ func validatePacketFraming(data []byte) error {
 		}
 	}
 	return nil
+}
+
+// parseCode3Padding parses RFC 6716 Section 3.2.5 code-3 padding length bytes.
+func parseCode3Padding(data []byte, offset int) (int, int, error) {
+	padding := 0
+	for {
+		if offset >= len(data) {
+			return 0, 0, ErrPacketTooShort
+		}
+		padByte := int(data[offset])
+		offset++
+		if padByte == 255 {
+			if offset >= len(data) {
+				return 0, 0, ErrPacketTooShort
+			}
+			padding += 254
+			if offset+padding > len(data) {
+				return 0, 0, ErrInvalidPacket
+			}
+		} else {
+			padding += padByte
+			if offset+padding > len(data) {
+				return 0, 0, ErrInvalidPacket
+			}
+			return offset, padding, nil
+		}
+	}
 }
 
 // parseFrameLength parses a frame length from the packet data at the given offset.

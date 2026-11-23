@@ -8,10 +8,6 @@ func roundF32HalfAwayFromZeroToInt32(x float32) int32 {
 	return opusmath.RoundF32HalfAwayFromZeroToInt32(x)
 }
 
-func expF32(x float32) float32 {
-	return opusmath.ExpF32(x)
-}
-
 func exp2F32(x float32) float32 {
 	return opusmath.Exp2F32(x)
 }

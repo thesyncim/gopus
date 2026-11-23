@@ -433,18 +433,23 @@ func (d *streamState) recordDecodeCall(frameSize, dataLen int) {
 	d.lastDataLen = int32(dataLen)
 }
 
-func (d *streamState) finishDecode(out []float32, err error) ([]float32, error) {
+func (d *streamState) finishDecode32(out []float32, err error) ([]float32, error) {
 	if err == nil {
 		d.applyOutputGain32(out)
 	}
 	return out, err
 }
 
-func (d *streamState) finishDecode32(out []float32, err error) ([]float32, error) {
-	if err == nil {
-		d.applyOutputGain32(out)
+func (d *streamState) prepareStereoTransition(packetStereo bool, bandwidth silk.Bandwidth) {
+	if !packetStereo || d.channels != 2 || d.silkDec.InternalStereo() {
+		return
 	}
-	return out, err
+	d.silkDec.ResetSideChannel()
+	leftResampler := d.silkDec.GetResampler(bandwidth)
+	rightResampler := d.silkDec.GetResamplerRightChannel(bandwidth)
+	if rightResampler != nil && leftResampler != nil {
+		rightResampler.CopyFrom(leftResampler)
+	}
 }
 
 func (d *streamState) decodeSILKToFloat32(data []byte, frameSize int, packetStereo bool, opusBandwidth int) ([]float32, error) {
@@ -456,6 +461,8 @@ func (d *streamState) decodeSILKToFloat32(data []byte, frameSize int, packetSter
 		d.installOSCELACESilkPostfilterHook(bw, packetStereo)
 		defer d.clearOSCELACESilkPostfilterHook()
 	}
+
+	d.prepareStereoTransition(packetStereo, bw)
 
 	var out32 []float32
 	var err error
@@ -469,7 +476,7 @@ func (d *streamState) decodeSILKToFloat32(data []byte, frameSize int, packetSter
 		case packetStereo && d.channels == 2:
 			n, err = d.silkDec.DecodePLCStereoInto(bw, frameSize, out32)
 		case packetStereo && d.channels == 1:
-			n, err = d.silkDec.DecodePLCInto(bw, frameSize, out32)
+			n, err = d.silkDec.DecodePLCStereoToMonoInto(bw, frameSize, out32)
 		case !packetStereo && d.channels == 2:
 			n, err = d.silkDec.DecodeMonoToStereoPLCInto(bw, frameSize, d.silkDec.InternalStereo(), out32)
 		default:
@@ -519,6 +526,8 @@ func (d *streamState) decodeSILKWithDecoder(rd *rangecoding.Decoder, frameSize i
 		d.installOSCELACESilkPostfilterHook(bw, packetStereo)
 		defer d.clearOSCELACESilkPostfilterHook()
 	}
+
+	d.prepareStereoTransition(packetStereo, bw)
 
 	channels := int(d.channels)
 	var out32 []float32
@@ -734,11 +743,10 @@ func (d *streamState) decodePLCChunkToFloat32(frameSize int) ([]float32, error) 
 		if err != nil {
 			return nil, err
 		}
-		out, err = d.finishDecode32(out[:frameSize*int(d.channels)], nil)
+		out = out[:frameSize*int(d.channels)]
 	case streamModeHybrid:
 		out = d.framePCMFor(frameSize * int(d.channels))
 		err = d.decodeHybridPLCChunkToFloat32(frameSize, out)
-		out, err = d.finishDecode32(out, err)
 		if extsupport.OSCERuntime && err == nil {
 			d.markOSCEInactiveIfModeIneligible(streamTOC{mode: int(mode), bandwidth: int(d.lastBandwidth), stereo: d.lastPacketStereo}, nil, frameSize)
 		}
@@ -746,7 +754,6 @@ func (d *streamState) decodePLCChunkToFloat32(frameSize int) ([]float32, error) 
 		d.celtDec.SetBandwidth(celt.BandwidthFromOpusConfig(int(d.lastBandwidth)))
 		out = d.framePCMFor(frameSize * int(d.channels))
 		err = d.celtDec.DecodeFrameWithPacketStereoToFloat32AtAPIRate(nil, frameSize, d.lastPacketStereo, out)
-		out, err = d.finishDecode32(out, err)
 		if extsupport.OSCERuntime && err == nil {
 			d.markOSCEInactiveIfModeIneligible(streamTOC{mode: int(mode), bandwidth: int(d.lastBandwidth), stereo: d.lastPacketStereo}, nil, frameSize)
 		}
@@ -763,13 +770,8 @@ func (d *streamState) decodePLCChunkToFloat32(frameSize int) ([]float32, error) 
 func (d *streamState) decodePacketToFloat32(data []byte, frameSize int) ([]float32, error) {
 	if len(data) == 0 {
 		d.recordDecodeCall(frameSize, 0)
-		return d.decodePLCToFloat32(frameSize)
+		return d.finishDecode32(d.decodePLCToFloat32(frameSize))
 	}
-	if len(data) < 1 {
-		return nil, ErrPacketTooShort
-	}
-
-	d.recordDecodeCall(frameSize, len(data))
 
 	toc := parseStreamTOC(data[0])
 	parsed, err := parseOpusPacketInto(&d.packetParser, data, false)
@@ -784,6 +786,9 @@ func (d *streamState) decodePacketToFloat32(data []byte, frameSize int) ([]float
 	packetFrameSize := opusSamplesPerFrameAtRate(data[0], int(d.sampleRate))
 	if frameCount*packetFrameSize > frameSize {
 		return nil, ErrBufferTooSmall
+	}
+	if frameCount > 1 && frameSize%frameCount != 0 {
+		return nil, fmt.Errorf("multistream: frameSize %d not divisible by packet frame count %d", frameSize, frameCount)
 	}
 	// opus_decode_native updates st->frame_size only after packet validation.
 	// This TOC duration remains the PLC cap across calls and is independent of
@@ -800,10 +805,12 @@ func (d *streamState) decodePacketToFloat32(data []byte, frameSize int) ([]float
 		if extsupport.QEXT && !d.ignoreExtensions {
 			qextPayload = qextPayloads.frame(0)
 		}
-		return d.finishDecode32(d.decodeFramePayloadToFloat32(parsed.frames[0], frameSize, toc, qextPayload))
-	}
-	if frameSize%frameCount != 0 {
-		return nil, fmt.Errorf("multistream: frameSize %d not divisible by packet frame count %d", frameSize, frameCount)
+		out, err := d.decodeFramePayloadToFloat32(parsed.frames[0], frameSize, toc, qextPayload)
+		if err != nil {
+			return nil, err
+		}
+		d.recordDecodeCall(frameSize, len(data))
+		return d.finishDecode32(out, nil)
 	}
 
 	subFrameSize := frameSize / frameCount
@@ -819,6 +826,7 @@ func (d *streamState) decodePacketToFloat32(data []byte, frameSize int) ([]float
 		}
 		out = append(out, frameDecoded...)
 	}
+	d.recordDecodeCall(frameSize, len(data))
 	return d.finishDecode32(out, nil)
 }
 

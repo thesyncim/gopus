@@ -19,6 +19,15 @@ func imdctTDACWindow(out, xsrc, window []float32, yOut0, xOut0, xSrc0, wBwd0, co
 	if count <= 0 {
 		return
 	}
+	_ = out[yOut0]
+	_ = out[yOut0+count-1]
+	_ = out[xOut0-count+1]
+	_ = out[xOut0]
+	_ = xsrc[xSrc0-count+1]
+	_ = xsrc[xSrc0]
+	_ = window[count-1]
+	_ = window[wBwd0-count+1]
+	_ = window[wBwd0]
 	op := unsafe.Pointer(unsafe.SliceData(out))
 	xp := unsafe.Pointer(unsafe.SliceData(xsrc))
 	wp := unsafe.Pointer(unsafe.SliceData(window))

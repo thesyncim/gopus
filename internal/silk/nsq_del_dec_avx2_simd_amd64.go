@@ -147,7 +147,7 @@ func nsqDelDecAVX2Supports(params *NSQParams) bool {
 //
 //go:noinline
 func noiseShapeQuantizeDelDecAVX2(nsq *NSQState, input []int16, params *NSQParams, f *nsqDelDecFrame) int {
-	st := &nsq.delDecAVX2
+	st := &nsq.ensureScratch().delDecAVX2
 	subfrLength := params.SubfrLength
 	ltpMemLength := params.LTPMemLength
 	nStates := f.nStates

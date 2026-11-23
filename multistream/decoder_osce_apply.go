@@ -349,6 +349,7 @@ func (d *streamState) applyOSCEBWE(out []float32, frameSize int, silkBW silk.Ban
 				out[2*i+1] = out[2*i]
 			}
 			state.prevBWEActive = true
+			state.prevExtendedMode = bweModeSilkBBWE
 			return true
 		}
 		if fadeInIntoBWE {
@@ -420,6 +421,7 @@ func (d *streamState) applyOSCEBWE(out []float32, frameSize int, silkBW silk.Ban
 		}
 	}
 	state.prevBWEActive = true
+	state.prevExtendedMode = bweModeSilkBBWE
 	return true
 }
 
@@ -427,10 +429,10 @@ func (d *streamState) markOSCEInactiveIfModeIneligible(toc streamTOC, _ []float3
 	if d == nil || d.osceState == nil {
 		return
 	}
-	if toc.mode == streamModeSILK && toc.bandwidth == 2 || toc.mode == streamModeHybrid {
+	if toc.mode == streamModeSILK && toc.bandwidth == 2 {
 		return
 	}
-	if toc.mode != streamModeCELT && d.osceState.prevLACEActive {
+	if toc.mode != streamModeCELT && toc.mode != streamModeHybrid && d.osceState.prevLACEActive {
 		d.resetOSCELACEState(toc.stereo)
 	}
 	d.osceState.prevBWEActive = false
@@ -462,16 +464,6 @@ func (d *streamState) resetOSCELACEChannel(channel int, mode streamOSCELACEMode)
 	state.laceMethod = mode
 	state.prevLACEActive = true
 	state.laceResetFrames[channel] = 2
-}
-
-func (d *streamState) resetOSCEInactiveState(packetStereo bool) {
-	if d == nil || d.osceState == nil {
-		return
-	}
-	if d.osceState.prevLACEActive {
-		d.resetOSCELACEState(packetStereo)
-	}
-	d.osceState.prevBWEActive = false
 }
 
 func (d *streamState) applyOSCEBWEFadeOut(out []float32, frameSize int, packetStereo bool) {

@@ -861,22 +861,6 @@ func assertCustomDecodeExact(t *testing.T, label string, decoded, want []float32
 	}
 }
 
-func firstSampleDivergence(a, b []float32) int {
-	n := len(a)
-	if len(b) < n {
-		n = len(b)
-	}
-	for i := 0; i < n; i++ {
-		if a[i] != b[i] {
-			return i
-		}
-	}
-	if len(a) != len(b) {
-		return n
-	}
-	return -1
-}
-
 func writeU32(b *bytes.Buffer, v uint32) {
 	var buf [4]byte
 	binary.LittleEndian.PutUint32(buf[:], v)

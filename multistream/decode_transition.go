@@ -170,6 +170,10 @@ func (d *streamState) decodeSILKModeWithTransition(frame []byte, frameSize, tran
 	// float redundancy and transition fades modify this output buffer.
 	d.captureFixedSILKMain(out)
 
+	// Set CELT end-band to the SILK bandwidth before redundancy or Hybrid->SILK
+	// fade-out, matching libopus opus_decode_frame (CELT_SET_END_BAND).
+	d.celtDec.SetBandwidth(celtBW)
+
 	// A CELT->SILK redundant frame is decoded BEFORE the Hybrid->SILK fade-out so
 	// the fade-out gate sees the redundancy decision (opus_decode_frame ordering).
 	// The redundant frame is band-limited to the SILK bandwidth (libopus sets
@@ -177,7 +181,6 @@ func (d *streamState) decodeSILKModeWithTransition(frame []byte, frameSize, tran
 	// celt_decode_with_ec call) and the CELT decoder keeps its prior state (no
 	// reset) so the main frame reads the redundancy-updated state.
 	if redundancyValid && celtToSilk {
-		d.celtDec.SetBandwidth(celtBW)
 		redundantData := frame[mainLen : mainLen+redundancyBytes]
 		redundantAudio = d.redundantPCMFor(f5 * channels)
 		if err := d.celtDec.DecodeFrameWithPacketStereoToFloat32AtAPIRate(redundantData, f5, toc.stereo, redundantAudio); err != nil {
@@ -190,7 +193,7 @@ func (d *streamState) decodeSILKModeWithTransition(frame []byte, frameSize, tran
 	// CELT MDCT history rings down cleanly (opus_decode_frame MODE_SILK_ONLY else
 	// branch), skipped when a CELT->SILK redundant frame continues a redundancy run.
 	if !redundancy || !celtToSilk || !d.prevRedundancy {
-		if err := d.addHybridToSilkFadeOut(out); err != nil {
+		if err := d.addHybridToSilkFadeOut(out, toc.stereo); err != nil {
 			return nil, err
 		}
 	}
@@ -302,13 +305,13 @@ func (d *streamState) transitionPLCToFloat32(transSize, prevMode, prevBW int, pr
 // down cleanly (opus_decode_frame, the MODE_SILK_ONLY else branch). The shared
 // CELT decoder matches the single decoder libopus uses, so decoding here advances
 // the same state.
-func (d *streamState) addHybridToSilkFadeOut(out []float32) error {
+func (d *streamState) addHybridToSilkFadeOut(out []float32, packetStereo bool) error {
 	// src/opus_decoder.c gates this on prev_mode; the Go mode sentinel is Hybrid
 	// even before a fresh or reset stream has decoded a frame.
 	if !d.haveDecoded || int(d.lastMode) != streamModeHybrid {
 		return nil
 	}
-	return d.celtDec.AccumulateFrameWithPacketStereoAtAPIRate(celtSilenceFrame2B[:], d.sampleRateF2_5(), d.lastPacketStereo, out)
+	return d.celtDec.AccumulateFrameWithPacketStereoAtAPIRate(celtSilenceFrame2B[:], d.sampleRateF2_5(), packetStereo, out)
 }
 
 func (d *streamState) sampleRateF2_5() int {

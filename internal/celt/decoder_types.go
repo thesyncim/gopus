@@ -174,7 +174,6 @@ type Decoder struct {
 	scratchAllocWork        []int32
 	scratchBands            bandDecodeScratch
 	scratchIMDCTF32         imdctScratchF32
-	scratchIMDCTF32R        imdctScratchF32
 	scratchSpecRF32         []float32
 	scratchStereoF32        []float32
 	scratchShortCoeffsF32   []float32

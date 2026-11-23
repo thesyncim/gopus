@@ -443,13 +443,9 @@ func b2i(b bool) int {
 	return 0
 }
 
-// quantPartitionDecode ports celt/bands.c quant_partition (decode side, QEXT
-// off). It recursively splits a mono partition, decoding the split angle and
+// quantPartitionDecodeWithExtBudget ports celt/bands.c quant_partition (decode
+// side). It recursively splits a mono partition, decoding the split angle and
 // the PVQ codeword via AlgUnquant, and folds zero-pulse bands.
-func quantPartitionDecode(ctx *bandDecCtx, x []int32, n, b, B int, lowband []int32, lm int, gain int32, fill int) uint {
-	return quantPartitionDecodeWithExtBudget(ctx, x, n, b, B, lowband, lm, gain, fill, ctx.extBudget)
-}
-
 func quantPartitionDecodeWithExtBudget(ctx *bandDecCtx, x []int32, n, b, B int, lowband []int32, lm int, gain int32, fill, extBudget int) uint {
 	maxBits := 0
 	if lm != -1 {

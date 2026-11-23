@@ -21,8 +21,11 @@ const mdctUsePostTwiddleNeon = true
 // the scalar loop bit-for-bit. The caller does the n4%8
 // middle scalarly, so this runs exactly pairBlocks blocks.
 func mdctPostTwiddleNeon(coeffs []float32, fftStage []kissCpx, trig []float32, n2, n4, pairBlocks int) {
-	if pairBlocks == 0 {
+	if pairBlocks <= 0 {
 		return
+	}
+	if 8*pairBlocks > n4 {
+		panic("celt: mdctPostTwiddleNeon pairBlocks out of range")
 	}
 	_ = coeffs[n2-1]
 	_ = trig[n2-1]
@@ -71,13 +74,15 @@ func mdctPostTwiddleNeon(coeffs []float32, fftStage []kissCpx, trig []float32, n
 		storeF32x4(high, yrM.ToBits().InterleaveLo(rYiF.ToBits()).BitsToFloat32())
 		storeF32x4(unsafe.Add(high, 16), yrM.ToBits().InterleaveHi(rYiF.ToBits()).BitsToFloat32())
 
-		forwardFFT = unsafe.Add(forwardFFT, 32)
-		mirrorFFT = unsafe.Add(mirrorFFT, -32)
-		forwardT0 = unsafe.Add(forwardT0, 16)
-		forwardT1 = unsafe.Add(forwardT1, 16)
-		mirrorT0 = unsafe.Add(mirrorT0, -16)
-		mirrorT1 = unsafe.Add(mirrorT1, -16)
-		low = unsafe.Add(low, 32)
-		high = unsafe.Add(high, -32)
+		if b+1 < pairBlocks {
+			forwardFFT = unsafe.Add(forwardFFT, 32)
+			mirrorFFT = unsafe.Add(mirrorFFT, -32)
+			forwardT0 = unsafe.Add(forwardT0, 16)
+			forwardT1 = unsafe.Add(forwardT1, 16)
+			mirrorT0 = unsafe.Add(mirrorT0, -16)
+			mirrorT1 = unsafe.Add(mirrorT1, -16)
+			low = unsafe.Add(low, 32)
+			high = unsafe.Add(high, -32)
+		}
 	}
 }

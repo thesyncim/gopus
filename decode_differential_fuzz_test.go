@@ -126,27 +126,6 @@ func absF32(v float32) float32 {
 	return v
 }
 
-// diffMode classifies a TOC byte's coding mode for tolerance selection.
-type diffMode int
-
-const (
-	diffModeSILK diffMode = iota
-	diffModeHybrid
-	diffModeCELT
-)
-
-func tocMode(toc byte) diffMode {
-	config := int(toc >> 3)
-	switch {
-	case config < 12:
-		return diffModeSILK
-	case config < 16:
-		return diffModeHybrid
-	default:
-		return diffModeCELT
-	}
-}
-
 // ---- (a) encode-then-decode sweep -----------------------------------------
 
 // encodeSweepSpec is one point in the encoder configuration space.

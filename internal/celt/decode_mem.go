@@ -149,10 +149,11 @@ func (d *Decoder) synthesizeToDecodeMem(specL, specR []float32, n, shortBlocks i
 	overlap := d.synthOverlapLen()
 	shortCoeffs := ensureFloat32Slice(&d.scratchShortCoeffsF32, n)
 	trace := d.synthTrace
+	scratch := &d.scratchIMDCTF32
 	for c := range int(d.channels) {
-		spec, scratch := specL, &d.scratchIMDCTF32
+		spec := specL
 		if c == 1 {
-			spec, scratch = specR, &d.scratchIMDCTF32R
+			spec = specR
 		}
 		if trace != nil {
 			trace.captureSpec(c, spec[:n])

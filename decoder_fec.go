@@ -97,12 +97,12 @@ func extractFirstFramePayload(data []byte, toc TOC) ([]byte, error) {
 	if len(data) < 1 {
 		return nil, ErrPacketTooShort
 	}
-	// A 1-byte code-0 packet is a valid empty (DTX/silence) frame: its first frame
-	// payload is the empty byte slice, not an error. libopus opus_packet_has_lbrr
-	// reports no LBRR for it, and decode_fec falls through to PLC. The other framing
-	// codes need at least their frame-count / length bytes, handled below.
+	// A 1-byte code-0 or code-1 packet is a valid empty (DTX/silence) frame:
+	// its first frame payload is the empty byte slice, not an error. libopus
+	// opus_packet_has_lbrr reports no LBRR for it, and decode_fec falls through
+	// to PLC. Codes 2 and 3 need at least their frame-count / length bytes.
 	if len(data) == 1 {
-		if toc.FrameCode == 0 {
+		if toc.FrameCode == 0 || toc.FrameCode == 1 {
 			return data[1:], nil
 		}
 		return nil, ErrPacketTooShort
@@ -117,7 +117,7 @@ func extractFirstFramePayload(data []byte, toc TOC) ([]byte, error) {
 			return nil, ErrInvalidPacket
 		}
 		frameLen := frameDataLen / 2
-		if frameLen <= 0 || 1+frameLen > len(data) {
+		if frameLen < 0 || 1+frameLen > len(data) {
 			return nil, ErrInvalidPacket
 		}
 		return data[1 : 1+frameLen], nil
@@ -130,7 +130,7 @@ func extractFirstFramePayload(data []byte, toc TOC) ([]byte, error) {
 			return nil, err
 		}
 		headerLen := 1 + bytesRead
-		if frame1Len <= 0 || headerLen+frame1Len > len(data) {
+		if frame1Len < 0 || headerLen+frame1Len > len(data) {
 			return nil, ErrInvalidPacket
 		}
 		return data[headerLen : headerLen+frame1Len], nil
@@ -149,20 +149,10 @@ func extractFirstFramePayload(data []byte, toc TOC) ([]byte, error) {
 		offset := 2
 		padding := 0
 		if hasPadding {
-			for {
-				if offset >= len(data) {
-					return nil, ErrPacketTooShort
-				}
-				padByte := int(data[offset])
-				offset++
-				if padByte == 255 {
-					padding += 254
-				} else {
-					padding += padByte
-				}
-				if padByte < 255 {
-					break
-				}
+			var err error
+			offset, padding, err = parseCode3Padding(data, offset)
+			if err != nil {
+				return nil, err
 			}
 		}
 
@@ -189,7 +179,7 @@ func extractFirstFramePayload(data []byte, toc TOC) ([]byte, error) {
 					offset += readN
 				}
 			}
-			if frameLen <= 0 || offset+frameLen > frameDataEnd {
+			if frameLen < 0 || offset+frameLen > frameDataEnd {
 				return nil, ErrInvalidPacket
 			}
 			return data[offset : offset+frameLen], nil
@@ -200,7 +190,7 @@ func extractFirstFramePayload(data []byte, toc TOC) ([]byte, error) {
 			return nil, ErrInvalidPacket
 		}
 		frameLen := frameDataLen / m
-		if frameLen <= 0 || offset+frameLen > len(data)-padding {
+		if frameLen < 0 || offset+frameLen > len(data)-padding {
 			return nil, ErrInvalidPacket
 		}
 		return data[offset : offset+frameLen], nil

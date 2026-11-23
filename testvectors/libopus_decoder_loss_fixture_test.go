@@ -135,10 +135,6 @@ func decodeLibopusDecoderLossPackets(c libopusDecoderLossCaseFile) ([][]byte, er
 	return append([][]byte(nil), c.decodedPackets...), nil
 }
 
-func decodeLibopusDecoderLossSamples(r libopusDecoderLossResultFile) ([]float32, error) {
-	return r.decodedSamples, nil
-}
-
 func parseLossBits(bits string) []bool {
 	out := make([]bool, len(bits))
 	for i := 0; i < len(bits); i++ {

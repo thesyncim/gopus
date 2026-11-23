@@ -113,16 +113,22 @@ func NewReader(cfg DecoderConfig, source PacketReader, format SampleFormat) (*Re
 		return nil, err
 	}
 
-	return &Reader{
+	r := &Reader{
 		dec:       dec,
 		source:    source,
 		format:    format,
 		packetBuf: make([]byte, dec.maxPacketBytes),
-		pcmFloat:  make([]float32, dec.maxPacketSamples*int(dec.channels)),
-		pcmInt16:  make([]int16, dec.maxPacketSamples*int(dec.channels)),
 		offset:    0,
 		eof:       false,
-	}, nil
+	}
+	maxSamples := dec.maxPacketSamples * int(dec.channels)
+	switch format {
+	case FormatFloat32LE:
+		r.pcmFloat = make([]float32, maxSamples)
+	case FormatInt16LE:
+		r.pcmInt16 = make([]int16, maxSamples)
+	}
+	return r, nil
 }
 
 // Read implements io.Reader and returns decoded PCM bytes in the format passed
@@ -170,6 +176,13 @@ func (r *Reader) Read(p []byte) (int, error) {
 			}
 			nTotal := nSamples * int(r.dec.channels)
 			byteLen := nTotal * 4
+			if hostIsLittleEndian && len(p) >= byteLen {
+				if nTotal > 0 {
+					raw := unsafe.Slice((*byte)(unsafe.Pointer(&r.pcmFloat[0])), byteLen)
+					copy(p, raw)
+				}
+				return byteLen, nil
+			}
 			if cap(r.byteBuf) < byteLen {
 				r.byteBuf = make([]byte, byteLen)
 			}
@@ -177,7 +190,7 @@ func (r *Reader) Read(p []byte) (int, error) {
 			if hostIsLittleEndian && nTotal > 0 {
 				// On LE hosts the in-memory float32 layout already matches
 				// FormatFloat32LE on the wire; copy the bytes directly.
-				raw := unsafe.Slice((*byte)(unsafe.Pointer(&r.pcmFloat[0])), nTotal*4)
+				raw := unsafe.Slice((*byte)(unsafe.Pointer(&r.pcmFloat[0])), byteLen)
 				copy(r.byteBuf, raw)
 			} else {
 				for i := range nTotal {
@@ -192,12 +205,19 @@ func (r *Reader) Read(p []byte) (int, error) {
 			}
 			nTotal := nSamples * int(r.dec.channels)
 			byteLen := nTotal * 2
+			if hostIsLittleEndian && len(p) >= byteLen {
+				if nTotal > 0 {
+					raw := unsafe.Slice((*byte)(unsafe.Pointer(&r.pcmInt16[0])), byteLen)
+					copy(p, raw)
+				}
+				return byteLen, nil
+			}
 			if cap(r.byteBuf) < byteLen {
 				r.byteBuf = make([]byte, byteLen)
 			}
 			r.byteBuf = r.byteBuf[:byteLen]
 			if hostIsLittleEndian && nTotal > 0 {
-				raw := unsafe.Slice((*byte)(unsafe.Pointer(&r.pcmInt16[0])), nTotal*2)
+				raw := unsafe.Slice((*byte)(unsafe.Pointer(&r.pcmInt16[0])), byteLen)
 				copy(r.byteBuf, raw)
 			} else {
 				for i := range nTotal {
@@ -294,7 +314,7 @@ func NewWriter(sampleRate, channels int, sink PacketSink, format SampleFormat, a
 		enc:          enc,
 		sink:         sink,
 		format:       format,
-		sampleBuf:    make([]byte, 0, frameBytes*2), // Pre-allocate for 2 frames
+		sampleBuf:    make([]byte, 0, frameBytes),
 		frameBytes:   frameBytes,
 		frameSamples: frameSamples,
 		packetBuf:    make([]byte, 4000),
@@ -316,32 +336,52 @@ func (w *Writer) Write(p []byte) (int, error) {
 
 	initialBuffered := len(w.sampleBuf)
 	processedBytes := 0
-	// Append input to buffer
-	w.sampleBuf = append(w.sampleBuf, p...)
+	in := p
 
-	// Process complete frames
-	for len(w.sampleBuf)-processedBytes >= w.frameBytes {
-		// Extract one frame of bytes
-		frameData := w.sampleBuf[processedBytes : processedBytes+w.frameBytes]
-
-		n, err := w.encodeFrame(frameData)
-		if err != nil {
-			w.discardConsumedPrefix(processedBytes)
-			return consumedInputBytes(initialBuffered, processedBytes, len(p)), err
+	// Complete a buffered partial frame first without copying all of p.
+	if initialBuffered > 0 {
+		need := w.frameBytes - initialBuffered
+		if len(in) < need {
+			w.sampleBuf = append(w.sampleBuf, in...)
+			return len(p), nil
 		}
-
+		w.sampleBuf = append(w.sampleBuf, in[:need]...)
+		n, err := w.encodeFrame(w.sampleBuf[:w.frameBytes])
+		if err != nil {
+			w.sampleBuf = w.sampleBuf[:initialBuffered]
+			return 0, err
+		}
 		if n > 0 {
 			if err := w.writePacketToSink(w.packetBuf[:n]); err != nil {
 				w.closed = true
-				w.discardConsumedPrefix(processedBytes)
+				w.sampleBuf = w.sampleBuf[:initialBuffered]
+				return 0, err
+			}
+		}
+		w.sampleBuf = w.sampleBuf[:0]
+		processedBytes += w.frameBytes
+		in = in[need:]
+	}
+
+	// Encode complete frames directly from p so sampleBuf never grows beyond one frame.
+	for len(in) >= w.frameBytes {
+		n, err := w.encodeFrame(in[:w.frameBytes])
+		if err != nil {
+			return consumedInputBytes(initialBuffered, processedBytes, len(p)), err
+		}
+		if n > 0 {
+			if err := w.writePacketToSink(w.packetBuf[:n]); err != nil {
+				w.closed = true
 				return consumedInputBytes(initialBuffered, processedBytes, len(p)), err
 			}
 		}
-
 		processedBytes += w.frameBytes
+		in = in[w.frameBytes:]
 	}
 
-	w.discardConsumedPrefix(processedBytes)
+	if len(in) > 0 {
+		w.sampleBuf = append(w.sampleBuf, in...)
+	}
 	return len(p), nil
 }
 
@@ -368,15 +408,6 @@ func (w *Writer) writePacketToSink(packet []byte) error {
 		return io.ErrShortWrite
 	}
 	return nil
-}
-
-func (w *Writer) discardConsumedPrefix(consumed int) {
-	if consumed == 0 {
-		return
-	}
-	remaining := len(w.sampleBuf) - consumed
-	copy(w.sampleBuf, w.sampleBuf[consumed:])
-	w.sampleBuf = w.sampleBuf[:remaining]
 }
 
 func (w *Writer) encodeFrame(data []byte) (int, error) {

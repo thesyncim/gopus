@@ -769,9 +769,15 @@ func (d *Decoder) decodeDREDSILKOrHybridPLCStream(stream, frameSize int, st *str
 	)
 	switch st.lastMode {
 	case streamModeSILK:
+		// opus_decode_frame asks silk_Decode for at least F10 samples, then
+		// keeps only the requested prefix for <10 ms PLC requests.
+		silkSize := max(frameSize, int(st.sampleRate)/100)
 		st.silkDec.SetDeepPLCLossMonoHook(hook)
-		decoded, err = st.finishDecode32(st.decodeSILKToFloat32(nil, frameSize, st.lastPacketStereo, int(st.lastBandwidth)))
+		decoded, err = st.decodeSILKToFloat32(nil, silkSize, st.lastPacketStereo, int(st.lastBandwidth))
 		st.silkDec.SetDeepPLCLossMonoHook(nil)
+		if err == nil {
+			decoded, err = st.finishDecode32(decoded[:frameSize*int(st.channels)], nil)
+		}
 	case streamModeHybrid:
 		st.hybridDec.SetDeepPLCLossMonoHook(hook)
 		decoded = st.framePCMFor(frameSize * int(st.channels))
@@ -786,9 +792,9 @@ func (d *Decoder) decodeDREDSILKOrHybridPLCStream(stream, frameSize int, st *str
 	if err != nil {
 		return nil, false, err
 	}
-	if !d.deepPLCHookUsed[stream] {
-		return nil, false, nil
-	}
+	// The SILK/Hybrid PLC path already concealed this frame and advanced decoder
+	// state even if the deep-PLC hook declined, so return ok=true to prevent the
+	// caller from concealing the same frame a second time.
 	return decoded, true, nil
 }
 
@@ -798,7 +804,7 @@ func (d *Decoder) decodeDREDPLCStream(stream, frameSize int) ([]float32, bool, e
 		return nil, false, nil
 	}
 	st, ok := d.decoders[stream].(*streamState)
-	if !ok || st == nil || st.channels < 1 || st.channels > 2 {
+	if !ok || st == nil || !st.haveDecoded || st.channels < 1 || st.channels > 2 {
 		return nil, false, nil
 	}
 	hasSidecar := s != nil &&
@@ -831,7 +837,7 @@ func (d *Decoder) decodeDREDPLCStream(stream, frameSize int) ([]float32, bool, e
 		if err != nil || !ok {
 			return decoded, ok, err
 		}
-		if hasSidecar && stream < len(s.dredRecovery) {
+		if hasSidecar && d.deepPLCHookUsed[stream] && stream < len(s.dredRecovery) {
 			s.dredRecovery[stream] += frameSize
 		}
 		st.recordDecodeCall(frameSize, 0)

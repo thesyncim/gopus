@@ -36,6 +36,8 @@ func combFilterConstNeon(dst, delay []float32, g10, g11, g12 float32, blocks int
 	if blocks <= 0 {
 		return
 	}
+	_ = dst[blocks*4-1]
+	_ = delay[blocks*4+3]
 	g10v := archsimd.BroadcastFloat32x4(g10)
 	g11v := archsimd.BroadcastFloat32x4(g11)
 	g12v := archsimd.BroadcastFloat32x4(g12)

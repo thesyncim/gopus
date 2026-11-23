@@ -32,8 +32,12 @@ type Reader struct {
 
 	page     Page // Current page, parsed zero-copy over pageBuffer
 	havePage bool // page holds a loaded page of this stream
-	segIdx   int  // Next unread lacing segment in page.Segments
-	payOff   int  // Next unread byte in page.Payload
+	segIdx           int    // Next unread lacing segment in page.Segments
+	payOff           int    // Next unread byte in page.Payload
+	pageTrailCount   int    // Completed packets remaining after segIdx on current page
+	pageTrailDur     uint64 // Sum of known durations for remaining completed packets
+	pageTrailUnknown int    // Remaining completed packets with unknown duration
+	pageTrailReady   bool   // Whether pageTrail* is populated for the current page
 
 	pktScratch []byte // Reused assembly buffer backing ReadPacket
 	pushback   []byte // One-packet pushback set by SeekGranule
@@ -278,12 +282,23 @@ func (or *Reader) nextPacket(dst []byte, limit int) ([]byte, uint64, error) {
 				break
 			}
 		}
-		if dropped || (len(dst) == 0 && !tooLarge) {
-			continue // restart, or skip an empty packet
+		if dropped {
+			continue // restart abandoned continuation
+		}
+		duration, durationKnown := packetDuration48k(packetHeader[:packetHeaderLen])
+		if or.pageTrailReady {
+			or.pageTrailCount--
+			if durationKnown {
+				or.pageTrailDur -= duration
+			} else {
+				or.pageTrailUnknown--
+			}
+		}
+		if len(dst) == 0 && !tooLarge {
+			continue // skip an empty packet
 		}
 		var granule uint64
 		if or.page.IsEOS() {
-			duration, durationKnown := packetDuration48k(packetHeader[:packetHeaderLen])
 			granule = or.eosPacketGranule(duration, durationKnown)
 			if durationKnown && or.pageDurationKnown {
 				or.pageAudioDuration += duration
@@ -359,6 +374,7 @@ func (or *Reader) advancePage(continuePacket bool) (bool, error) {
 		}
 		or.segIdx = 0
 		or.payOff = 0
+		or.pageTrailReady = false
 		or.havePage = true
 		if or.page.IsEOS() {
 			or.eos = true
@@ -439,13 +455,15 @@ func addGranuleDuration(base, prefix, duration uint64) (uint64, bool) {
 	return base + duration, true
 }
 
-// trailingPacketInfo totals complete packets after the current packet without
-// retaining their payloads. The first two bytes are enough to read Opus packet
-// duration, including code-3 frame counts.
-func (or *Reader) trailingPacketInfo() (uint64, bool, int) {
+// ensureTrailingPacketInfo totals complete packets remaining on the current
+// page after or.segIdx once per page so subsequent packets update in O(1).
+func (or *Reader) ensureTrailingPacketInfo() {
+	if or.pageTrailReady {
+		return
+	}
 	page := &or.page
 	duration := uint64(0)
-	durationsKnown := true
+	unknown := 0
 	packets := 0
 	off := or.payOff
 	for i := or.segIdx; i < len(page.Segments); {
@@ -467,51 +485,41 @@ func (or *Reader) trailingPacketInfo() (uint64, bool, int) {
 			break // the trailing packet completes on another page
 		}
 		packets++
-		packetDuration, ok := packetDuration48k(page.Payload[start:off])
-		if !ok {
-			durationsKnown = false
-			continue
+		if packetDuration, ok := packetDuration48k(page.Payload[start:off]); ok {
+			duration += packetDuration
+		} else {
+			unknown++
 		}
-		duration += packetDuration
 	}
-	return duration, durationsKnown, packets
+	or.pageTrailCount = packets
+	or.pageTrailDur = duration
+	or.pageTrailUnknown = unknown
+	or.pageTrailReady = true
+}
+
+// trailingPacketInfo totals complete packets after the current packet without
+// retaining their payloads. The first two bytes are enough to read Opus packet
+// duration, including code-3 frame counts.
+func (or *Reader) trailingPacketInfo() (uint64, bool, int) {
+	or.ensureTrailingPacketInfo()
+	return or.pageTrailDur, or.pageTrailUnknown == 0, or.pageTrailCount
 }
 
 // packetGranule is the backward fallback for non-EOS pages and EOS pages whose
 // packet durations are unknown. It subtracts the durations of later packets
 // that complete on the same page; known EOS trimming uses eosPacketGranule.
-// If a trailing packet's duration is unparseable, the page granule is the safe
-// fallback.
+// If the page granule is unknown (-1) or a trailing packet's duration is
+// unparseable, the page granule is returned unchanged.
 func (or *Reader) packetGranule() uint64 {
-	page := &or.page
-	trailing := uint64(0)
-	off := or.payOff
-	for i := or.segIdx; i < len(page.Segments); {
-		start := off
-		terminated := false
-		for i < len(page.Segments) {
-			seg := int(page.Segments[i])
-			i++
-			if avail := len(page.Payload) - off; seg > avail {
-				seg = avail
-			}
-			off += seg
-			if page.Segments[i-1] < 255 {
-				terminated = true
-				break
-			}
-		}
-		if !terminated {
-			break // trailing packet spans out; it does not complete on this page
-		}
-		dur, ok := packetDuration48k(page.Payload[start:off])
-		if !ok {
-			return page.GranulePos
-		}
-		trailing += dur
+	if or.page.GranulePos == ^uint64(0) {
+		return ^uint64(0)
 	}
-	if page.GranulePos >= trailing {
-		return page.GranulePos - trailing
+	or.ensureTrailingPacketInfo()
+	if or.pageTrailUnknown > 0 {
+		return or.page.GranulePos
+	}
+	if or.page.GranulePos >= or.pageTrailDur {
+		return or.page.GranulePos - or.pageTrailDur
 	}
 	return 0
 }
@@ -545,6 +553,7 @@ func (or *Reader) SeekGranule(target uint64) error {
 	or.hasPush = false
 	or.segIdx = 0
 	or.payOff = 0
+	or.pageTrailReady = false
 	or.bufferOffset = 0
 	or.bufferLen = 0
 	or.pendingErr = nil

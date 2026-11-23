@@ -74,12 +74,96 @@ func parseMultistreamPacketInto(scratch [][]byte, data []byte, numStreams int) (
 	return parseMultistreamPacketScratch(scratch, nil, nil, data, numStreams)
 }
 
+// measureMultistreamPacket validates all stream packets in place, checks that
+// every stream shares the same legal duration (<= 120 ms), and returns that
+// duration together with an upper bound on the bytes needed to reframe the
+// self-delimited streams. It performs zero heap allocations and runs before any
+// reframe arena growth so malformed oversized inputs fail without allocating.
+func measureMultistreamPacket(parser *packetScratch, data []byte, numStreams, sampleRate int) (duration, reframeBytes int, err error) {
+	if numStreams < 1 || numStreams > 255 {
+		return 0, 0, ErrInvalidStreamCount
+	}
+	offset := 0
+	for i := range numStreams {
+		if offset >= len(data) {
+			return 0, 0, ErrPacketTooShort
+		}
+		selfDelimited := i < numStreams-1
+		parsed, err := parseOpusPacketInto(parser, data[offset:], selfDelimited)
+		if err != nil {
+			return 0, 0, err
+		}
+		if len(parsed.frames) == 0 {
+			return 0, 0, ErrPacketTooShort
+		}
+		streamDur := opusSamplesPerFrameAtRate(data[offset], sampleRate) * len(parsed.frames)
+		if i == 0 {
+			duration = streamDur
+		} else if streamDur != duration {
+			return 0, 0, ErrDurationMismatch
+		}
+		if selfDelimited {
+			reframeBytes += parsed.consumed
+			offset += parsed.consumed
+		}
+	}
+	if duration*25 > sampleRate*3 {
+		return 0, 0, ErrInvalidPacket
+	}
+	return duration, reframeBytes, nil
+}
+
+// parseAndValidateMultistreamPacketScratch validates stream framing and
+// durations before growing ba, then reframes the first N-1 self-delimited
+// streams into ba. It returns the stream packet slices and common duration.
+func parseAndValidateMultistreamPacketScratch(scratch [][]byte, parser *packetScratch, ba *arena.Bump[byte], data []byte, numStreams, sampleRate int) ([][]byte, int, error) {
+	duration, reframeBytes, err := measureMultistreamPacket(parser, data, numStreams, sampleRate)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	packets := scratch
+	if cap(packets) < numStreams {
+		packets = make([][]byte, numStreams)
+	}
+	packets = packets[:numStreams]
+	if numStreams == 1 {
+		packets[0] = data
+		return packets, duration, nil
+	}
+
+	useArena := ba != nil
+	if useArena {
+		ba.Ensure(reframeBytes)
+	}
+	offset := 0
+	for i := 0; i < numStreams-1; i++ {
+		if useArena {
+			written, consumed, err := decodeSelfDelimitedPacketInto(parser, ba.Tail(), data[offset:])
+			if err != nil {
+				return nil, 0, err
+			}
+			packets[i] = ba.AllocN(written)
+			offset += consumed
+			continue
+		}
+		packet, consumed, err := decodeSelfDelimitedPacket(data[offset:])
+		if err != nil {
+			return nil, 0, err
+		}
+		packets[i] = packet
+		offset += consumed
+	}
+	packets[numStreams-1] = data[offset:]
+	return packets, duration, nil
+}
+
 // parseMultistreamPacketScratch is parseMultistreamPacketInto with additional
 // reusable parser scratch and a reframe arena. The first N-1 streams are
 // self-delimited and must be reframed to standard form; the resulting bytes are
-// carved as non-overlapping slices of arena (sized once to len(data)) so all of
-// them coexist for the per-stream decode loop that follows. parser/arena may be
-// nil to fall back to per-packet allocation.
+// carved as non-overlapping slices of arena so all of them coexist for the
+// per-stream decode loop that follows. parser/arena may be nil to fall back to
+// per-packet allocation.
 func parseMultistreamPacketScratch(scratch [][]byte, parser *packetScratch, ba *arena.Bump[byte], data []byte, numStreams int) ([][]byte, error) {
 	// libopus src/opus_multistream_decoder.c:opus_multistream_decoder_create
 	// rejects counts above 255 before allocating per-stream state.
@@ -96,9 +180,28 @@ func parseMultistreamPacketScratch(scratch [][]byte, parser *packetScratch, ba *
 
 	useArena := ba != nil && numStreams > 1
 	if useArena {
-		// A reframed standard packet is never larger than the self-delimited
-		// bytes it consumes, so the whole arena is bounded by len(data).
-		ba.Ensure(len(data))
+		// Validate all stream boundaries before growing the reframe arena so
+		// malformed oversized inputs cannot trigger large allocations.
+		reframeBytes := 0
+		scanOff := 0
+		for i := 0; i < numStreams-1; i++ {
+			if scanOff >= len(data) {
+				return nil, ErrPacketTooShort
+			}
+			parsed, err := parseOpusPacketInto(parser, data[scanOff:], true)
+			if err != nil {
+				return nil, err
+			}
+			reframeBytes += parsed.consumed
+			scanOff += parsed.consumed
+		}
+		if scanOff >= len(data) {
+			return nil, ErrPacketTooShort
+		}
+		if _, err := parseOpusPacketInto(parser, data[scanOff:], false); err != nil {
+			return nil, err
+		}
+		ba.Ensure(reframeBytes)
 	}
 
 	// Parse first N-1 packets with self-delimited framing and convert them
@@ -287,10 +390,6 @@ func PacketDurationAtRate(data []byte, numStreams, sampleRate int) (int, error) 
 // PacketDurationAtRate returns the packet duration using this decoder's
 // reusable parser storage. The result is independent of later decoder calls.
 func (d *Decoder) PacketDurationAtRate(data []byte) (int, error) {
-	packets, err := parseMultistreamPacketScratch(d.packetsScratch, &d.packetParser, &d.reframeArena, data, d.streams)
-	if err != nil {
-		return 0, err
-	}
-	d.packetsScratch = packets
-	return validateStreamDurationsAtRateScratch(&d.packetParser, packets, int(d.sampleRate))
+	duration, _, err := measureMultistreamPacket(&d.packetParser, data, d.streams, int(d.sampleRate))
+	return duration, err
 }

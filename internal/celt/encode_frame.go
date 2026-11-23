@@ -662,13 +662,6 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 	}
 	e.recordEncodeNormalizationTrace(normL, normR, bandE, nbBands, lm, codedChannels)
 	_ = normBandEScratch
-	normLCelt := ensureNormSliceNoClear(&e.scratch.allocTrimNormL, len(normL))
-	copy(normLCelt, normL)
-	var normRCelt []celtNorm
-	if codedChannels == 2 {
-		normRCelt = ensureNormSliceNoClear(&e.scratch.allocTrimNormR, len(normR))
-		copy(normRCelt, normR)
-	}
 
 	// Step 11.1: TF analysis, dynalloc and the stereo decisions read the
 	// rate-derived effectiveBytes and equiv_rate of the frame budget.
@@ -756,9 +749,9 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 
 		// Use the normalized coefficients for TF analysis (zero-alloc version).
 		// In stereo, match libopus by selecting the channel flagged by transient analysis.
-		tfInput := normLCelt
+		tfInput := normL
 		if codedChannels == 2 && tfChannel == 1 {
-			tfInput = normRCelt
+			tfInput = normR
 		}
 		tfRes, tfSelect = TFAnalysisWithScratch(tfInput, len(tfInput), nbBands, transient, lm, opusVal16(tfEstimate), effectiveBytes, importance, &e.tfScratch, e.modeEdges())
 
@@ -792,12 +785,17 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 	// Step 11.2: Compute and encode spread decision
 	// Match libopus gating: only encode if there's budget for the decision.
 	// Reference: libopus celt_encoder.c line 2302-2345
-	normSpread := normLCelt
+	// normL and normR alias the two contiguous halves of e.scratch.normStereo,
+	// so spreading_decision() reads both channels without copying.
+	normSpread := normL
 	if codedChannels == 2 {
-		// spreading_decision() expects both channels in one contiguous buffer.
-		normSpread = ensureNormSliceNoClear(&e.scratch.normStereo, len(normLCelt)+len(normRCelt))
-		copy(normSpread[:len(normLCelt)], normLCelt)
-		copy(normSpread[len(normLCelt):], normRCelt)
+		if len(e.scratch.normStereo) >= len(normL)+len(normR) && len(normL) > 0 && &normL[0] == &e.scratch.normStereo[0] && len(normR) > 0 && &normR[0] == &e.scratch.normStereo[len(normL)] {
+			normSpread = e.scratch.normStereo[:len(normL)+len(normR)]
+		} else {
+			normSpread = ensureNormSliceNoClear(&e.scratch.normStereo, len(normL)+len(normR))
+			copy(normSpread[:len(normL)], normL)
+			copy(normSpread[len(normL):], normR)
+		}
 	}
 	// Every branch stores st->spread_decision: it is the hysteresis input of the
 	// next frame's spreading_decision().
@@ -959,18 +957,14 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 			if e.analysisValid {
 				tonalitySlope = e.analysisTonalitySlope
 			}
-			trimNormL := normLCelt
+			trimNormL := normL
 			var trimNormR []celtNorm
 			if codedChannels == 2 {
-				trimNormR = normRCelt
-			}
-			trimBandLogE := e.scratch.allocTrimBandLogE[:nbBands*codedChannels]
-			for i := range trimBandLogE {
-				trimBandLogE[i] = energies[i]
+				trimNormR = normR
 			}
 			allocTrim, _ = allocTrimAnalysisDetailed(
 				trimNormL,
-				trimBandLogE,
+				energies[:nbBands*codedChannels],
 				nbBands,
 				lm,
 				codedChannels,
@@ -1576,19 +1570,13 @@ func (e *Encoder) computeFrameMDCT(in []float32, frameSize, overlap, shortBlocks
 	e.recordEncodeMDCTTrace(in, frameSize, overlap, shortBlocks)
 	scratch := &e.scratch
 	stride := frameSize + overlap
-	var coeffs []float32
-	if e.channels == 1 || codedChannels == 2 {
-		channels := int(e.channels)
-		coeffs = ensureFloat32Slice(&scratch.mdctCoeffsF32, channels*frameSize)
-		for ch := range channels {
-			mdctForwardShortOverlapScratchIntoF32Coeffs(in[ch*stride:(ch+1)*stride], overlap, shortBlocks, coeffs[ch*frameSize:(ch+1)*frameSize], scratch)
-		}
-	} else {
-		left := ensureFloat32Slice(&scratch.mdctLeftF32, frameSize)
-		right := ensureFloat32Slice(&scratch.mdctRightF32, frameSize)
-		mdctForwardShortOverlapScratchIntoF32Coeffs(in[:stride], overlap, shortBlocks, left, scratch)
-		mdctForwardShortOverlapScratchIntoF32Coeffs(in[stride:2*stride], overlap, shortBlocks, right, scratch)
-		coeffs = foldStereoMDCTToMonoF32(scratch.mdctCoeffsF32, left, right)
+	channels := int(e.channels)
+	coeffs := ensureFloat32Slice(&scratch.mdctCoeffsF32, channels*frameSize)
+	for ch := range channels {
+		mdctForwardShortOverlapScratchIntoF32Coeffs(in[ch*stride:(ch+1)*stride], overlap, shortBlocks, coeffs[ch*frameSize:(ch+1)*frameSize], scratch)
+	}
+	if channels == 2 && codedChannels == 1 {
+		coeffs = foldStereoMDCTToMonoF32(coeffs[:frameSize], coeffs[:frameSize], coeffs[frameSize:2*frameSize])
 	}
 	for ch := range codedChannels {
 		applyUpsampleMDCTScaling(coeffs[ch*frameSize:(ch+1)*frameSize], upsample)

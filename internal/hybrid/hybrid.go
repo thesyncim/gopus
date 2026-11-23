@@ -227,7 +227,8 @@ func float32ToInt16(samples []float32) []int16 {
 }
 
 func (d *Decoder) decodePLCToFloat32(frameSize int, stereo bool) ([]float32, error) {
-	if frameSize < 0 {
+	frameSize48 := d.frameSize48FromAPI(frameSize)
+	if !ValidHybridFrameSize(frameSize48) && frameSize48 != 120 && frameSize48 != 240 {
 		return nil, ErrInvalidFrameSize
 	}
 	out := make([]float32, frameSize*int(d.channels))

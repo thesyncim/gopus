@@ -186,16 +186,14 @@ func (d *Decoder) decodeToFloat32Into(data []byte, frameSize int, applyProjectio
 		return n, err
 	}
 
-	packets, err := parseMultistreamPacketScratch(d.packetsScratch, &d.packetParser, &d.reframeArena, data, d.streams)
+	packets, duration, err := parseAndValidateMultistreamPacketScratch(d.packetsScratch, &d.packetParser, &d.reframeArena, data, d.streams, int(d.sampleRate))
 	if err != nil {
+		if err == ErrDurationMismatch || err == ErrInvalidPacket {
+			return 0, err
+		}
 		return 0, fmt.Errorf("multistream: parse error: %w", err)
 	}
 	d.packetsScratch = packets
-
-	duration, err := validateStreamDurationsAtRateScratch(&d.packetParser, packets, int(d.sampleRate))
-	if err != nil {
-		return 0, err
-	}
 	if duration > frameSize {
 		return 0, ErrBufferTooSmall
 	}

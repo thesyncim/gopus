@@ -494,8 +494,6 @@ func (d *Decoder) decodeWithFECFloat32(data []byte, pcm []float32) (int, error) 
 			}
 			return d.decodePLCForFEC(pcm, plcSize)
 		}
-		d.lastPacketMode = toc.Mode
-
 		if toc.Mode == ModeSILK || toc.Mode == ModeHybrid {
 			firstFrameData, err := extractFirstFramePayload(data, toc)
 			if err != nil {
@@ -504,12 +502,16 @@ func (d *Decoder) decodeWithFECFloat32(data []byte, pcm []float32) (int, error) 
 			if !packetHasLBRR(firstFrameData, toc) {
 				d.clearFECState()
 				if extsupport.DREDRuntime && d.dredCachedPayloadActive() {
-					return d.decodePLCForFECWithState(pcm, requestedFrameSize, plcDecodeState{
+					n, err := d.decodePLCForFECWithState(pcm, requestedFrameSize, plcDecodeState{
 						packetFrameSize: frameSize,
 						mode:            toc.Mode,
 						bandwidth:       toc.Bandwidth,
 						packetStereo:    toc.Stereo,
 					})
+					if err == nil {
+						d.lastPacketMode = toc.Mode
+					}
+					return n, err
 				}
 				d.storeFECDataForDecode(firstFrameData, toc, frameCount, frameSize)
 				n, err := d.decodeFECFrame(pcm, requestedFrameSize)
@@ -525,12 +527,16 @@ func (d *Decoder) decodeWithFECFloat32(data []byte, pcm []float32) (int, error) 
 			}
 			d.clearFECState()
 		}
-		return d.decodePLCForFECWithState(pcm, requestedFrameSize, plcDecodeState{
+		n, err := d.decodePLCForFECWithState(pcm, requestedFrameSize, plcDecodeState{
 			packetFrameSize: frameSize,
 			mode:            toc.Mode,
 			bandwidth:       toc.Bandwidth,
 			packetStereo:    toc.Stereo,
 		})
+		if err == nil {
+			d.lastPacketMode = toc.Mode
+		}
+		return n, err
 	}
 
 	d.clearFECState()

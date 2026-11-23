@@ -161,6 +161,7 @@ func (d *Decoder) maybeApplyOSCEBWEPostSilk(
 				out[2*i+1] = out[2*i]
 			}
 			state.prevBWEActive = true
+			state.prevExtendedMode = bweModeSilkBBWE
 			return true
 		}
 		if fadeInIntoBWE {
@@ -271,6 +272,7 @@ func (d *Decoder) maybeApplyOSCEBWEPostSilk(
 		}
 	}
 	state.prevBWEActive = true
+	state.prevExtendedMode = bweModeSilkBBWE
 	return true
 }
 

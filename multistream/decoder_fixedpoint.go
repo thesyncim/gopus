@@ -28,15 +28,11 @@ func (d *Decoder) DecodeToResFixed(data []byte, frameSize int) ([]int32, bool, e
 		return nil, false, nil
 	}
 
-	packets, err := parseMultistreamPacketScratch(d.packetsScratch, &d.packetParser, &d.reframeArena, data, d.streams)
+	packets, duration, err := parseAndValidateMultistreamPacketScratch(d.packetsScratch, &d.packetParser, &d.reframeArena, data, d.streams, int(d.sampleRate))
 	if err != nil {
 		return nil, false, err
 	}
 	d.packetsScratch = packets
-	duration, err := validateStreamDurationsAtRateScratch(&d.packetParser, packets, int(d.sampleRate))
-	if err != nil {
-		return nil, false, err
-	}
 	if duration > frameSize {
 		return nil, false, ErrBufferTooSmall
 	}
@@ -276,14 +272,11 @@ func fixedCELTCodedChannels(packetStereo bool) int {
 	return 1
 }
 
-// applyChannelMappingRes routes per-stream opus_res samples to output channels,
-// mirroring the copy_channel_out routing in opus_multistream_decode_native:
-// each stream channel feeds the output channel(s) selected by the mapping, and
-// muted channels (mapping value 255) stay zero.
-func applyChannelMappingRes(streamRes [][]int32, mapping []byte, coupledStreams, frameSize, outputChannels int) []int32 {
-	return applyChannelMappingResInto(nil, streamRes, mapping, coupledStreams, frameSize, outputChannels)
-}
-
+// applyChannelMappingResInto routes per-stream opus_res samples to output
+// channels, mirroring the copy_channel_out routing in
+// opus_multistream_decode_native: each stream channel feeds the output
+// channel(s) selected by the mapping, and muted channels (mapping value 255)
+// stay zero.
 func applyChannelMappingResInto(out []int32, streamRes [][]int32, mapping []byte, coupledStreams, frameSize, outputChannels int) []int32 {
 	needed := frameSize * outputChannels
 	if cap(out) < needed {

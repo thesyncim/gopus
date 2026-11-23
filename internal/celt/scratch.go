@@ -194,14 +194,15 @@ func (s *bandEncodeScratch) ensureFloatScratch(channels int) {
 	const maxPVQN = maxBandWidth * 2
 	normLen := 8 * EBands[MaxBands-1]
 	maxBand := 8 * (EBands[MaxBands] - EBands[MaxBands-1])
-	total := channels*normLen + maxBand + maxBandWidth*16 + 3*maxPVQN + 5*maxBandWidth
+	hadamardCap := max(maxBand, maxBandWidth)
+	total := channels*normLen + maxBand + hadamardCap + 3*maxPVQN + 5*maxBandWidth
 	if s.floatScratch.Cap() >= total {
 		return
 	}
 	s.floatScratch.Ensure(total)
 	s.norm = s.floatScratch.Alloc(channels * normLen)
 	s.lowbandScratch = s.floatScratch.Alloc(maxBand)
-	s.hadamardTmpNorm = s.floatScratch.Alloc(maxBandWidth * 16)
+	s.hadamardTmpNorm = s.floatScratch.Alloc(hadamardCap)
 	s.pvqY = s.floatScratch.Alloc(maxPVQN)
 	s.pvqAbsX = s.floatScratch.Alloc(maxPVQN)
 	s.pvqX = s.floatScratch.Alloc(maxPVQN)
@@ -267,9 +268,8 @@ const maxBandWidth = 176
 // within their slot. Re-carves only when a frame needs more than the current
 // backing; otherwise a cheap early return. Layout only — bit-exact.
 func (s *bandDecodeScratch) ensureFloatScratch(channels, frameSize, normLen, maxBand int) {
-	const small = maxBandWidth
-	const big = maxBandWidth * 16
-	total := frameSize*2 + channels*normLen + maxBand + small*3 + big*2
+	bandCap := max(maxBand, maxBandWidth)
+	total := frameSize*2 + channels*normLen + maxBand + bandCap*4
 	if s.floatScratch.Cap() >= total {
 		return
 	}
@@ -278,10 +278,10 @@ func (s *bandDecodeScratch) ensureFloatScratch(channels, frameSize, normLen, max
 	s.right = s.floatScratch.Alloc(frameSize)
 	s.norm = s.floatScratch.Alloc(channels * normLen)
 	s.lowband = s.floatScratch.Alloc(maxBand)
-	s.pvqNorm = s.floatScratch.Alloc(small)
-	s.foldResult = s.floatScratch.Alloc(small)
-	s.hadamardTmpNorm = s.floatScratch.Alloc(big)
-	s.quantWork = s.floatScratch.Alloc(big)
+	s.pvqNorm = s.floatScratch.Alloc(bandCap)
+	s.foldResult = s.floatScratch.Alloc(bandCap)
+	s.hadamardTmpNorm = s.floatScratch.Alloc(bandCap)
+	s.quantWork = s.floatScratch.Alloc(bandCap)
 }
 
 func (s *bandDecodeScratch) ensureCoeffs(n int) []celtNorm {

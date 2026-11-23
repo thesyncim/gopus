@@ -567,10 +567,6 @@ func validateCHelperAMD64TargetReference(target string, cfg CHelperConfig, varia
 	return nil
 }
 
-func helperOutputPath(dir, outputBase, sourceFile, flavor string) string {
-	return helperOutputPathForGOOS(dir, outputBase, sourceFile, flavor, runtime.GOOS, runtime.GOARCH)
-}
-
 func helperOutputPathWithDigest(dir, outputBase, sourceFile, flavor, digest string) string {
 	return helperOutputPathForGOOSWithDigest(dir, outputBase, sourceFile, flavor, runtime.GOOS, runtime.GOARCH, digest)
 }

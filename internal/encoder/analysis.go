@@ -506,9 +506,8 @@ type TonalityAnalysisState struct {
 	silentWindow bool
 
 	// Scratch buffers for zero-allocation analysis
-	scratchMono        []float32
-	scratchDownsampled []float32
-	scratchResample3x  []float32
+	scratchMono       []float32
+	scratchResample3x []float32
 	scratchFFTKiss     []celt.KissCpx
 	scratchBinE        []float32 // precomputed bin energies for band loop
 	scratchFFTIn       [480]complex64
@@ -541,19 +540,17 @@ func (s *TonalityAnalysisState) Reset() {
 	fs := s.Fs
 	lsbDepth := s.LSBDepth
 	scratchMono := s.scratchMono[:0]
-	scratchDownsampled := s.scratchDownsampled[:0]
 	scratchResample3x := s.scratchResample3x[:0]
 	scratchFFTKiss := s.scratchFFTKiss
 	scratchBinE := s.scratchBinE[:0]
 
 	*s = TonalityAnalysisState{
-		Fs:                 fs,
-		LSBDepth:           lsbDepth,
-		scratchMono:        scratchMono,
-		scratchDownsampled: scratchDownsampled,
-		scratchResample3x:  scratchResample3x,
-		scratchFFTKiss:     scratchFFTKiss,
-		scratchBinE:        scratchBinE,
+		Fs:                fs,
+		LSBDepth:          lsbDepth,
+		scratchMono:       scratchMono,
+		scratchResample3x: scratchResample3x,
+		scratchFFTKiss:    scratchFFTKiss,
+		scratchBinE:       scratchBinE,
 	}
 }
 
@@ -698,7 +695,9 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	}
 	isSilence := s.analysisIsDigitalSilence()
 	s.silentWindow = isSilence
-	s.analysisPrepareFFTInput()
+	if !isSilence {
+		s.analysisPrepareFFTInput()
+	}
 	s.analysisShiftInput()
 	remaining := len24 - (AnalysisBufSize - memFill)
 	s.HPEnerAccum = s.analysisDownmixAndResample(pcm, channels, 240, remaining, AnalysisBufSize-memFill)

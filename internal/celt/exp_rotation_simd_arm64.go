@@ -19,9 +19,13 @@ import (
 // keeps the four lanes of a block independent; raw-pointer loads (loadF32x4)
 // skip the per-lane bounds check.
 func expRotation1Pass4(x []float32, first, stride, blocks, dir int, c, s float32) {
-	if blocks == 0 {
+	if blocks <= 0 {
 		return
 	}
+	_ = x[first]
+	_ = x[first+stride+3]
+	_ = x[first+(blocks-1)*dir*4]
+	_ = x[first+(blocks-1)*dir*4+stride+3]
 	cv := archsimd.BroadcastFloat32x4(c)
 	sv := archsimd.BroadcastFloat32x4(s)
 	msv := sv.Neg()

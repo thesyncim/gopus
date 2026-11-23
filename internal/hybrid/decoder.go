@@ -63,7 +63,6 @@ type Decoder struct {
 	// Scratch buffers to reduce per-frame allocations (decoder is not thread-safe).
 	// Max frame size is 960 samples at 48kHz (20ms), stereo needs 960*2 = 1920 samples.
 	scratchSilkUpsampled []float32 // SILK upsampled output (max 960*2 for stereo 20ms)
-	plcMonoScratch       []float32 // mono SILK PLC before stereo duplication
 
 	// fixedHighband, when set, drives the FIXED_POINT integer CELT highband
 	// decode for the in-flight integer-output (DecodeInt16 / DecodeInt24) packet.

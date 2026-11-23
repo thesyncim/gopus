@@ -403,17 +403,25 @@ func (d *Decoder) Reset() {
 
 	// Clear output history
 	clear(d.outputHistory)
+	clear(d.historyQ0)
 	d.historyIndex = 0
 	d.historyPending = 0
 
 	// Clear stereo state
 	d.prevStereoWeights = [2]int16{0, 0}
 
+	prevFrameLen := [2]int{int(d.state[0].frameLength), int(d.state[1].frameLength)}
 	resetDecoderState(&d.state[0])
 	resetDecoderState(&d.state[1])
 	d.stereo = stereoDecState{}
 	d.prevDecodeOnlyMiddle = 0
 	d.internalChannels = 0
+	d.prevBandwidth = 0
+	d.hasPrevBandwidth = false
+	d.plcPredQ13 = [2]int32{}
+	d.plcLowbandCapture = nil
+	d.plcLowbandCaptured = 0
+	d.plcLowbandCaptureArm = false
 
 	// Reset resampler state for a clean stream start
 	for _, pair := range d.resamplers {
@@ -532,7 +540,7 @@ func (d *Decoder) Reset() {
 
 	for ch := range d.silkPLCState {
 		if d.silkPLCState[ch] != nil {
-			d.silkPLCState[ch].Reset(int(d.state[ch].frameLength))
+			d.silkPLCState[ch].Reset(prevFrameLen[ch])
 		}
 	}
 }

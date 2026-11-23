@@ -49,8 +49,17 @@ func mdctFold1StoreNeon(dst []kissCpx, bitrev []int, samples []float32, window [
 	if blocks == 0 {
 		return
 	}
-	_ = trig[n4+i0+4*blocks-1]
-	_ = bitrev[i0+4*blocks-1]
+	done := 4 * blocks
+	_ = samples[xp1]
+	_ = samples[xp1+n2+2*done-1]
+	_ = samples[xp2]
+	_ = samples[xp2-n2-2*done+1]
+	_ = window[wp1]
+	_ = window[wp1+2*done-1]
+	_ = window[wp2]
+	_ = window[wp2-2*done+1]
+	_ = trig[n4+i0+done-1]
+	_ = bitrev[i0+done-1]
 	pv := archsimd.BroadcastFloat32x4(preScale)
 	sp := unsafe.Pointer(unsafe.SliceData(samples))
 	wp := unsafe.Pointer(unsafe.SliceData(window))
@@ -98,8 +107,17 @@ func mdctFold3StoreNeon(dst []kissCpx, bitrev []int, samples []float32, window [
 	if blocks == 0 {
 		return
 	}
-	_ = trig[n4+i0+4*blocks-1]
-	_ = bitrev[i0+4*blocks-1]
+	done := 4 * blocks
+	_ = samples[xp1-n2]
+	_ = samples[xp1+2*done-1]
+	_ = samples[xp2+n2]
+	_ = samples[xp2-2*done+1]
+	_ = window[wp1]
+	_ = window[wp1+2*done-1]
+	_ = window[wp2]
+	_ = window[wp2-2*done+1]
+	_ = trig[n4+i0+done-1]
+	_ = bitrev[i0+done-1]
 	pv := archsimd.BroadcastFloat32x4(preScale)
 	sp := unsafe.Pointer(unsafe.SliceData(samples))
 	wp := unsafe.Pointer(unsafe.SliceData(window))

@@ -818,10 +818,6 @@ func sourceRepoRoot() (string, bool) {
 	return "", false
 }
 
-func findLibopusTool(version string, roots []string, tool string) (string, bool) {
-	return findLibopusToolInSourceForOS(version, roots, "", tool, runtime.GOOS)
-}
-
 func findLibopusToolForOS(version string, roots []string, tool, goos string) (string, bool) {
 	return findLibopusToolInSourceForOS(version, roots, "", tool, goos)
 }
@@ -941,10 +937,6 @@ func findValidatedReferenceTool(version string, roots []string, tool string, var
 		return "", firstConfigError
 	}
 	return "", fmt.Errorf("no validated %s libopus %s found under roots %v", variant, tool, normalizedRoots(roots))
-}
-
-func stampedLibopusBuildPresent(version string, roots []string, qext bool) bool {
-	return stampedLibopusBuildPresentForPlatform(version, roots, qext, runtime.GOOS, runtime.GOARCH)
 }
 
 func stampedLibopusBuildPresentForPlatform(version string, roots []string, qext bool, goos, goarch string) bool {
@@ -1459,14 +1451,6 @@ func FindOrEnsureOpusCompare(version string, roots []string) (string, error) {
 		return "", err
 	}
 	return findOrEnsureReferenceTool(version, roots, "opus_compare", variant, runtime.GOOS, runtime.GOARCH)
-}
-
-func findOrEnsureOpusCompareForPlatform(version string, roots []string, goos, goarch string) (string, error) {
-	variant, err := resolveLibopusReferenceVariantFor(goarch, goLibopusReferenceSIMD, os.Getenv("GOPUS_LIBOPUS_REF_SCALAR"))
-	if err != nil {
-		return "", err
-	}
-	return findOrEnsureReferenceTool(version, roots, "opus_compare", variant, goos, goarch)
 }
 
 // FindCCompiler returns a GCC/Clang-style C compiler suitable for helper builds.

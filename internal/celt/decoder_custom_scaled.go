@@ -30,6 +30,5 @@ func (d *Decoder) EnableScaledCustomMode(fs, overlap, shortMdctSize, frameSize, 
 	d.customFrameSize = frameSize
 	d.customEffBands = effEBands
 	d.scratchIMDCTF32.customTransforms = transforms
-	d.scratchIMDCTF32R.customTransforms = transforms
 	d.ensureDecodeMem()
 }

@@ -129,6 +129,7 @@ func (d *Decoder) Reset() {
 	d.rangeDecoder = nil
 	d.rangeDecoderScratch = rangecoding.Decoder{}
 	d.directOutPCM = nil
+	d.directOutAccum = false
 	d.decoderDREDState = decoderDREDState{}
 	d.rng = 0
 	d.prevStreamChannels = 0
@@ -172,7 +173,6 @@ func (d *Decoder) clearDecoderScratchForReset() {
 	clearInt32Cap(d.scratchAllocWork)
 	d.scratchBands.clearForReset()
 	d.scratchIMDCTF32.clearForReset()
-	d.scratchIMDCTF32R.clearForReset()
 	clearFloat32Cap(d.scratchSpecRF32)
 	clearFloat32Cap(d.scratchStereoF32)
 	clearFloat32Cap(d.scratchShortCoeffsF32)

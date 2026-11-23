@@ -123,14 +123,11 @@ func randomNSQDelDecAVX2Frame(rng *rand.Rand, nsq *NSQState, nStates int) nsqDel
 	return nsqDelDecAVX2Case{params: p, input: input}
 }
 
-// nsqStateWithoutDelDecScratch returns a copy of nsq without the per-call
-// delayed-decision scratch, which the two representations lay out
-// differently and every call reinitializes.
-func nsqStateWithoutDelDecScratch(nsq *NSQState) NSQState {
-	c := *nsq
-	c.delDecStates = [maxDelDecStates]nsqDelDecState{}
-	c.delDecAVX2 = nsqDelDecAVX2State{}
-	return c
+// nsqStateWithoutDelDecScratch returns the persistent NSQ state without
+// per-call scratch, which the two representations lay out differently and every
+// call reinitializes.
+func nsqStateWithoutDelDecScratch(nsq *NSQState) nsqCore {
+	return nsq.nsqCore
 }
 
 func TestNoiseShapeQuantizeDelDecAVX2MatchesStates(t *testing.T) {
@@ -145,8 +142,10 @@ func TestNoiseShapeQuantizeDelDecAVX2MatchesStates(t *testing.T) {
 		for frame := range 6 {
 			tc := randomNSQDelDecAVX2Frame(rng, ref, nStates)
 			got.RestoreFrom(ref)
-			got.scratchSLTPQ15 = append(got.scratchSLTPQ15[:0], ref.scratchSLTPQ15...)
-			got.scratchSLTP = append(got.scratchSLTP[:0], ref.scratchSLTP...)
+			gotSc := got.ensureScratch()
+			refSc := ref.ensureScratch()
+			gotSc.scratchSLTPQ15 = append(gotSc.scratchSLTPQ15[:0], refSc.scratchSLTPQ15...)
+			gotSc.scratchSLTP = append(gotSc.scratchSLTP[:0], refSc.scratchSLTP...)
 			if !nsqDelDecAVX2Supports(tc.params) {
 				t.Fatalf("trial %d frame %d: unsupported params", trial, frame)
 			}
