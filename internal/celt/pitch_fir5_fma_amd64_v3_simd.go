@@ -2,11 +2,7 @@
 
 package celt
 
-import (
-	"unsafe"
-
-	"simd/archsimd"
-)
+import "simd/archsimd"
 
 const celtFIR5UsesFMA = true
 
@@ -26,33 +22,32 @@ func celtFIR5Head(x []float32, num [5]float32) {
 
 	var memory [13]float32
 	copy(memory[5:], x)
-	base := unsafe.Pointer(unsafe.SliceData(memory[:]))
 	n0 := broadcastF32x4Arch(num[0])
 	n1 := broadcastF32x4Arch(num[1])
 	n2 := broadcastF32x4Arch(num[2])
 	n3 := broadcastF32x4Arch(num[3])
 	n4 := broadcastF32x4Arch(num[4])
 
-	first := celtFIR5HeadVector(base, 0, n0, n1, n2, n3, n4)
+	first := celtFIR5HeadVector(&memory, 0, n0, n1, n2, n3, n4)
 	var out [4]float32
-	storeF32x4(unsafe.Pointer(unsafe.SliceData(out[:])), first)
+	first.StoreArray(&out)
 	copy(x, out[:min(len(x), len(out))])
 
 	if len(x) > 4 {
 		start := len(x) - 4
-		tail := celtFIR5HeadVector(base, start, n0, n1, n2, n3, n4)
-		storeF32x4(unsafe.Pointer(unsafe.SliceData(out[:])), tail)
+		tail := celtFIR5HeadVector(&memory, start, n0, n1, n2, n3, n4)
+		tail.StoreArray(&out)
 		copy(x[start:], out[:])
 	}
 }
 
-func celtFIR5HeadVector(base unsafe.Pointer, start int, n0, n1, n2, n3, n4 archsimd.Float32x4) archsimd.Float32x4 {
-	off := unsafe.Add(base, (start+5)*4)
-	sum := loadF32x4(off)
-	sum = celtFIR5Accumulate(sum, n0, loadF32x4(unsafe.Add(off, -4)))
-	sum = celtFIR5Accumulate(sum, n1, loadF32x4(unsafe.Add(off, -8)))
-	sum = celtFIR5Accumulate(sum, n2, loadF32x4(unsafe.Add(off, -12)))
-	sum = celtFIR5Accumulate(sum, n3, loadF32x4(unsafe.Add(off, -16)))
-	sum = celtFIR5Accumulate(sum, n4, loadF32x4(unsafe.Add(off, -20)))
+func celtFIR5HeadVector(memory *[13]float32, start int, n0, n1, n2, n3, n4 archsimd.Float32x4) archsimd.Float32x4 {
+	w := memory[start : start+9 : start+9]
+	sum := archsimd.LoadFloat32x4Array((*[4]float32)(w[5:9]))
+	sum = celtFIR5Accumulate(sum, n0, archsimd.LoadFloat32x4Array((*[4]float32)(w[4:8])))
+	sum = celtFIR5Accumulate(sum, n1, archsimd.LoadFloat32x4Array((*[4]float32)(w[3:7])))
+	sum = celtFIR5Accumulate(sum, n2, archsimd.LoadFloat32x4Array((*[4]float32)(w[2:6])))
+	sum = celtFIR5Accumulate(sum, n3, archsimd.LoadFloat32x4Array((*[4]float32)(w[1:5])))
+	sum = celtFIR5Accumulate(sum, n4, archsimd.LoadFloat32x4Array((*[4]float32)(w[0:4])))
 	return sum
 }

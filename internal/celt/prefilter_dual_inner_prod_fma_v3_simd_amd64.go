@@ -2,10 +2,7 @@
 
 package celt
 
-import (
-	"simd/archsimd"
-	"unsafe"
-)
+import "simd/archsimd"
 
 const prefilterDualInnerProdSSEUsesFMA = true
 
@@ -23,16 +20,12 @@ func prefilterDualInnerProdF32SSEOrderV3(x, y1, y2 []float32, length int) (float
 	x = x[:length]
 	y1 = y1[:length]
 	y2 = y2[:length]
-	xp := unsafe.Pointer(unsafe.SliceData(x))
-	y1p := unsafe.Pointer(unsafe.SliceData(y1))
-	y2p := unsafe.Pointer(unsafe.SliceData(y2))
 	var acc1, acc2 archsimd.Float32x4
 	i := 0
 	for ; i+4 <= length; i += 4 {
-		off := uintptr(i) * 4
-		xv := loadF32x4(unsafe.Add(xp, off))
-		acc1 = xv.MulAdd(loadF32x4(unsafe.Add(y1p, off)), acc1)
-		acc2 = xv.MulAdd(loadF32x4(unsafe.Add(y2p, off)), acc2)
+		xv := archsimd.LoadFloat32x4Array((*[4]float32)(x[i:]))
+		acc1 = xv.MulAdd(archsimd.LoadFloat32x4Array((*[4]float32)(y1[i:])), acc1)
+		acc2 = xv.MulAdd(archsimd.LoadFloat32x4Array((*[4]float32)(y2[i:])), acc2)
 	}
 	sum1 := add32(add32(acc1.GetElem(0), acc1.GetElem(2)), add32(acc1.GetElem(1), acc1.GetElem(3)))
 	sum2 := add32(add32(acc2.GetElem(0), acc2.GetElem(2)), add32(acc2.GetElem(1), acc2.GetElem(3)))

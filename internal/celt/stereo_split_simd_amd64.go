@@ -2,10 +2,7 @@
 
 package celt
 
-import (
-	"simd/archsimd"
-	"unsafe"
-)
+import "simd/archsimd"
 
 // stereoSplitInto runs stereo_split() over x and y of equal length. The
 // vector body follows the selected target's contraction order, and the
@@ -24,21 +21,20 @@ func stereoSplitIntoAVX(x, y []celtNorm) {
 	blocks := len(x) &^ 3
 	if blocks > 0 {
 		c := broadcastF32x4Arch(stereoSplitInvSqrt2)
-		xp := unsafe.Pointer(unsafe.SliceData(x))
-		yp := unsafe.Pointer(unsafe.SliceData(y))
-		for j := 0; j < blocks; j += 4 {
-			off := uintptr(j) * 4
-			xv := loadF32x4(unsafe.Add(xp, off))
-			yv := loadF32x4(unsafe.Add(yp, off))
+		xb := x[:blocks]
+		yb := y[:blocks]
+		for j := 0; j < len(xb); j += 4 {
+			xv := archsimd.LoadFloat32x4Array((*[4]float32)(xb[j:]))
+			yv := archsimd.LoadFloat32x4Array((*[4]float32)(yb[j:]))
 			if stereoSplitUsesFMA {
 				r := yv.Mul(c)
-				storeF32x4(unsafe.Add(xp, off), xv.MulAdd(c, r))
-				storeF32x4(unsafe.Add(yp, off), xv.MulAdd(c.Neg(), r))
+				xv.MulAdd(c, r).StoreArray((*[4]float32)(xb[j:]))
+				xv.MulAdd(c.Neg(), r).StoreArray((*[4]float32)(yb[j:]))
 			} else {
 				l := xv.Mul(c)
 				r := yv.Mul(c)
-				storeF32x4(unsafe.Add(xp, off), l.Add(r))
-				storeF32x4(unsafe.Add(yp, off), r.Sub(l))
+				l.Add(r).StoreArray((*[4]float32)(xb[j:]))
+				r.Sub(l).StoreArray((*[4]float32)(yb[j:]))
 			}
 		}
 	}

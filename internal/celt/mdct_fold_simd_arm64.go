@@ -2,22 +2,19 @@
 
 package celt
 
-import (
-	"simd/archsimd"
-	"unsafe"
-)
+import "simd/archsimd"
 
 // mdctFoldEvenAt deinterleaves the even lanes of one eight-sample block.
-func mdctFoldEvenAt(p unsafe.Pointer) archsimd.Float32x4 {
-	return loadF32x4(p).ToBits().
-		ConcatEven(loadF32x4(unsafe.Add(p, 16)).ToBits()).BitsToFloat32()
+func mdctFoldEvenAt(s []float32) archsimd.Float32x4 {
+	return archsimd.LoadFloat32x4Array((*[4]float32)(s)).ToBits().
+		ConcatEven(archsimd.LoadFloat32x4Array((*[4]float32)(s[4:])).ToBits()).BitsToFloat32()
 }
 
 // mdctFoldEvenDescAt reads base+6, base+4, base+2, base without crossing the
-// high end of its backing slice: p points one sample before base.
-func mdctFoldEvenDescAt(p unsafe.Pointer) archsimd.Float32x4 {
-	lo := loadF32x4(p).ToBits()
-	hi := loadF32x4(unsafe.Add(p, 16)).ToBits()
+// high end of its backing slice: s starts one sample before base.
+func mdctFoldEvenDescAt(s []float32) archsimd.Float32x4 {
+	lo := archsimd.LoadFloat32x4Array((*[4]float32)(s)).ToBits()
+	hi := archsimd.LoadFloat32x4Array((*[4]float32)(s[4:])).ToBits()
 	return reverse4(lo.ConcatOdd(hi).BitsToFloat32())
 }
 
@@ -25,19 +22,16 @@ func mdctFoldEvenDescAt(p unsafe.Pointer) archsimd.Float32x4 {
 // computed (re, im) block, matching mdctStoreDirectStageFMALike bit-for-bit:
 // yr = (re*t0 - round(im*t1))*preScale, yi = (im*t0 + round(re*t1))*preScale,
 // dst[bitrev[j+lane]] = {yr, yi}.
-func mdctFoldStore(dst []kissCpx, bitrev []int, t0, t1 unsafe.Pointer, j int, re, im, pv archsimd.Float32x4) {
-	tv0 := loadF32x4(t0)
-	tv1 := loadF32x4(t1)
+func mdctFoldStore(dst []kissCpx, bitrev []int, t0, t1 []float32, j int, re, im, pv archsimd.Float32x4) {
+	tv0 := archsimd.LoadFloat32x4Array((*[4]float32)(t0))
+	tv1 := archsimd.LoadFloat32x4Array((*[4]float32)(t1))
 	yr := re.MulAdd(tv0, im.Mul(tv1).Neg()).Mul(pv)
 	yi := im.MulAdd(tv0, re.Mul(tv1)).Mul(pv)
-	// kissCpx is two float32 values. Interleave each result pair and store its
-	// packed bits so ARM64 can move each pair with one scalar integer transfer.
-	pairLo := yr.ToBits().InterleaveLo(yi.ToBits()).ReshapeToUint64s()
-	pairHi := yr.ToBits().InterleaveHi(yi.ToBits()).ReshapeToUint64s()
-	*(*uint64)(unsafe.Pointer(&dst[bitrev[j]])) = pairLo.GetElem(0)
-	*(*uint64)(unsafe.Pointer(&dst[bitrev[j+1]])) = pairLo.GetElem(1)
-	*(*uint64)(unsafe.Pointer(&dst[bitrev[j+2]])) = pairHi.GetElem(0)
-	*(*uint64)(unsafe.Pointer(&dst[bitrev[j+3]])) = pairHi.GetElem(1)
+	br := bitrev[j : j+4]
+	dst[br[0]] = kissCpx{r: yr.GetElem(0), i: yi.GetElem(0)}
+	dst[br[1]] = kissCpx{r: yr.GetElem(1), i: yi.GetElem(1)}
+	dst[br[2]] = kissCpx{r: yr.GetElem(2), i: yi.GetElem(2)}
+	dst[br[3]] = kissCpx{r: yr.GetElem(3), i: yi.GetElem(3)}
 }
 
 // mdctFold1StoreNeon is the archsimd leading windowed fold of the forward MDCT.
@@ -61,39 +55,32 @@ func mdctFold1StoreNeon(dst []kissCpx, bitrev []int, samples []float32, window [
 	_ = trig[n4+i0+done-1]
 	_ = bitrev[i0+done-1]
 	pv := archsimd.BroadcastFloat32x4(preScale)
-	sp := unsafe.Pointer(unsafe.SliceData(samples))
-	wp := unsafe.Pointer(unsafe.SliceData(window))
-	tp := unsafe.Pointer(unsafe.SliceData(trig))
-	// Sample and window cursors point at eight-sample blocks. Descending cursors
-	// move back only when another iteration remains, keeping pointers in-bounds.
-	a := unsafe.Add(sp, (xp1+n2)*4)
-	a2 := unsafe.Add(sp, xp1*4)
-	wc := unsafe.Add(wp, wp1*4)
-	bp := unsafe.Add(sp, (xp2-7)*4)
-	b2 := unsafe.Add(sp, (xp2-n2-7)*4)
-	wd := unsafe.Add(wp, (wp2-7)*4)
-	t0 := unsafe.Add(tp, i0*4)
-	t1 := unsafe.Add(tp, (n4+i0)*4)
+	aOff := xp1 + n2
+	a2Off := xp1
+	wcOff := wp1
+	bpOff := xp2 - 7
+	b2Off := xp2 - n2 - 7
+	wdOff := wp2 - 7
+	t0Off := i0
+	t1Off := n4 + i0
 	for b := 0; b < blocks; b++ {
-		A := mdctFoldEvenAt(a)
-		A2 := mdctFoldEvenAt(a2)
-		wC := mdctFoldEvenAt(wc)
-		B := mdctFoldEvenDescAt(bp)
-		B2 := mdctFoldEvenDescAt(b2)
-		wD := mdctFoldEvenDescAt(wd)
+		A := mdctFoldEvenAt(samples[aOff:])
+		A2 := mdctFoldEvenAt(samples[a2Off:])
+		wC := mdctFoldEvenAt(window[wcOff:])
+		B := mdctFoldEvenDescAt(samples[bpOff:])
+		B2 := mdctFoldEvenDescAt(samples[b2Off:])
+		wD := mdctFoldEvenDescAt(window[wdOff:])
 		re := A.MulAdd(wD, B.Mul(wC))
 		im := A2.MulAdd(wC, B2.Mul(wD).Neg())
-		mdctFoldStore(dst, bitrev, t0, t1, i0+4*b, re, im, pv)
-		if b+1 < blocks {
-			a = unsafe.Add(a, 32)
-			a2 = unsafe.Add(a2, 32)
-			wc = unsafe.Add(wc, 32)
-			bp = unsafe.Add(bp, -32)
-			b2 = unsafe.Add(b2, -32)
-			wd = unsafe.Add(wd, -32)
-			t0 = unsafe.Add(t0, 16)
-			t1 = unsafe.Add(t1, 16)
-		}
+		mdctFoldStore(dst, bitrev, trig[t0Off:], trig[t1Off:], i0+4*b, re, im, pv)
+		aOff += 8
+		a2Off += 8
+		wcOff += 8
+		bpOff -= 8
+		b2Off -= 8
+		wdOff -= 8
+		t0Off += 4
+		t1Off += 4
 	}
 }
 
@@ -119,38 +106,31 @@ func mdctFold3StoreNeon(dst []kissCpx, bitrev []int, samples []float32, window [
 	_ = trig[n4+i0+done-1]
 	_ = bitrev[i0+done-1]
 	pv := archsimd.BroadcastFloat32x4(preScale)
-	sp := unsafe.Pointer(unsafe.SliceData(samples))
-	wp := unsafe.Pointer(unsafe.SliceData(window))
-	tp := unsafe.Pointer(unsafe.SliceData(trig))
-	// Each descending cursor starts one sample before its first block so the
-	// odd lanes form the desired sequence without reading beyond the high end.
-	a3 := unsafe.Add(sp, (xp1-n2)*4)
-	a2 := unsafe.Add(sp, xp1*4)
-	wc := unsafe.Add(wp, wp1*4)
-	bp := unsafe.Add(sp, (xp2-7)*4)
-	b4 := unsafe.Add(sp, (xp2+n2-7)*4)
-	wd := unsafe.Add(wp, (wp2-7)*4)
-	t0 := unsafe.Add(tp, i0*4)
-	t1 := unsafe.Add(tp, (n4+i0)*4)
+	a3Off := xp1 - n2
+	a2Off := xp1
+	wcOff := wp1
+	bpOff := xp2 - 7
+	b4Off := xp2 + n2 - 7
+	wdOff := wp2 - 7
+	t0Off := i0
+	t1Off := n4 + i0
 	for b := 0; b < blocks; b++ {
-		A3 := mdctFoldEvenAt(a3)
-		A2 := mdctFoldEvenAt(a2)
-		wC := mdctFoldEvenAt(wc)
-		B := mdctFoldEvenDescAt(bp)
-		B4 := mdctFoldEvenDescAt(b4)
-		wD := mdctFoldEvenDescAt(wd)
+		A3 := mdctFoldEvenAt(samples[a3Off:])
+		A2 := mdctFoldEvenAt(samples[a2Off:])
+		wC := mdctFoldEvenAt(window[wcOff:])
+		B := mdctFoldEvenDescAt(samples[bpOff:])
+		B4 := mdctFoldEvenDescAt(samples[b4Off:])
+		wD := mdctFoldEvenDescAt(window[wdOff:])
 		re := A3.Neg().MulAdd(wC, B.Mul(wD))
 		im := A2.MulAdd(wD, B4.Mul(wC))
-		mdctFoldStore(dst, bitrev, t0, t1, i0+4*b, re, im, pv)
-		if b+1 < blocks {
-			a3 = unsafe.Add(a3, 32)
-			a2 = unsafe.Add(a2, 32)
-			wc = unsafe.Add(wc, 32)
-			bp = unsafe.Add(bp, -32)
-			b4 = unsafe.Add(b4, -32)
-			wd = unsafe.Add(wd, -32)
-			t0 = unsafe.Add(t0, 16)
-			t1 = unsafe.Add(t1, 16)
-		}
+		mdctFoldStore(dst, bitrev, trig[t0Off:], trig[t1Off:], i0+4*b, re, im, pv)
+		a3Off += 8
+		a2Off += 8
+		wcOff += 8
+		bpOff -= 8
+		b4Off -= 8
+		wdOff -= 8
+		t0Off += 4
+		t1Off += 4
 	}
 }

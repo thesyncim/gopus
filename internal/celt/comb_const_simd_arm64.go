@@ -2,10 +2,7 @@
 
 package celt
 
-import (
-	"simd/archsimd"
-	"unsafe"
-)
+import "simd/archsimd"
 
 // combUsesNeon selects the archsimd constant-gain comb filter on the arm64
 // experiment build.
@@ -17,8 +14,7 @@ const combUsesNeon = true
 //
 // four lanes at a time. The two tap sums round as plain FADDs and the three
 // accumulates are fused FMLAs (MulAdd), matching the scalar combFilterConstValue
-// bit-for-bit. Loads go through raw pointers (loadF32x4) to skip
-// the per-access slice bounds check; blocks counts four-output vectors.
+// bit-for-bit. blocks counts four-output vectors.
 func combFilterConstNeonBlock(base, d0, d1, g10v, g11v, g12v archsimd.Float32x4) archsimd.Float32x4 {
 	lo := d0.ToBits().ReshapeToUint8s()
 	hi := d1.ToBits().ReshapeToUint8s()
@@ -36,31 +32,26 @@ func combFilterConstNeon(dst, delay []float32, g10, g11, g12 float32, blocks int
 	if blocks <= 0 {
 		return
 	}
-	_ = dst[blocks*4-1]
-	_ = delay[blocks*4+3]
+	n := blocks * 4
+	dst = dst[:n]
+	delay = delay[:n+4]
 	g10v := archsimd.BroadcastFloat32x4(g10)
 	g11v := archsimd.BroadcastFloat32x4(g11)
 	g12v := archsimd.BroadcastFloat32x4(g12)
-	dp := unsafe.Pointer(unsafe.SliceData(dst))
-	yp := unsafe.Pointer(unsafe.SliceData(delay))
-	for pair := 0; pair < blocks/2; pair++ {
-		j := pair * 8
-		d0 := loadF32x4(unsafe.Add(yp, j*4))
-		d1 := loadF32x4(unsafe.Add(yp, (j+4)*4))
-		d2 := loadF32x4(unsafe.Add(yp, (j+8)*4))
-		base0 := loadF32x4(unsafe.Add(dp, j*4))
-		sum0 := combFilterConstNeonBlock(base0, d0, d1, g10v, g11v, g12v)
-		storeF32x4(unsafe.Add(dp, j*4), sum0)
-		base1 := loadF32x4(unsafe.Add(dp, (j+4)*4))
-		sum1 := combFilterConstNeonBlock(base1, d1, d2, g10v, g11v, g12v)
-		storeF32x4(unsafe.Add(dp, (j+4)*4), sum1)
+	j := 0
+	for ; j+8 <= n; j += 8 {
+		d0 := archsimd.LoadFloat32x4Array((*[4]float32)(delay[j:]))
+		d1 := archsimd.LoadFloat32x4Array((*[4]float32)(delay[j+4:]))
+		d2 := archsimd.LoadFloat32x4Array((*[4]float32)(delay[j+8:]))
+		base0 := archsimd.LoadFloat32x4Array((*[4]float32)(dst[j:]))
+		combFilterConstNeonBlock(base0, d0, d1, g10v, g11v, g12v).StoreArray((*[4]float32)(dst[j:]))
+		base1 := archsimd.LoadFloat32x4Array((*[4]float32)(dst[j+4:]))
+		combFilterConstNeonBlock(base1, d1, d2, g10v, g11v, g12v).StoreArray((*[4]float32)(dst[j+4:]))
 	}
-	if blocks&1 != 0 {
-		j := (blocks - 1) * 4
-		base := loadF32x4(unsafe.Add(dp, j*4))
-		d0 := loadF32x4(unsafe.Add(yp, j*4))
-		d1 := loadF32x4(unsafe.Add(yp, (j+4)*4))
-		sum := combFilterConstNeonBlock(base, d0, d1, g10v, g11v, g12v)
-		storeF32x4(unsafe.Add(dp, j*4), sum)
+	if j+4 <= n {
+		base := archsimd.LoadFloat32x4Array((*[4]float32)(dst[j:]))
+		d0 := archsimd.LoadFloat32x4Array((*[4]float32)(delay[j:]))
+		d1 := archsimd.LoadFloat32x4Array((*[4]float32)(delay[j+4:]))
+		combFilterConstNeonBlock(base, d0, d1, g10v, g11v, g12v).StoreArray((*[4]float32)(dst[j:]))
 	}
 }

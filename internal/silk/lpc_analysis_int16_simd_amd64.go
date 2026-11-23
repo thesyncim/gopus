@@ -2,10 +2,7 @@
 
 package silk
 
-import (
-	"simd/archsimd"
-	"unsafe"
-)
+import "simd/archsimd"
 
 var silkLPCAnalysisFilterUsesAVX2 = archsimd.X86.AVX2()
 
@@ -26,11 +23,12 @@ func silkLPCAnalysisFilterVec(out, in, B []int16, length, order int) int {
 	if start+8 > length {
 		return ix
 	}
-	return silkLPCAnalysisFilterVecAVX2(out, in, B, length, order, start)
+	return silkLPCAnalysisFilterVecAVX2(out[:length], in[:length], B[:order], order, start)
 }
 
 //go:noinline
-func silkLPCAnalysisFilterVecAVX2(out, in, B []int16, length, order, start int) int {
+func silkLPCAnalysisFilterVecAVX2(out, in, B []int16, order, start int) int {
+	length := len(in)
 	ix := order
 	for ; ix < start; ix++ {
 		outQ12 := silkSMULBB(int32(in[ix-1]), int32(B[0]))
@@ -48,17 +46,16 @@ func silkLPCAnalysisFilterVecAVX2(out, in, B []int16, length, order, start int) 
 	cHi := archsimd.LoadInt16x8Array((*[8]int16)(rev[8:]))
 	half := archsimd.BroadcastInt32x4(1)
 	var zero archsimd.Int16x8
-	base := unsafe.Pointer(unsafe.SliceData(in))
 	pred := func(ix int) archsimd.Int32x4 {
-		p := unsafe.Add(base, 2*(ix-maxLPCOrder))
+		p := in[ix-maxLPCOrder:]
 		lo := archsimd.LoadInt16x8Array((*[8]int16)(p)).DotProductPairs(cLo)
-		hi := archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(p, 16))).DotProductPairs(cHi)
+		hi := archsimd.LoadInt16x8Array((*[8]int16)(p[8:])).DotProductPairs(cHi)
 		return lo.Add(hi)
 	}
 	for ; ix+8 <= length; ix += 8 {
 		p0 := pred(ix).ConcatAddPairs(pred(ix + 1)).ConcatAddPairs(pred(ix + 2).ConcatAddPairs(pred(ix + 3)))
 		p1 := pred(ix + 4).ConcatAddPairs(pred(ix + 5)).ConcatAddPairs(pred(ix + 6).ConcatAddPairs(pred(ix + 7)))
-		cur := archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(base, 2*ix)))
+		cur := archsimd.LoadInt16x8Array((*[8]int16)(in[ix:]))
 		// in<<12 for each lane: interleaving under zeros puts in[i] in the
 		// high half of lane i, so an arithmetic shift right by 4 leaves in[i]<<12.
 		c0 := zero.InterleaveLo(cur).AsInt32x4().ShiftAllRight(4)
@@ -66,7 +63,7 @@ func silkLPCAnalysisFilterVecAVX2(out, in, B []int16, length, order, start int) 
 		// silk_RSHIFT_ROUND(outQ12, 12), then silk_SAT16 in the pack.
 		r0 := c0.Sub(p0).ShiftAllRight(11).Add(half).ShiftAllRight(1)
 		r1 := c1.Sub(p1).ShiftAllRight(11).Add(half).ShiftAllRight(1)
-		r0.SaturateToInt16Concat(r1).StoreArray((*[8]int16)(unsafe.Pointer(&out[ix])))
+		r0.SaturateToInt16Concat(r1).StoreArray((*[8]int16)(out[ix:]))
 	}
 	return ix
 }

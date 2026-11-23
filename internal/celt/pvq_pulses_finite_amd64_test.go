@@ -6,7 +6,6 @@ import (
 	"math"
 	"math/rand"
 	"testing"
-	"unsafe"
 )
 
 // TestPVQPulsesFiniteMatchesExactSearch requires the finite-score pulse loop
@@ -45,14 +44,14 @@ func TestPVQPulsesFiniteMatchesExactSearch(t *testing.T) {
 
 		gotY := append([]float32(nil), y...)
 		gotIy := make([]int32, workN)
-		gxy, gyy := x86PVQPulsesFinite(unsafe.Pointer(&absX[0]), unsafe.Pointer(&gotY[0]), unsafe.Pointer(&gotIy[0]), xy, yy, n, pulses)
+		gxy, gyy := x86PVQPulsesFinite(absX, gotY, gotIy, xy, yy, n, pulses)
 
 		wantY := append([]float32(nil), y...)
 		wantIy := make([]int32, workN)
 		wxy, wyy := xy, yy
 		for range pulses {
 			wyy++
-			best := x86PVQSearchBestIDExact(unsafe.Pointer(&absX[0]), unsafe.Pointer(&wantY[0]), wxy, wyy, n)
+			best := x86PVQSearchBestIDExact(absX, wantY, wxy, wyy, n)
 			wxy += absX[best]
 			wyy += wantY[best]
 			wantY[best] += 2

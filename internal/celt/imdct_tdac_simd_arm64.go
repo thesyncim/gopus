@@ -2,7 +2,7 @@
 
 package celt
 
-import "unsafe"
+import "simd/archsimd"
 
 // imdctTDACWindow is the archsimd IMDCT TDAC overlap-add windowing. Per step
 // it computes, with the fused mix shape of mdctMulSubMix/mdctMulAddMix,
@@ -28,19 +28,16 @@ func imdctTDACWindow(out, xsrc, window []float32, yOut0, xOut0, xSrc0, wBwd0, co
 	_ = window[count-1]
 	_ = window[wBwd0-count+1]
 	_ = window[wBwd0]
-	op := unsafe.Pointer(unsafe.SliceData(out))
-	xp := unsafe.Pointer(unsafe.SliceData(xsrc))
-	wp := unsafe.Pointer(unsafe.SliceData(window))
 	i := 0
 	for ; i+4 <= count; i += 4 {
-		x1 := reverse4(loadF32x4(unsafe.Add(xp, (xSrc0-i-3)*4)))
-		x2 := loadF32x4(unsafe.Add(op, (yOut0+i)*4))
-		w1 := loadF32x4(unsafe.Add(wp, i*4))
-		w2 := reverse4(loadF32x4(unsafe.Add(wp, (wBwd0-i-3)*4)))
+		x1 := reverse4(archsimd.LoadFloat32x4Array((*[4]float32)(xsrc[xSrc0-i-3:])))
+		x2 := archsimd.LoadFloat32x4Array((*[4]float32)(out[yOut0+i:]))
+		w1 := archsimd.LoadFloat32x4Array((*[4]float32)(window[i:]))
+		w2 := reverse4(archsimd.LoadFloat32x4Array((*[4]float32)(window[wBwd0-i-3:])))
 		yr := x2.MulAdd(w2, x1.Mul(w1).Neg())
 		xr := x2.MulAdd(w1, x1.Mul(w2))
-		storeF32x4(unsafe.Add(op, (yOut0+i)*4), yr)
-		storeF32x4(unsafe.Add(op, (xOut0-i-3)*4), reverse4(xr))
+		yr.StoreArray((*[4]float32)(out[yOut0+i:]))
+		reverse4(xr).StoreArray((*[4]float32)(out[xOut0-i-3:]))
 	}
 	yp := yOut0 + i
 	xpOut := xOut0 - i

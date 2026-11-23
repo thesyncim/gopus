@@ -2,11 +2,7 @@
 
 package celt
 
-import (
-	"unsafe"
-
-	"simd/archsimd"
-)
+import "simd/archsimd"
 
 // rawMaxMinScan folds x into celt_maxabs16's running MAX16/MIN16 extrema.
 // Without NaN samples the sequential extrema are the plain maximum and
@@ -27,13 +23,13 @@ func rawMaxMinScanAVX(x []float32, maxVal, minVal float32) (float32, float32) {
 	if n < 8 {
 		return rawMaxMinScanScalar(x, maxVal, minVal)
 	}
-	p := unsafe.Pointer(unsafe.SliceData(x))
+	x = x[:n]
 	hi := broadcastF32x4Arch(maxVal)
 	lo := broadcastF32x4Arch(minVal)
 	nan := archsimd.Int32x4{}
 	i := 0
 	for ; i+4 <= n; i += 4 {
-		v := loadF32x4(unsafe.Add(p, 4*i))
+		v := archsimd.LoadFloat32x4Array((*[4]float32)(x[i:]))
 		hi = hi.Max(v)
 		lo = lo.Min(v)
 		nan = nan.Or(v.IsNaN().ToInt32x4())
@@ -66,13 +62,11 @@ func preemphMonoAVX(pcm, out []float32, coef, m float32) float32 {
 	out[0] = pcm[0]*float32(CELTSigScale) - m
 	scale := broadcastF32x4Arch(float32(CELTSigScale))
 	coef4 := broadcastF32x4Arch(coef)
-	pp := unsafe.Pointer(unsafe.SliceData(pcm))
-	op := unsafe.Pointer(unsafe.SliceData(out))
 	i := 1
 	for ; i+4 <= total; i += 4 {
-		scaled := loadF32x4(unsafe.Add(pp, 4*i)).Mul(scale)
-		prev := coef4.Mul(loadF32x4(unsafe.Add(pp, 4*(i-1))).Mul(scale))
-		storeF32x4(unsafe.Add(op, 4*i), scaled.Sub(prev))
+		scaled := archsimd.LoadFloat32x4Array((*[4]float32)(pcm[i:])).Mul(scale)
+		prev := coef4.Mul(archsimd.LoadFloat32x4Array((*[4]float32)(pcm[i-1:])).Mul(scale))
+		scaled.Sub(prev).StoreArray((*[4]float32)(out[i:]))
 	}
 	for ; i < total; i++ {
 		scaled := pcm[i] * float32(CELTSigScale)
@@ -105,21 +99,20 @@ func preemphStereoPlanarAVX(pcm, outL, outR []float32, coef float32, state [2]fl
 	outR[0] = pcm[1]*float32(CELTSigScale) - state[1]
 	scale := broadcastF32x4Arch(float32(CELTSigScale))
 	coef4 := broadcastF32x4Arch(coef)
-	pp := unsafe.Pointer(unsafe.SliceData(pcm))
-	lp := unsafe.Pointer(unsafe.SliceData(outL))
-	rp := unsafe.Pointer(unsafe.SliceData(outR))
 	i := 1
 	for ; i+4 <= n; i += 4 {
-		cur0 := loadF32x4(unsafe.Add(pp, 8*i))
-		cur1 := loadF32x4(unsafe.Add(pp, 8*i+16))
-		prev0 := loadF32x4(unsafe.Add(pp, 8*(i-1)))
-		prev1 := loadF32x4(unsafe.Add(pp, 8*(i-1)+16))
+		cur := pcm[2*i : 2*i+8]
+		prev := pcm[2*i-2 : 2*i+6]
+		cur0 := archsimd.LoadFloat32x4Array((*[4]float32)(cur))
+		cur1 := archsimd.LoadFloat32x4Array((*[4]float32)(cur[4:]))
+		prev0 := archsimd.LoadFloat32x4Array((*[4]float32)(prev))
+		prev1 := archsimd.LoadFloat32x4Array((*[4]float32)(prev[4:]))
 		curL := cur0.ConcatPermuteScalars(0, 2, 4, 6, cur1)
 		curR := cur0.ConcatPermuteScalars(1, 3, 5, 7, cur1)
 		prevL := prev0.ConcatPermuteScalars(0, 2, 4, 6, prev1)
 		prevR := prev0.ConcatPermuteScalars(1, 3, 5, 7, prev1)
-		storeF32x4(unsafe.Add(lp, 4*i), curL.Mul(scale).Sub(coef4.Mul(prevL.Mul(scale))))
-		storeF32x4(unsafe.Add(rp, 4*i), curR.Mul(scale).Sub(coef4.Mul(prevR.Mul(scale))))
+		curL.Mul(scale).Sub(coef4.Mul(prevL.Mul(scale))).StoreArray((*[4]float32)(outL[i:]))
+		curR.Mul(scale).Sub(coef4.Mul(prevR.Mul(scale))).StoreArray((*[4]float32)(outR[i:]))
 	}
 	for ; i < n; i++ {
 		outL[i] = pcm[2*i]*float32(CELTSigScale) - mul32(coef, pcm[2*i-2]*float32(CELTSigScale))
