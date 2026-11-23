@@ -2,17 +2,13 @@
 
 package celt
 
-import (
-	"unsafe"
-
-	"github.com/thesyncim/gopus/internal/opusmath"
-)
+import "github.com/thesyncim/gopus/internal/opusmath"
 
 // xcorrKernelAVX8 preserves the eight-lane fused accumulation order used by
 // libopus' x86 pitch search.
-func xcorrKernelAVX8(x, y *float32, sum *[8]float32, length int) {
-	xs := unsafe.Slice(x, length)
-	ys := unsafe.Slice(y, length+7)
+func xcorrKernelAVX8(x, y []float32, sum *[8]float32, length int) {
+	xs := x[:length]
+	ys := y[:length+7]
 	var lanes [8][8]float32
 	for i := range xs {
 		xv := xs[i]
@@ -28,7 +24,7 @@ func xcorrKernelAVX8(x, y *float32, sum *[8]float32, length int) {
 }
 
 func pitchXcorrKernelAVX8(x, y []float32, sum *[8]float32, length int) {
-	xcorrKernelAVX8(&x[0], &y[0], sum, length)
+	xcorrKernelAVX8(x, y, sum, length)
 }
 
 // pitchXCorrAVX2Blocks leaves every lag to the per-block kernel on builds

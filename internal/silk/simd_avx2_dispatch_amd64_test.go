@@ -106,8 +106,8 @@ func TestSILKAMD64SIMDRequiresAVX2(t *testing.T) {
 			y[i] = float32(i%7-3) * 0.25
 		}
 		var want, got [8]float32
-		xcorrKernelAVX8ScalarGo(&x[0], &y[0], &want, len(x))
-		xcorrKernelAVX8OnePass(&x[0], &y[0], &got, len(x))
+		xcorrKernelAVX8ScalarGo(x[:], y[:], &want, len(x))
+		xcorrKernelAVX8OnePass(x[:], y[:], &got, len(x))
 		for i := range got {
 			if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
 				t.Fatalf("pitch xcorr %d: got %08x want %08x", i, math.Float32bits(got[i]), math.Float32bits(want[i]))

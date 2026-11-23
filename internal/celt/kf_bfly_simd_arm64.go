@@ -253,5 +253,25 @@ func bflyMulSource4(ar, ai, wr, wi archsimd.Float32x4) (re, im archsimd.Float32x
 func kfBflyScalarFastInput([]kissCpx) bool { return false }
 
 func kfBfly2M4(fout []kissCpx, n int) {
-	kfBfly2M4Scalar(fout, n)
+	if n <= 0 {
+		return
+	}
+	ff := kissCpxAsFloat32(fout[:8*n])
+	tw := archsimd.BroadcastFloat32x4(kfBfly2M4Twiddle)
+	lane0 := archsimd.LoadInt32x4Array(&[4]int32{-1, 0, 0, 0}).ToMask()
+	lane2 := archsimd.LoadInt32x4Array(&[4]int32{0, 0, -1, 0}).ToMask()
+	lane3 := archsimd.LoadInt32x4Array(&[4]int32{0, 0, 0, -1}).ToMask()
+	for group := range n {
+		off := group * 16
+		fr, fi := bflyLoadCpx4(ff[off:])
+		r, i := bflyLoadCpx4(ff[off+8:])
+		sum := r.Add(i)
+		diff := i.Sub(r)
+		tr := diff.IfElse(lane3, sum).Mul(tw)
+		ti := sum.Neg().IfElse(lane3, diff).Mul(tw)
+		tr = r.IfElse(lane0, i.IfElse(lane2, tr))
+		ti = i.IfElse(lane0, r.Neg().IfElse(lane2, ti))
+		bflyStoreCpx4(ff[off+8:], fr.Sub(tr), fi.Sub(ti))
+		bflyStoreCpx4(ff[off:], fr.Add(tr), fi.Add(ti))
+	}
 }

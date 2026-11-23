@@ -65,7 +65,7 @@ func TestSilkPitchXcorrAVX2KernelMatchesReference(t *testing.T) {
 			}
 			want := xcorrKernelAVX8Reference(x, y, length)
 			var got [8]float32
-			xcorrKernelAVX8(&x[0], &y[0], &got, length)
+			xcorrKernelAVX8(x, y, &got, length)
 			for c := range 8 {
 				if math.Float32bits(got[c]) != math.Float32bits(want[c]) {
 					t.Fatalf("length=%d trial=%d corr=%d: got %08x %.10g want %08x %.10g",
@@ -89,9 +89,9 @@ func TestXcorrKernelAVX8LargePathZeroAlloc(t *testing.T) {
 		y[i] = float32(i%17-8) * 0.0625
 	}
 	var sum [8]float32
-	xcorrKernelAVX8(&x[0], &y[0], &sum, length)
+	xcorrKernelAVX8(x, y, &sum, length)
 	if allocs := testing.AllocsPerRun(100, func() {
-		xcorrKernelAVX8(&x[0], &y[0], &sum, length)
+		xcorrKernelAVX8(x, y, &sum, length)
 	}); allocs != 0 {
 		t.Fatalf("large xcorr kernel allocated %v times", allocs)
 	}
@@ -122,7 +122,7 @@ func BenchmarkXcorrKernelAVX8(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				xcorrKernelAVX8(&x[0], &y[0], &sum, length)
+				xcorrKernelAVX8(x, y, &sum, length)
 			}
 			xcorrKernelAVX8BenchmarkSink = sum
 		})

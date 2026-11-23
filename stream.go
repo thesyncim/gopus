@@ -19,6 +19,31 @@ var hostIsLittleEndian = func() bool {
 	return binary.NativeEndian.Uint16(probe[:]) == 1
 }()
 
+// float32SliceAsBytes returns a read-only byte view of s on little-endian
+// hosts.
+//
+// Safety: float32 is a 4-byte scalar with no pointers or padding; the returned
+// slice shares s's backing array and preserves its exact byte bounds
+// (4*len(s)). Callers only copy out of it while s remains live.
+func float32SliceAsBytes(s []float32) []byte {
+	if len(s) == 0 {
+		return nil
+	}
+	return unsafe.Slice((*byte)(unsafe.Pointer(unsafe.SliceData(s))), len(s)*4)
+}
+
+// int16SliceAsBytes returns a read-only byte view of s on little-endian hosts.
+//
+// Safety: int16 is a 2-byte scalar with no pointers or padding; the returned
+// slice shares s's backing array and preserves its exact byte bounds
+// (2*len(s)). Callers only copy out of it while s remains live.
+func int16SliceAsBytes(s []int16) []byte {
+	if len(s) == 0 {
+		return nil
+	}
+	return unsafe.Slice((*byte)(unsafe.Pointer(unsafe.SliceData(s))), len(s)*2)
+}
+
 // SampleFormat specifies the PCM sample format for streaming.
 type SampleFormat int
 
@@ -178,8 +203,7 @@ func (r *Reader) Read(p []byte) (int, error) {
 			byteLen := nTotal * 4
 			if hostIsLittleEndian && len(p) >= byteLen {
 				if nTotal > 0 {
-					raw := unsafe.Slice((*byte)(unsafe.Pointer(&r.pcmFloat[0])), byteLen)
-					copy(p, raw)
+					copy(p, float32SliceAsBytes(r.pcmFloat[:nTotal]))
 				}
 				return byteLen, nil
 			}
@@ -190,8 +214,7 @@ func (r *Reader) Read(p []byte) (int, error) {
 			if hostIsLittleEndian && nTotal > 0 {
 				// On LE hosts the in-memory float32 layout already matches
 				// FormatFloat32LE on the wire; copy the bytes directly.
-				raw := unsafe.Slice((*byte)(unsafe.Pointer(&r.pcmFloat[0])), byteLen)
-				copy(r.byteBuf, raw)
+				copy(r.byteBuf, float32SliceAsBytes(r.pcmFloat[:nTotal]))
 			} else {
 				for i := range nTotal {
 					bits := math.Float32bits(r.pcmFloat[i])
@@ -207,8 +230,7 @@ func (r *Reader) Read(p []byte) (int, error) {
 			byteLen := nTotal * 2
 			if hostIsLittleEndian && len(p) >= byteLen {
 				if nTotal > 0 {
-					raw := unsafe.Slice((*byte)(unsafe.Pointer(&r.pcmInt16[0])), byteLen)
-					copy(p, raw)
+					copy(p, int16SliceAsBytes(r.pcmInt16[:nTotal]))
 				}
 				return byteLen, nil
 			}
@@ -217,8 +239,7 @@ func (r *Reader) Read(p []byte) (int, error) {
 			}
 			r.byteBuf = r.byteBuf[:byteLen]
 			if hostIsLittleEndian && nTotal > 0 {
-				raw := unsafe.Slice((*byte)(unsafe.Pointer(&r.pcmInt16[0])), byteLen)
-				copy(r.byteBuf, raw)
+				copy(r.byteBuf, int16SliceAsBytes(r.pcmInt16[:nTotal]))
 			} else {
 				for i := range nTotal {
 					binary.LittleEndian.PutUint16(r.byteBuf[i*2:], uint16(r.pcmInt16[i]))

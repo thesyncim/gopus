@@ -156,9 +156,9 @@ func TestPitchXCorrPairedLibopusSIMDRawBits(t *testing.T) {
 				return
 			}
 			var direct, split, onePass [8]float32
-			xcorrKernelAVX8(&tc.x[0], &tc.y[0], &direct, len(tc.x))
-			xcorrKernelAVX8SplitForTest(&tc.x[0], &tc.y[0], &split, len(tc.x))
-			xcorrKernelAVX8OnePass(&tc.x[0], &tc.y[0], &onePass, len(tc.x))
+			xcorrKernelAVX8(tc.x, tc.y, &direct, len(tc.x))
+			xcorrKernelAVX8SplitForTest(tc.x, tc.y, &split, len(tc.x))
+			xcorrKernelAVX8OnePass(tc.x, tc.y, &onePass, len(tc.x))
 			t.Run("direct8", func(t *testing.T) { assertPitchXcorrBits(t, direct[:], want[i][:8]) })
 			t.Run("split8", func(t *testing.T) { assertPitchXcorrBits(t, split[:], want[i][:8]) })
 			t.Run("onepass8", func(t *testing.T) { assertPitchXcorrBits(t, onePass[:], want[i][:8]) })

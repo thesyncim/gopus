@@ -113,9 +113,9 @@ func runSilkPitchXcorrSIMDOracle(t *testing.T, cases []silkPitchXcorrSIMDCase) {
 				return
 			}
 			var direct, split, onePass [8]float32
-			xcorrKernelAVX8(&tc.x[0], &tc.y[0], &direct, len(tc.x))
-			xcorrKernelAVX8SplitForTest(&tc.x[0], &tc.y[0], &split, len(tc.x))
-			xcorrKernelAVX8OnePass(&tc.x[0], &tc.y[0], &onePass, len(tc.x))
+			xcorrKernelAVX8(tc.x, tc.y, &direct, len(tc.x))
+			xcorrKernelAVX8SplitForTest(tc.x, tc.y, &split, len(tc.x))
+			xcorrKernelAVX8OnePass(tc.x, tc.y, &onePass, len(tc.x))
 			t.Run("direct8", func(t *testing.T) { assertSilkPitchXcorrRawBits(t, direct[:], want[:8]) })
 			t.Run("split8", func(t *testing.T) { assertSilkPitchXcorrRawBits(t, split[:], want[:8]) })
 			t.Run("onepass8", func(t *testing.T) { assertSilkPitchXcorrRawBits(t, onePass[:], want[:8]) })
@@ -239,9 +239,9 @@ func TestSilkPitchXcorrAVX2TinyFirstLaneEdgeValues(t *testing.T) {
 	x := []float32{1, 2, 3, 4, 5}
 	y := []float32{5, 4, 3, 2, 1, 0, -1, -2, -3, -4, -5, -6}
 	var sum [8]float32
-	xcorrKernelAVX8(&x[0], &y[0], &sum, len(x))
+	xcorrKernelAVX8(x, y, &sum, len(x))
 	if allocs := testing.AllocsPerRun(100, func() {
-		xcorrKernelAVX8(&x[0], &y[0], &sum, len(x))
+		xcorrKernelAVX8(x, y, &sum, len(x))
 	}); allocs != 0 {
 		t.Fatalf("tiny SILK xcorr kernel allocated %v times", allocs)
 	}

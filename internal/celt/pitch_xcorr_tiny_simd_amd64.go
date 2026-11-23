@@ -121,7 +121,7 @@ func pitchXCorrFloat32AVX2FMAOrderTinyAVX2(x, y, xcorr []float32, length, maxPit
 			// Use an AVX store before replay to avoid legacy SSE with dirty YMM state.
 			var exactZero archsimd.Float32x8
 			exactZero.StoreArray(&exact)
-			xcorrKernelAVX8(&x[0], &yBatch[0], &exact, length)
+			xcorrKernelAVX8(x, yBatch, &exact, length)
 			copy(out[:], exact[:])
 		}
 	}
@@ -166,7 +166,7 @@ func pitchXCorrFloat32AVX2FMAOrderTiny10(x, y, xcorr []float32, maxPitch int) {
 		if result.NotEqual(result).ToBits() != 0 {
 			// SIMD horizontal adds can select a different NaN sign or payload than
 			// the lane-ordered AVX kernel. Recompute only this group with that order.
-			xcorrKernelAVX8(&x10[0], &y19[0], out, 10)
+			xcorrKernelAVX8(x10, y19, out, 10)
 		}
 
 		archsimd.ClearAVXUpperBits()
@@ -208,7 +208,7 @@ func pitchXCorrFloat32AVX2FMAOrderTiny10(x, y, xcorr []float32, maxPitch int) {
 			// Use an AVX store before replay to avoid legacy SSE with dirty YMM state.
 			var exactZero archsimd.Float32x8
 			exactZero.StoreArray(&exact)
-			xcorrKernelAVX8(&x10[0], &y[pitch], &exact, 10)
+			xcorrKernelAVX8(x10, y[pitch:], &exact, 10)
 			copy(out[:], exact[:])
 		}
 	}
@@ -263,7 +263,7 @@ func pitchXCorrFloat32AVX2FMAOrderTiny5(x, y, xcorr []float32, maxPitch int) {
 			// Use an AVX store before replay to avoid legacy SSE with dirty YMM state.
 			var exactZero archsimd.Float32x8
 			exactZero.StoreArray(&exact)
-			xcorrKernelAVX8(&x[0], &y[pitch], &exact, 5)
+			xcorrKernelAVX8(x, y[pitch:], &exact, 5)
 			copy(out[:], exact[:])
 		}
 	}
