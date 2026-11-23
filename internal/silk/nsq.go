@@ -94,10 +94,11 @@ func newNSQScratch() *nsqScratch {
 }
 
 // NSQState holds the noise shaping quantizer state.
-// Mirrors libopus silk_nsq_state structure.
+// Mirrors libopus silk_nsq_state structure. scratch is placed first so
+// embedded NSQState values keep the pointer-free nsqCore in the GC noscan tail.
 type NSQState struct {
-	nsqCore
 	scratch *nsqScratch
+	nsqCore
 }
 
 func (s *NSQState) ensureScratch() *nsqScratch {

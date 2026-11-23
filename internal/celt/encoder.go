@@ -253,6 +253,20 @@ func NewEncoder(channels int) *Encoder {
 		channels = 2
 	}
 
+	// Carve fixed-size float32 state slices from one contiguous backing array
+	// to minimize heap objects per Encoder.
+	bandLen := MaxBands * channels
+	overlapLen := Overlap * channels
+	delayLen := DelayCompensation * channels
+	prefilterLen := combFilterMaxPeriod * channels
+	stateSlab := make([]float32, 5*bandLen+overlapLen+2*channels+delayLen+prefilterLen)
+	off := 0
+	carve := func(n int) []float32 {
+		s := stateSlab[off : off+n : off+n]
+		off += n
+		return s
+	}
+
 	e := &Encoder{
 		channels:       int32(channels),
 		streamChannels: int32(channels),
@@ -261,17 +275,17 @@ func NewEncoder(channels int) *Encoder {
 		bandwidth:      CELTFullband,
 
 		// Allocate energy arrays for all bands and channels
-		prevEnergy:    make([]celtGLog, MaxBands*channels),
-		prevLogEnergy: make([]celtGLog, MaxBands*channels),
-		prevEnergy2:   make([]celtGLog, MaxBands*channels),
-		energyError:   make([]celtGLog, MaxBands*channels),
+		prevEnergy:    carve(bandLen),
+		prevLogEnergy: carve(bandLen),
+		prevEnergy2:   carve(bandLen),
+		energyError:   carve(bandLen),
 
 		// Overlap buffer for MDCT overlap-add analysis
 		// Size is Overlap (120) samples per channel
-		overlapBuffer: make([]celtSig, Overlap*channels),
+		overlapBuffer: carve(overlapLen),
 
 		// Pre-emphasis filter state, one per channel
-		preemphState: make([]celtSig, channels),
+		preemphState: carve(channels),
 
 		// Initialize RNG to zero (libopus default)
 		rng: 0,
@@ -289,7 +303,7 @@ func NewEncoder(channels int) *Encoder {
 		tapsetDecision: 0,
 
 		// Initialize tonality analysis state
-		prevBandLogEnergy:     make([]celtGLog, MaxBands*channels),
+		prevBandLogEnergy:     carve(bandLen),
 		lastTonality:          opusVal16(0.5), // Start with neutral tonality estimate
 		lastStereoSaving:      0.0,
 		lastPitchChange:       false,
@@ -301,7 +315,7 @@ func NewEncoder(channels int) *Encoder {
 		analysisMaxPitchRatio: 0.0,
 
 		// DC rejection (high-pass) filter memory, one per channel
-		hpMem: make([]opusVal32, channels),
+		hpMem: carve(channels),
 
 		// Apply dc_reject by default for standalone CELT usage
 		dcRejectEnabled: true,
@@ -315,14 +329,14 @@ func NewEncoder(channels int) *Encoder {
 
 		// Delay buffer for lookahead (192 samples at 48kHz = 4ms)
 		// This matches libopus delay_compensation
-		delayBuffer: make([]opusRes, DelayCompensation*channels),
+		delayBuffer: carve(delayLen),
 
 		// Prefilter state (comb filter history) for postfilter signaling.
 		// libopus zero-initializes this state on reset.
 		prefilterPeriod: 0,
 		prefilterGain:   0,
 		prefilterTapset: 0,
-		prefilterMem:    make([]celtSig, combFilterMaxPeriod*channels),
+		prefilterMem:    carve(prefilterLen),
 
 		// A standalone encoder codes VBR at 64 kb/s per channel until
 		// SetBitrate/SetVBR configure it.

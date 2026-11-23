@@ -17,6 +17,18 @@ func NewDecoder(channels int) *Decoder {
 		channels = 2
 	}
 
+	// Carve fixed-size float32 state slices from one contiguous backing array
+	// to minimize heap objects per Decoder.
+	const energyLen = MaxBands * 2
+	plcLPCLen := celtPLCLPCOrder * channels
+	stateSlab := make([]float32, 4*energyLen+channels+plcLPCLen)
+	off := 0
+	carve := func(n int) []float32 {
+		s := stateSlab[off : off+n : off+n]
+		off += n
+		return s
+	}
+
 	d := &Decoder{
 		channels:   int32(channels),
 		sampleRate: 48000, // Standard-mode default; EnableHD96kMode selects 96 kHz.
@@ -28,15 +40,15 @@ func NewDecoder(channels int) *Decoder {
 		// keeps the right-channel slot as a shadow copy of the left (libopus
 		// `if (C==1) OPUS_COPY(&oldBandE[nbEBands], oldBandE, nbEBands)`), which the
 		// loss-recovery prediction folds back in after a concealed gap.
-		prevEnergy:       make([]celtGLog, MaxBands*2),
-		prevLogE:         make([]celtGLog, MaxBands*2),
-		prevLogE2:        make([]celtGLog, MaxBands*2),
-		backgroundEnergy: make([]celtGLog, MaxBands*2),
+		prevEnergy:       carve(energyLen),
+		prevLogE:         carve(energyLen),
+		prevLogE2:        carve(energyLen),
+		backgroundEnergy: carve(energyLen),
 
 		// De-emphasis filter state, one per channel
-		preemphState: make([]celtSig, channels),
+		preemphState: carve(channels),
 
-		plcLPC: make([]float32, celtPLCLPCOrder*channels),
+		plcLPC: carve(plcLPCLen),
 
 		// RNG state (libopus initializes to zero)
 		rng: 0,
@@ -204,13 +216,15 @@ func (s *bandDecodeScratch) clearForReset() {
 	clearNormCap(s.norm)
 	clearNormCap(s.lowband)
 	clearNormCap(s.coeffs)
-	clear(s.bandVectors)
-	clear(s.bandVectorsL)
-	clear(s.bandVectorsR)
-	for i := range s.bandStorage {
-		clearNormCap(s.bandStorage[i])
-		clearNormCap(s.bandStorageL[i])
-		clearNormCap(s.bandStorageR[i])
+	if lb := s.legacyBands; lb != nil {
+		clear(lb.bandVectors)
+		clear(lb.bandVectorsL)
+		clear(lb.bandVectorsR)
+		for i := range lb.bandStorage {
+			clearNormCap(lb.bandStorage[i])
+			clearNormCap(lb.bandStorageL[i])
+			clearNormCap(lb.bandStorageR[i])
+		}
 	}
 	clearInt32Cap(s.pvqPulses)
 	clearInt32Cap(s.pvqRefine)

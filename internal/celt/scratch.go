@@ -92,17 +92,13 @@ type bandDecodeScratch struct {
 	norm     []celtNorm
 	lowband  []celtNorm
 
-	// Pre-allocated buffers for DecodeBands hot path (eliminates per-frame allocations)
-	coeffs       []celtNorm   // MDCT coefficients output buffer (size: frameSize or 2*frameSize for stereo)
-	bandVectors  [][]celtNorm // Per-band decoded vectors for folding (size: MaxBands)
-	bandVectorsL [][]celtNorm // Left channel band vectors for stereo (size: MaxBands)
-	bandVectorsR [][]celtNorm // Right channel band vectors for stereo (size: MaxBands)
+	// Pre-allocated buffers for band decode
+	coeffs []celtNorm // MDCT coefficients output buffer (size: frameSize or 2*frameSize for stereo)
 
-	// Individual band vector storage - flat storage to avoid slice-of-slice allocations
-	// Each band can have up to maxBandWidth bins (scaled band 20 at 20ms = 176 bins)
-	bandStorage  [MaxBands][]celtNorm // Pre-allocated storage for each band vector
-	bandStorageL [MaxBands][]celtNorm // Left channel band storage
-	bandStorageR [MaxBands][]celtNorm // Right channel band storage
+	// Lazily allocated storage used only by legacy DecodeBands/DecodeBandsStereo.
+	// Keeping these 66 slice headers out-of-line avoids scanning them during GC
+	// on standard CELT decoders.
+	legacyBands *legacyBandDecodeScratch
 
 	// Scratch buffers for PVQ/folding operations
 	pvqPulses  []int32 // Pulse vector from CWRS decode; libopus uses C int.
@@ -288,6 +284,22 @@ func (s *bandDecodeScratch) ensureCoeffs(n int) []celtNorm {
 	return ensureNormSlice(&s.coeffs, n)
 }
 
+type legacyBandDecodeScratch struct {
+	bandVectors  [][]celtNorm
+	bandVectorsL [][]celtNorm
+	bandVectorsR [][]celtNorm
+	bandStorage  [MaxBands][]celtNorm
+	bandStorageL [MaxBands][]celtNorm
+	bandStorageR [MaxBands][]celtNorm
+}
+
+func (s *bandDecodeScratch) ensureLegacyBands() *legacyBandDecodeScratch {
+	if s.legacyBands == nil {
+		s.legacyBands = &legacyBandDecodeScratch{}
+	}
+	return s.legacyBands
+}
+
 // ensureBandVectors returns a pre-allocated slice of band vector pointers.
 // The returned slice has length nbBands, with each element pointing to
 // pre-allocated storage in bandStorage.
@@ -295,17 +307,14 @@ func (s *bandDecodeScratch) ensureBandVectors(nbBands int) [][]celtNorm {
 	if nbBands > MaxBands {
 		nbBands = MaxBands
 	}
-	// Ensure the slice of slices has enough capacity
-	if cap(s.bandVectors) < nbBands {
-		s.bandVectors = make([][]celtNorm, nbBands)
+	lb := s.ensureLegacyBands()
+	if cap(lb.bandVectors) < nbBands {
+		lb.bandVectors = make([][]celtNorm, nbBands)
 	} else {
-		s.bandVectors = s.bandVectors[:nbBands]
+		lb.bandVectors = lb.bandVectors[:nbBands]
 	}
-	// Clear the slice references (they will be set per-band)
-	for i := 0; i < nbBands; i++ {
-		s.bandVectors[i] = nil
-	}
-	return s.bandVectors
+	clear(lb.bandVectors)
+	return lb.bandVectors
 }
 
 // ensureBandVectorsStereo returns pre-allocated slices for left and right channel band vectors.
@@ -313,24 +322,20 @@ func (s *bandDecodeScratch) ensureBandVectorsStereo(nbBands int) (left, right []
 	if nbBands > MaxBands {
 		nbBands = MaxBands
 	}
-	// Ensure left channel slice
-	if cap(s.bandVectorsL) < nbBands {
-		s.bandVectorsL = make([][]celtNorm, nbBands)
+	lb := s.ensureLegacyBands()
+	if cap(lb.bandVectorsL) < nbBands {
+		lb.bandVectorsL = make([][]celtNorm, nbBands)
 	} else {
-		s.bandVectorsL = s.bandVectorsL[:nbBands]
+		lb.bandVectorsL = lb.bandVectorsL[:nbBands]
 	}
-	// Ensure right channel slice
-	if cap(s.bandVectorsR) < nbBands {
-		s.bandVectorsR = make([][]celtNorm, nbBands)
+	if cap(lb.bandVectorsR) < nbBands {
+		lb.bandVectorsR = make([][]celtNorm, nbBands)
 	} else {
-		s.bandVectorsR = s.bandVectorsR[:nbBands]
+		lb.bandVectorsR = lb.bandVectorsR[:nbBands]
 	}
-	// Clear the slice references
-	for i := 0; i < nbBands; i++ {
-		s.bandVectorsL[i] = nil
-		s.bandVectorsR[i] = nil
-	}
-	return s.bandVectorsL, s.bandVectorsR
+	clear(lb.bandVectorsL)
+	clear(lb.bandVectorsR)
+	return lb.bandVectorsL, lb.bandVectorsR
 }
 
 // getBandStorage returns a pre-allocated buffer for storing a band vector.
@@ -339,7 +344,7 @@ func (s *bandDecodeScratch) getBandStorage(band, n int) []celtNorm {
 	if band < 0 || band >= MaxBands || n <= 0 {
 		return nil
 	}
-	return ensureNormSlice(&s.bandStorage[band], n)
+	return ensureNormSlice(&s.ensureLegacyBands().bandStorage[band], n)
 }
 
 // getBandStorageL returns a pre-allocated buffer for left channel band vector.
@@ -347,7 +352,7 @@ func (s *bandDecodeScratch) getBandStorageL(band, n int) []celtNorm {
 	if band < 0 || band >= MaxBands || n <= 0 {
 		return nil
 	}
-	return ensureNormSlice(&s.bandStorageL[band], n)
+	return ensureNormSlice(&s.ensureLegacyBands().bandStorageL[band], n)
 }
 
 // getBandStorageR returns a pre-allocated buffer for right channel band vector.
@@ -355,7 +360,7 @@ func (s *bandDecodeScratch) getBandStorageR(band, n int) []celtNorm {
 	if band < 0 || band >= MaxBands || n <= 0 {
 		return nil
 	}
-	return ensureNormSlice(&s.bandStorageR[band], n)
+	return ensureNormSlice(&s.ensureLegacyBands().bandStorageR[band], n)
 }
 
 // ensurePVQPulses returns a pre-allocated buffer for PVQ pulse vector.

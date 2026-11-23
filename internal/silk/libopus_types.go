@@ -39,6 +39,9 @@ type cngState struct {
 }
 
 type decoderState struct {
+	pitchLagLowBitsICDF  []uint8
+	pitchContourICDF     []uint8
+	nlsfCB               *nlsfCB
 	prevGainQ16          int32
 	excQ14               [maxFrameLength]int32
 	sLPCQ14Buf           [maxLPCOrder]int32
@@ -58,9 +61,6 @@ type decoderState struct {
 	lpcOrder             int32
 	prevNLSFQ15          [maxLPCOrder]int16
 	firstFrameAfterReset bool
-	pitchLagLowBitsICDF  []uint8
-	pitchContourICDF     []uint8
-	nlsfCB               *nlsfCB
 	indices              sideInfoIndices
 	lossCnt              int32
 	prevSignalType       int32

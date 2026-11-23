@@ -20,30 +20,59 @@ func synthesizeLPCOrder16Core(sLPC []int32, A_Q12 []int16, presQ14 []int32, pxq 
 	coef0 := [4]int32{int32(A_Q12[15]), int32(A_Q12[14]), int32(A_Q12[13]), int32(A_Q12[12])}
 	coef1 := [4]int32{int32(A_Q12[11]), int32(A_Q12[10]), int32(A_Q12[9]), int32(A_Q12[8])}
 	coef2 := [4]int32{int32(A_Q12[7]), int32(A_Q12[6]), int32(A_Q12[5]), int32(A_Q12[4])}
-	coef3 := [4]int32{int32(A_Q12[3]), int32(A_Q12[2]), int32(A_Q12[1]), int32(A_Q12[0])}
 	c0 := archsimd.LoadInt32x4Array(&coef0)
 	c1 := archsimd.LoadInt32x4Array(&coef1)
 	c2 := archsimd.LoadInt32x4Array(&coef2)
-	c3 := archsimd.LoadInt32x4Array(&coef3)
 
-	// The final checked state index is 15+subfrLength. Each loop iteration loads
-	// i..i+15 and stores at 16+i, so every raw address stays inside sLPC.
+	// Keep the four most recent LPC state samples in scalar registers so the AR
+	// recurrence never hits a store-to-load forwarding stall from a 16-byte SIMD
+	// load overlapping the previous iteration's 4-byte store to sLPC[16+i].
+	a3 := int64(A_Q12[3])
+	a2 := int64(A_Q12[2])
+	a1 := int64(A_Q12[1])
+	a0 := int64(A_Q12[0])
+	s0, s1, s2, s3 := sLPC[12], sLPC[13], sLPC[14], sLPC[15]
+
+	// The final checked state index is 15+subfrLength. Each iteration loads
+	// i..i+11 (always >= 5 samples old) and stores at 16+i.
 	stateBase := unsafe.Pointer(unsafe.SliceData(sLPC))
 	for i := 0; i < subfrLength; i++ {
 		stateOffset := i * 4
 		v0 := archsimd.LoadInt32x4Array((*[4]int32)(unsafe.Add(stateBase, stateOffset)))
 		v1 := archsimd.LoadInt32x4Array((*[4]int32)(unsafe.Add(stateBase, stateOffset+16)))
 		v2 := archsimd.LoadInt32x4Array((*[4]int32)(unsafe.Add(stateBase, stateOffset+32)))
-		v3 := archsimd.LoadInt32x4Array((*[4]int32)(unsafe.Add(stateBase, stateOffset+48)))
 		// The rounded products fit int32 individually. Summing them in int64
 		// avoids horizontal reductions; the final narrowing preserves int32 wrap.
 		predProducts := synthesizeLPCOrder16RoundProductsQ16(v0, c0)
 		predProducts = predProducts.Add(synthesizeLPCOrder16RoundProductsQ16(v1, c1))
 		predProducts = predProducts.Add(synthesizeLPCOrder16RoundProductsQ16(v2, c2))
-		predProducts = predProducts.Add(synthesizeLPCOrder16RoundProductsQ16(v3, c3))
-		pred := int32(maxLPCOrder>>1) + predProducts.TruncToInt32().ReduceSum()
+		pred := int32(maxLPCOrder>>1) + predProducts.TruncToInt32().ReduceSum() +
+			int32((int64(s0)*a3)>>16) +
+			int32((int64(s1)*a2)>>16) +
+			int32((int64(s2)*a1)>>16) +
+			int32((int64(s3)*a0)>>16)
 		s := silkAddSat32(presQ14[i], lShiftSAT32By4(pred))
 		*(*int32)(unsafe.Add(stateBase, (maxLPCOrder+i)*4)) = s
+		s0, s1, s2, s3 = s1, s2, s3, s
+	}
+
+	// Output scaling + rounding + saturation is independent of the AR loop and
+	// runs 4-wide in NEON over sLPC[16 : 16+subfrLength].
+	outState := unsafe.Add(stateBase, maxLPCOrder*4)
+	vGain := archsimd.BroadcastInt32x4(gainQ10)
+	vOne := archsimd.BroadcastInt32x4(1)
+	i := 0
+	for ; i+4 <= subfrLength; i += 4 {
+		sv := archsimd.LoadInt32x4Array((*[4]int32)(unsafe.Add(outState, i*4)))
+		lo := sv.MulWidenLo(vGain).ShiftAllRight(16).TruncToInt32()
+		hi := sv.HiToLo().MulWidenLo(vGain).ShiftAllRight(16).TruncToInt32()
+		p := lo.InterleaveLo(hi)
+		packed := p.InterleaveLo(p.HiToLo())
+		q := packed.ShiftAllRight(7).Add(vOne).ShiftAllRight(1).SaturateToInt16()
+		q.StorePart(pxq[i : i+4])
+	}
+	for ; i < subfrLength; i++ {
+		s := *(*int32)(unsafe.Add(outState, i*4))
 		pxq[i] = silkSAT16(silkRSHIFT_ROUND(silkSMULWW(s, gainQ10), 8))
 	}
 }
