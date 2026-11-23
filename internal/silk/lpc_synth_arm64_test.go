@@ -96,3 +96,66 @@ func TestSynthesizeLPCOrder16CoreZeroAlloc(t *testing.T) {
 }
 
 var synthesizeLPCSynthesisAllocSink int32
+
+func synthesizeLPCOrder10CoreRef(sLPC []int32, A_Q12 []int16, presQ14 []int32, pxq []int16, gainQ10 int32, subfrLength int) {
+	var v [10]int32
+	for k := range 10 {
+		v[k] = sLPC[maxLPCOrder-1-k]
+	}
+	sIdx := maxLPCOrder
+	for i := range subfrLength {
+		lpcPredQ10 := int32(minLPCOrder >> 1)
+		for k := range 10 {
+			lpcPredQ10 = silkSMLAWB(lpcPredQ10, v[k], int32(A_Q12[k]))
+		}
+		s := silkAddSat32(presQ14[i], lShiftSAT32By4(lpcPredQ10))
+		sLPC[sIdx] = s
+		pxq[i] = silkSAT16(silkRSHIFT_ROUND(silkSMULWW(s, gainQ10), 8))
+		sIdx++
+		copy(v[1:], v[:9])
+		v[0] = s
+	}
+}
+
+func TestSynthesizeLPCOrder10CoreBitExact(t *testing.T) {
+	rng := rand.New(rand.NewSource(29))
+	for trial := range 200 {
+		subfr := 1 + rng.Intn(120)
+		coefs := make([]int16, 10)
+		for i := range coefs {
+			coefs[i] = int16(rng.Intn(1<<16) - 1<<15)
+		}
+		sLPCa := make([]int32, maxLPCOrder+subfr)
+		pres := make([]int32, subfr)
+		for i := range sLPCa {
+			sLPCa[i] = rng.Int31() - rng.Int31()
+			if trial%3 == 0 {
+				sLPCa[i] = int32(rng.Uint32())
+			}
+		}
+		for i := range pres {
+			pres[i] = int32(rng.Uint32())
+			if trial%2 == 0 {
+				pres[i] = rng.Int31()>>8 - rng.Int31()>>9
+			}
+		}
+		gain := int32(rng.Uint32())
+		sLPCb := append([]int32(nil), sLPCa...)
+		pxqA := make([]int16, subfr)
+		pxqB := make([]int16, subfr)
+
+		synthesizeLPCOrder10Core(sLPCa, coefs, pres, pxqA, gain, subfr)
+		synthesizeLPCOrder10CoreRef(sLPCb, coefs, pres, pxqB, gain, subfr)
+
+		for k := range sLPCa {
+			if sLPCa[k] != sLPCb[k] {
+				t.Fatalf("trial %d subfr %d: sLPC[%d] = %d, want %d", trial, subfr, k, sLPCa[k], sLPCb[k])
+			}
+		}
+		for k := range pxqA {
+			if pxqA[k] != pxqB[k] {
+				t.Fatalf("trial %d subfr %d: pxq[%d] = %d, want %d", trial, subfr, k, pxqA[k], pxqB[k])
+			}
+		}
+	}
+}

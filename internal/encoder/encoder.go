@@ -861,11 +861,29 @@ func (e *Encoder) EncodeShortMixedWithAnalysisMaxBytes(pcm []float32, frameSize 
 }
 
 func (e *Encoder) prepareOpusResInput(pcm []float32) []opusRes {
-	// The two frame-sized input buffers share one reusable arena.
+	// Back all frame-sized input/delay scratch buffers with one reusable arena.
 	if len(pcm) > 0 {
-		e.pcmBump.Ensure(2 * len(pcm))
-		e.scratchInputPCM = e.pcmBump.AllocN(len(pcm))
-		e.scratchDCPCM = e.pcmBump.AllocN(len(pcm))
+		ch := max(int(e.channels), 1)
+		sr := int(e.sampleRate)
+		encBufLen := (sr / 100) * ch
+		prefillLen := (sr / 400) * ch
+		need := 3*len(pcm) + prefillLen
+		carveDelay := len(e.delayBuffer) == 0 && encBufLen > 0
+		if carveDelay {
+			need += encBufLen
+		}
+		if e.pcmBump.Cap() < need {
+			e.pcmBump.Ensure(need)
+			e.scratchInputPCM = e.pcmBump.AllocN(len(pcm))
+			e.scratchDCPCM = e.pcmBump.AllocN(len(pcm))
+			e.scratchDelayedPCM = e.pcmBump.AllocN(len(pcm))
+			if prefillLen > 0 {
+				e.scratchTransitionPrefill = e.pcmBump.AllocN(prefillLen)
+			}
+			if carveDelay {
+				e.delayBuffer = e.pcmBump.AllocN(encBufLen)
+			}
+		}
 	}
 	inputPCM := e.ensureInputPCM(len(pcm))
 	copy(inputPCM, pcm)

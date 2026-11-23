@@ -74,7 +74,57 @@ func synthesizeLPCOrder16CoreAVX2(sLPC []int32, A_Q12 []int16, presQ14 []int32, 
 
 	// Output scaling + rounding + saturation is independent of the AR loop and
 	// runs 8-wide in AVX2 over sLPC[16 : 16+subfrLength].
-	outState := unsafe.Add(stateBase, maxLPCOrder*4)
+	scaleLPCOutputAVX2(unsafe.Add(stateBase, maxLPCOrder*4), pxq, gainQ10, subfrLength)
+}
+
+func synthesizeLPCOrder10Core(sLPC []int32, A_Q12 []int16, presQ14 []int32, pxq []int16, gainQ10 int32, subfrLength int) {
+	if subfrLength <= 0 {
+		return
+	}
+	if !silkUseLPCSynthAVX2 {
+		synthesizeLPCOrder10CoreScalar(sLPC, A_Q12, presQ14, pxq, gainQ10, subfrLength)
+		return
+	}
+	synthesizeLPCOrder10CoreAVX2(sLPC, A_Q12, presQ14, pxq, gainQ10, subfrLength)
+}
+
+//go:noinline
+func synthesizeLPCOrder10CoreAVX2(sLPC []int32, A_Q12 []int16, presQ14 []int32, pxq []int16, gainQ10 int32, subfrLength int) {
+	_ = A_Q12[minLPCOrder-1]
+	_ = sLPC[maxLPCOrder+subfrLength-1]
+	_ = presQ14[subfrLength-1]
+	_ = pxq[subfrLength-1]
+
+	// Older taps 9..2 fit in a single Int32x8 load; taps 1..0 stay in scalar
+	// registers to avoid store-to-load forwarding stalls.
+	cEvenArr := [8]int32{int32(A_Q12[9]), 0, int32(A_Q12[7]), 0, int32(A_Q12[5]), 0, int32(A_Q12[3]), 0}
+	cOddArr := [8]int32{int32(A_Q12[8]), 0, int32(A_Q12[6]), 0, int32(A_Q12[4]), 0, int32(A_Q12[2]), 0}
+	cEven := archsimd.LoadInt32x8Array(&cEvenArr)
+	cOdd := archsimd.LoadInt32x8Array(&cOddArr)
+	a1 := int64(A_Q12[1])
+	a0 := int64(A_Q12[0])
+	s0, s1 := sLPC[14], sLPC[15]
+
+	stateBase := unsafe.Pointer(unsafe.SliceData(sLPC))
+	winBase := unsafe.Add(stateBase, (maxLPCOrder-minLPCOrder)*4)
+	for i := 0; i < subfrLength; i++ {
+		v := archsimd.LoadInt32x8Array((*[8]int32)(unsafe.Add(winBase, i*4)))
+		p0 := v.MulWidenEven(cEven).AsUint64x4().ShiftAllRight(16).AsInt32x8()
+		p1 := v.AsUint64x4().ShiftAllRight(32).AsInt32x8().MulWidenEven(cOdd).AsUint64x4().ShiftAllRight(16).AsInt32x8()
+		sum8 := p0.Add(p1)
+		sum4 := sum8.GetLo().Add(sum8.GetHi())
+		pred := int32(minLPCOrder>>1) + sum4.GetElem(0) + sum4.GetElem(2) +
+			int32((int64(s0)*a1)>>16) +
+			int32((int64(s1)*a0)>>16)
+		s := silkAddSat32(presQ14[i], lShiftSAT32By4(pred))
+		*(*int32)(unsafe.Add(stateBase, (maxLPCOrder+i)*4)) = s
+		s0, s1 = s1, s
+	}
+
+	scaleLPCOutputAVX2(unsafe.Add(stateBase, maxLPCOrder*4), pxq, gainQ10, subfrLength)
+}
+
+func scaleLPCOutputAVX2(outState unsafe.Pointer, pxq []int16, gainQ10 int32, subfrLength int) {
 	pxqBase := unsafe.Pointer(unsafe.SliceData(pxq))
 	vGain := archsimd.BroadcastInt32x8(gainQ10)
 	vOne := archsimd.BroadcastInt32x8(1)

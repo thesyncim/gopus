@@ -117,41 +117,11 @@ func parseStreamTOC(toc byte) streamTOC {
 // Each stream owns a full Opus decoder state (SILK/CELT/Hybrid), not just
 // hybrid-only state.
 type streamState struct {
-	sampleRate int32
-	channels   int32
-
-	hybridDec *hybrid.Decoder
-	celtDec   *celt.Decoder
-	silkDec   *silk.Decoder
-
-	lastMode           int32
-	lastBandwidth      int32
-	lastPacketStereo   bool
-	haveDecoded        bool
-	prevRedundancy     bool
-	lastFrameSize      int32
-	lastTOCFrameSize   int32
-	lastPacketDuration int32
-	lastDataLen        int32
-	// src/opus_decoder.c: opus_decode_frame clears rangeFinal for payloads <= 1 byte.
-	lastFinalRangeDataLen int32
-	lastSILKRange         uint32
-	lastHybridRange       uint32
-	decodeGainQ8          int32
-	ignoreExtensions      bool
-	complexity            int32
-
-	// softClipMem is the per-stream soft-clip filter memory (one entry per stream
-	// channel), mirroring the per-decoder softclip_mem[2] in libopus
-	// opus_decode_native. It is used only on the int16 decode path that requests
-	// OPTIONAL_CLIP before channel mapping or projection demixing. Received float
-	// and int24 packets clear it; loss output preserves it.
-	softClipMem [2]float32
-
-	// Elementary decoder output is consumed by the enclosing multistream call.
-	// packetPCM holds completed multi-frame output, plcPCM assembles a long
-	// per-frame concealment, and framePCM is reused for individual chunks.
-	// The buffers remain distinct when a multi-frame packet contains DTX frames.
+	// Pointer-bearing fields sit first; hybridDecVal sits at the boundary so
+	// its embedded plc.State tail and all scalar state below stay unscanned.
+	hybridDec     *hybrid.Decoder
+	celtDec       *celt.Decoder
+	silkDec       *silk.Decoder
 	packetParser  packetScratch
 	rangeDecoder  rangecoding.Decoder
 	framePCM      []float32
@@ -159,9 +129,29 @@ type streamState struct {
 	redundantPCM  []float32
 	packetPCM     []float32
 	plcPCM        []float32
-
 	streamOSCEFields
 	streamFixedFields
+	hybridDecVal hybrid.Decoder
+
+	// --- Pointer-free (noscan) tail ---
+	sampleRate            int32
+	channels              int32
+	lastMode              int32
+	lastBandwidth         int32
+	lastPacketStereo      bool
+	haveDecoded           bool
+	prevRedundancy        bool
+	lastFrameSize         int32
+	lastTOCFrameSize      int32
+	lastPacketDuration    int32
+	lastDataLen           int32
+	lastFinalRangeDataLen int32
+	lastSILKRange         uint32
+	lastHybridRange       uint32
+	decodeGainQ8          int32
+	ignoreExtensions      bool
+	complexity            int32
+	softClipMem           [2]float32
 }
 
 // softClipStreamOutput applies the libopus opus_pcm_soft_clip to one stream's
@@ -192,12 +182,9 @@ func newStreamDecoder(sampleRate, channels int) *streamState {
 	} else {
 		celtDec.SetDownsample(48000 / sampleRate)
 	}
-	hybridDec := hybrid.NewDecoderWithSharedDecoders(channels, silkDec, celtDec)
-	hybridDec.SetAPISampleRate(sampleRate)
 	d := &streamState{
 		sampleRate:       int32(sampleRate),
 		channels:         int32(channels),
-		hybridDec:        hybridDec,
 		celtDec:          celtDec,
 		silkDec:          silkDec,
 		lastMode:         streamModeHybrid,
@@ -205,6 +192,9 @@ func newStreamDecoder(sampleRate, channels int) *streamState {
 		lastFrameSize:    int32(sampleRate / 50),
 		lastTOCFrameSize: int32(sampleRate / 400),
 	}
+	d.hybridDecVal.InitWithSharedDecoders(channels, silkDec, celtDec, nil)
+	d.hybridDecVal.SetAPISampleRate(sampleRate)
+	d.hybridDec = &d.hybridDecVal
 	d.initOSCELossHook()
 	return d
 }

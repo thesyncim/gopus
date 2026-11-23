@@ -69,6 +69,9 @@ type Decoder struct {
 	decoderHD96kFields
 	decoderFixedFields
 	fixedQEXT decoderFixedQEXTFields
+	// hybridDecVal sits at the pointer/noscan boundary so its embedded
+	// plc.State tail stays excluded from GC scanning.
+	hybridDecVal hybrid.Decoder
 
 	// --- Pointer-free (noscan) tail ---
 	sampleRate         int32
@@ -145,14 +148,15 @@ func NewDecoder(cfg DecoderConfig) (*Decoder, error) {
 	}
 
 	// The contiguous float32 arena holds one packet-sized buffer, two
-	// transition buffers, and one 10 ms SILK PLC buffer. Bound its element
-	// count by the largest length whose byte size fits in int before
-	// multiplying or constructing decoder state.
+	// transition buffers, one 10 ms SILK PLC buffer, and the 20 ms hybrid SILK
+	// upsample scratch. Bound its element count by the largest length whose byte
+	// size fits in int before multiplying or constructing decoder state.
 	transitionSamples := max(48000, cfg.SampleRate) / 200 // 5 ms in the largest configured CELT geometry.
 	transLen := transitionSamples * cfg.Channels
 	silkPLCLen := (internalRate / 100) * cfg.Channels
+	hybridSilkLen := 960 * cfg.Channels
 	maxFloatElements := int(^uint(0)>>1) / 4
-	if maxPacketSamples > (maxFloatElements-2*transLen-silkPLCLen)/cfg.Channels {
+	if maxPacketSamples > (maxFloatElements-2*transLen-silkPLCLen-hybridSilkLen)/cfg.Channels {
 		return nil, ErrInvalidMaxPacketSamples
 	}
 
@@ -162,13 +166,10 @@ func NewDecoder(cfg DecoderConfig) (*Decoder, error) {
 	if err := celtDec.SetAPISampleRate(internalRate); err != nil {
 		return nil, err
 	}
-	hybridDec := hybrid.NewDecoderWithSharedDecoders(cfg.Channels, silkDec, celtDec)
-	hybridDec.SetAPISampleRate(internalRate)
 
 	d := &Decoder{
 		silkDecoder:      silkDec,
 		celtDecoder:      celtDec,
-		hybridDecoder:    hybridDec,
 		sampleRate:       int32(internalRate),
 		channels:         int32(cfg.Channels),
 		maxPacketSamples: maxPacketSamples,
@@ -179,13 +180,17 @@ func NewDecoder(cfg DecoderConfig) (*Decoder, error) {
 		lastBandwidth:    BandwidthFullband,
 		fecData:          make([]byte, maxPacketBytes),
 	}
-	// Back the four fixed float32 decode work buffers with one contiguous arena.
+	// Back the fixed float32 decode work buffers with one contiguous arena.
 	pcmLen := maxPacketSamples * cfg.Channels
-	d.scratchF32.Ensure(pcmLen + 2*transLen + silkPLCLen)
+	d.scratchF32.Ensure(pcmLen + 2*transLen + silkPLCLen + hybridSilkLen)
 	d.scratchPCM = d.scratchF32.AllocN(pcmLen)
 	d.scratchTransition = d.scratchF32.AllocN(transLen)
 	d.scratchRedundant = d.scratchF32.AllocN(transLen)
 	d.scratchSilkPLC = d.scratchF32.AllocN(silkPLCLen)
+	hybridSilkScratch := d.scratchF32.AllocN(hybridSilkLen)
+	d.hybridDecVal.InitWithSharedDecoders(cfg.Channels, silkDec, celtDec, hybridSilkScratch)
+	d.hybridDecVal.SetAPISampleRate(internalRate)
+	d.hybridDecoder = &d.hybridDecVal
 	if cfg.SampleRate == 96000 {
 		init96kDecoder(d)
 	}

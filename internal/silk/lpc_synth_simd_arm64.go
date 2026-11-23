@@ -58,7 +58,47 @@ func synthesizeLPCOrder16Core(sLPC []int32, A_Q12 []int16, presQ14 []int32, pxq 
 
 	// Output scaling + rounding + saturation is independent of the AR loop and
 	// runs 4-wide in NEON over sLPC[16 : 16+subfrLength].
-	outState := unsafe.Add(stateBase, maxLPCOrder*4)
+	scaleLPCOutputNEON(unsafe.Add(stateBase, maxLPCOrder*4), pxq, gainQ10, subfrLength)
+}
+
+func synthesizeLPCOrder10Core(sLPC []int32, A_Q12 []int16, presQ14 []int32, pxq []int16, gainQ10 int32, subfrLength int) {
+	if subfrLength <= 0 {
+		return
+	}
+	_ = A_Q12[minLPCOrder-1]
+	_ = sLPC[maxLPCOrder+subfrLength-1]
+	_ = presQ14[subfrLength-1]
+	_ = pxq[subfrLength-1]
+
+	// Older taps 9..2 live in two NEON vectors; taps 1..0 stay in scalar
+	// registers to avoid store-to-load forwarding stalls.
+	coef0 := [4]int32{int32(A_Q12[9]), int32(A_Q12[8]), int32(A_Q12[7]), int32(A_Q12[6])}
+	coef1 := [4]int32{int32(A_Q12[5]), int32(A_Q12[4]), int32(A_Q12[3]), int32(A_Q12[2])}
+	c0 := archsimd.LoadInt32x4Array(&coef0)
+	c1 := archsimd.LoadInt32x4Array(&coef1)
+	a1 := int64(A_Q12[1])
+	a0 := int64(A_Q12[0])
+	s0, s1 := sLPC[14], sLPC[15]
+
+	stateBase := unsafe.Pointer(unsafe.SliceData(sLPC))
+	winBase := unsafe.Add(stateBase, (maxLPCOrder-minLPCOrder)*4)
+	for i := 0; i < subfrLength; i++ {
+		off := i * 4
+		v0 := archsimd.LoadInt32x4Array((*[4]int32)(unsafe.Add(winBase, off)))
+		v1 := archsimd.LoadInt32x4Array((*[4]int32)(unsafe.Add(winBase, off+16)))
+		predProducts := synthesizeLPCOrder16RoundProductsQ16(v0, c0).Add(synthesizeLPCOrder16RoundProductsQ16(v1, c1))
+		pred := int32(minLPCOrder>>1) + predProducts.TruncToInt32().ReduceSum() +
+			int32((int64(s0)*a1)>>16) +
+			int32((int64(s1)*a0)>>16)
+		s := silkAddSat32(presQ14[i], lShiftSAT32By4(pred))
+		*(*int32)(unsafe.Add(stateBase, (maxLPCOrder+i)*4)) = s
+		s0, s1 = s1, s
+	}
+
+	scaleLPCOutputNEON(unsafe.Add(stateBase, maxLPCOrder*4), pxq, gainQ10, subfrLength)
+}
+
+func scaleLPCOutputNEON(outState unsafe.Pointer, pxq []int16, gainQ10 int32, subfrLength int) {
 	vGain := archsimd.BroadcastInt32x4(gainQ10)
 	vOne := archsimd.BroadcastInt32x4(1)
 	i := 0

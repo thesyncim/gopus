@@ -53,3 +53,40 @@ func synthesizeLPCOrder16CoreScalar(sLPC []int32, A_Q12 []int16, presQ14 []int32
 		prev = s
 	}
 }
+
+func synthesizeLPCOrder10CoreScalar(sLPC []int32, A_Q12 []int16, presQ14 []int32, pxq []int16, gainQ10 int32, subfrLength int) {
+	if subfrLength <= 0 {
+		return
+	}
+	_ = A_Q12[minLPCOrder-1]
+	c0 := int64(A_Q12[0])
+	c1 := int64(A_Q12[1])
+	c2 := int64(A_Q12[2])
+	c3 := int64(A_Q12[3])
+	c4 := int64(A_Q12[4])
+	c5 := int64(A_Q12[5])
+	c6 := int64(A_Q12[6])
+	c7 := int64(A_Q12[7])
+	c8 := int64(A_Q12[8])
+	c9 := int64(A_Q12[9])
+
+	presQ14 = presQ14[:subfrLength]
+	pxq = pxq[:subfrLength]
+	win := sLPC[maxLPCOrder-minLPCOrder : maxLPCOrder+subfrLength]
+	prev := win[minLPCOrder-1]
+	for i := range presQ14 {
+		h := (*[minLPCOrder + 1]int32)(win)
+		win = win[1:]
+		a := int32((int64(h[0])*c9)>>16) + int32((int64(h[1])*c8)>>16)
+		b := int32((int64(h[2])*c7)>>16) + int32((int64(h[3])*c6)>>16)
+		c := int32((int64(h[4])*c5)>>16) + int32((int64(h[5])*c4)>>16)
+		d := int32((int64(h[6])*c3)>>16) + int32((int64(h[7])*c2)>>16)
+		older := (a + b) + (c + (d + int32((int64(h[8])*c1)>>16)))
+		lpcPredQ10 := older + int32(minLPCOrder>>1) + int32((int64(prev)*c0)>>16)
+
+		s := silkAddSat32(presQ14[i], lShiftSAT32By4(lpcPredQ10))
+		h[minLPCOrder] = s
+		pxq[i] = silkSAT16(silkRSHIFT_ROUND(silkSMULWW(s, gainQ10), 8))
+		prev = s
+	}
+}
