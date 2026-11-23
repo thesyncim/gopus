@@ -2,7 +2,7 @@
 
 package celt
 
-import "unsafe"
+import "simd/archsimd"
 
 // imdctPostRotateF32FromKiss is the archsimd IMDCT post-rotation, reading kissCpx
 // scratch directly. Per iteration i (k = n4-1-i), with re=fft[i].i, im=fft[i].r and
@@ -25,48 +25,45 @@ func imdctPostRotateF32FromKiss(buf []float32, fft []kissCpx, trig []float32, n2
 	if limit <= 0 {
 		return
 	}
-	_ = buf[n2-1]
-	_ = fft[n4-1]
-	_ = trig[n2-1]
-
-	bp := unsafe.Pointer(unsafe.SliceData(buf))
-	ffp := unsafe.Pointer(unsafe.SliceData(fft))
-	tp := unsafe.Pointer(unsafe.SliceData(trig))
+	buf = buf[:n2]
+	fft = fft[:n4]
+	trig = trig[:n2]
+	ff := kissCpxAsFloat32(fft)
 
 	i := 0
 	for ; i+4 <= limit; i += 4 {
 		// Forward fft[i..i+3]: deinterleave im=even(.r), re=odd(.i).
-		f0 := loadF32x4(unsafe.Add(ffp, (2*i)*4))
-		f1 := loadF32x4(unsafe.Add(ffp, (2*i+4)*4))
-		im := f0.ToBits().ConcatEven(f1.ToBits()).BitsToFloat32()
-		re := f0.ToBits().ConcatOdd(f1.ToBits()).BitsToFloat32()
-		t0 := loadF32x4(unsafe.Add(tp, i*4))
-		t1 := loadF32x4(unsafe.Add(tp, (n4+i)*4))
+		f0 := archsimd.LoadFloat32x4Array((*[4]float32)(ff[2*i:])).ToBits()
+		f1 := archsimd.LoadFloat32x4Array((*[4]float32)(ff[2*i+4:])).ToBits()
+		im := f0.ConcatEven(f1).BitsToFloat32()
+		re := f0.ConcatOdd(f1).BitsToFloat32()
+		t0 := archsimd.LoadFloat32x4Array((*[4]float32)(trig[i:]))
+		t1 := archsimd.LoadFloat32x4Array((*[4]float32)(trig[n4+i:]))
 		yr := re.MulAdd(t0, im.Mul(t1))
 		yi := re.MulAdd(t1, im.Mul(t0).Neg())
 
 		// Backward fft[n4-4-i..n4-1-i]: deinterleave then reverse4 to descend.
 		kbase := n4 - 4 - i
-		g0 := loadF32x4(unsafe.Add(ffp, (2*kbase)*4))
-		g1 := loadF32x4(unsafe.Add(ffp, (2*kbase+4)*4))
-		im2 := reverse4(g0.ToBits().ConcatEven(g1.ToBits()).BitsToFloat32())
-		re2 := reverse4(g0.ToBits().ConcatOdd(g1.ToBits()).BitsToFloat32())
-		t0b := reverse4(loadF32x4(unsafe.Add(tp, (n4-4-i)*4)))
-		t1b := reverse4(loadF32x4(unsafe.Add(tp, (n2-4-i)*4)))
+		g0 := archsimd.LoadFloat32x4Array((*[4]float32)(ff[2*kbase:])).ToBits()
+		g1 := archsimd.LoadFloat32x4Array((*[4]float32)(ff[2*kbase+4:])).ToBits()
+		im2 := reverse4(g0.ConcatEven(g1).BitsToFloat32())
+		re2 := reverse4(g0.ConcatOdd(g1).BitsToFloat32())
+		t0b := reverse4(archsimd.LoadFloat32x4Array((*[4]float32)(trig[n4-4-i:])))
+		t1b := reverse4(archsimd.LoadFloat32x4Array((*[4]float32)(trig[n2-4-i:])))
 		yr2 := re2.MulAdd(t0b, im2.Mul(t1b))
 		yi2 := re2.MulAdd(t1b, im2.Mul(t0b).Neg())
 
 		// Near pairs ascending: (buf[2i], buf[2i+1]) = (yr, yi2).
-		storeF32x4(unsafe.Add(bp, (2*i)*4), yr.ToBits().InterleaveLo(yi2.ToBits()).BitsToFloat32())
-		storeF32x4(unsafe.Add(bp, (2*i+4)*4), yr.ToBits().InterleaveHi(yi2.ToBits()).BitsToFloat32())
+		yr.ToBits().InterleaveLo(yi2.ToBits()).BitsToFloat32().StoreArray((*[4]float32)(buf[2*i:]))
+		yr.ToBits().InterleaveHi(yi2.ToBits()).BitsToFloat32().StoreArray((*[4]float32)(buf[2*i+4:]))
 
 		// Far pairs descending: (buf[n2-2-2i], buf[n2-1-2i]) = (yr2, yi), reversed
 		// so the four pairs land in memory order at the descending base.
 		rYr2 := reverse4(yr2)
 		rYi := reverse4(yi)
 		fb := n2 - 8 - 2*i
-		storeF32x4(unsafe.Add(bp, fb*4), rYr2.ToBits().InterleaveLo(rYi.ToBits()).BitsToFloat32())
-		storeF32x4(unsafe.Add(bp, (fb+4)*4), rYr2.ToBits().InterleaveHi(rYi.ToBits()).BitsToFloat32())
+		rYr2.ToBits().InterleaveLo(rYi.ToBits()).BitsToFloat32().StoreArray((*[4]float32)(buf[fb:]))
+		rYr2.ToBits().InterleaveHi(rYi.ToBits()).BitsToFloat32().StoreArray((*[4]float32)(buf[fb+4:]))
 	}
 	for ; i < limit; i++ {
 		k := n4 - 1 - i

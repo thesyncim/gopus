@@ -2,10 +2,7 @@
 
 package celt
 
-import (
-	"simd/archsimd"
-	"unsafe"
-)
+import "simd/archsimd"
 
 // The x86 libopus SIMD pre-rotation uses separate multiplies and add/subtract.
 // The post-rotation uses separate products through AMD64 v2 and fuses the
@@ -23,10 +20,10 @@ func reverseLanes4(v archsimd.Float32x4) archsimd.Float32x4 {
 	return v.ConcatPermuteScalars(3, 2, 5, 4, v)
 }
 
-func storeInterleaved4(p unsafe.Pointer, even, odd archsimd.Float32x4) {
+func storeInterleaved4(dst []float32, even, odd archsimd.Float32x4) {
 	e, o := even.ToBits(), odd.ToBits()
-	storeF32x4(p, e.InterleaveLo(o).BitsToFloat32())
-	storeF32x4(unsafe.Add(p, 16), e.InterleaveHi(o).BitsToFloat32())
+	e.InterleaveLo(o).BitsToFloat32().StoreArray((*[4]float32)(dst[0:]))
+	e.InterleaveHi(o).BitsToFloat32().StoreArray((*[4]float32)(dst[4:]))
 }
 
 // imdctPostRotateF32FromKiss computes, per iteration i (k = n4-1-i), with
@@ -50,21 +47,18 @@ func imdctPostRotateF32FromKiss(buf []float32, fft []kissCpx, trig []float32, n2
 	if limit <= 0 {
 		return
 	}
-	_ = buf[n2-1]
-	_ = fft[n4-1]
-	_ = trig[n2-1]
-
-	bp := unsafe.Pointer(unsafe.SliceData(buf))
-	ffp := unsafe.Pointer(unsafe.SliceData(fft))
-	tp := unsafe.Pointer(unsafe.SliceData(trig))
+	buf = buf[:n2]
+	fft = fft[:n4]
+	trig = trig[:n2]
+	ff := kissCpxAsFloat32(fft)
 
 	i := 0
 	for ; i+4 <= limit; i += 4 {
-		f0 := loadF32x4(unsafe.Add(ffp, (2*i)*4))
-		f1 := loadF32x4(unsafe.Add(ffp, (2*i+4)*4))
+		f0 := archsimd.LoadFloat32x4Array((*[4]float32)(ff[2*i:]))
+		f1 := archsimd.LoadFloat32x4Array((*[4]float32)(ff[2*i+4:]))
 		im, re := evenLanes4(f0, f1), oddLanes4(f0, f1)
-		t0 := loadF32x4(unsafe.Add(tp, i*4))
-		t1 := loadF32x4(unsafe.Add(tp, (n4+i)*4))
+		t0 := archsimd.LoadFloat32x4Array((*[4]float32)(trig[i:]))
+		t1 := archsimd.LoadFloat32x4Array((*[4]float32)(trig[n4+i:]))
 		yr := re.Mul(t0).Add(im.Mul(t1))
 		yi := re.Mul(t1).Sub(im.Mul(t0))
 		if mdctUseFMALikeMixEnabled {
@@ -75,12 +69,12 @@ func imdctPostRotateF32FromKiss(buf []float32, fft []kissCpx, trig []float32, n2
 		}
 
 		kbase := n4 - 4 - i
-		g0 := loadF32x4(unsafe.Add(ffp, (2*kbase)*4))
-		g1 := loadF32x4(unsafe.Add(ffp, (2*kbase+4)*4))
+		g0 := archsimd.LoadFloat32x4Array((*[4]float32)(ff[2*kbase:]))
+		g1 := archsimd.LoadFloat32x4Array((*[4]float32)(ff[2*kbase+4:]))
 		im2 := reverseLanes4(evenLanes4(g0, g1))
 		re2 := reverseLanes4(oddLanes4(g0, g1))
-		t0b := reverseLanes4(loadF32x4(unsafe.Add(tp, (n4-4-i)*4)))
-		t1b := reverseLanes4(loadF32x4(unsafe.Add(tp, (n2-4-i)*4)))
+		t0b := reverseLanes4(archsimd.LoadFloat32x4Array((*[4]float32)(trig[n4-4-i:])))
+		t1b := reverseLanes4(archsimd.LoadFloat32x4Array((*[4]float32)(trig[n2-4-i:])))
 		yr2 := re2.Mul(t0b).Add(im2.Mul(t1b))
 		yi2 := re2.Mul(t1b).Sub(im2.Mul(t0b))
 		if mdctUseFMALikeMixEnabled {
@@ -88,8 +82,8 @@ func imdctPostRotateF32FromKiss(buf []float32, fft []kissCpx, trig []float32, n2
 			yi2 = re2.MulAdd(t1b, im2.Mul(t0b).Neg())
 		}
 
-		storeInterleaved4(unsafe.Add(bp, (2*i)*4), yr, yi2)
-		storeInterleaved4(unsafe.Add(bp, (n2-8-2*i)*4), reverseLanes4(yr2), reverseLanes4(yi))
+		storeInterleaved4(buf[2*i:], yr, yi2)
+		storeInterleaved4(buf[n2-8-2*i:], reverseLanes4(yr2), reverseLanes4(yi))
 	}
 	for ; i < limit; i++ {
 		k := n4 - 1 - i
@@ -112,29 +106,25 @@ func imdctPreRotateNoFMA(fftIn []complex64, spectrum []float32, trig []float32, 
 		imdctPreRotateNoFMAScalar(fftIn, spectrum, trig, n2, n4)
 		return
 	}
-	_ = spectrum[n2-1]
-	_ = trig[n2-1]
-	_ = fftIn[n4-1]
-	_ = spectrum[2*n4-1]
-
-	sp := unsafe.Pointer(unsafe.SliceData(spectrum))
-	tp := unsafe.Pointer(unsafe.SliceData(trig))
-	op := unsafe.Pointer(unsafe.SliceData(fftIn))
+	spectrum = spectrum[:max(n2, 2*n4)]
+	trig = trig[:n2]
+	fftIn = fftIn[:n4]
+	outF := complex64AsFloat32(fftIn)
 
 	i := 0
 	for ; i+4 <= n4; i += 4 {
-		s0 := loadF32x4(unsafe.Add(sp, (2*i)*4))
-		s1 := loadF32x4(unsafe.Add(sp, (2*i+4)*4))
+		s0 := archsimd.LoadFloat32x4Array((*[4]float32)(spectrum[2*i:]))
+		s1 := archsimd.LoadFloat32x4Array((*[4]float32)(spectrum[2*i+4:]))
 		x1 := evenLanes4(s0, s1)
 		b := n2 - 8 - 2*i
-		g0 := loadF32x4(unsafe.Add(sp, b*4))
-		g1 := loadF32x4(unsafe.Add(sp, (b+4)*4))
+		g0 := archsimd.LoadFloat32x4Array((*[4]float32)(spectrum[b:]))
+		g1 := archsimd.LoadFloat32x4Array((*[4]float32)(spectrum[b+4:]))
 		x2 := reverseLanes4(oddLanes4(g0, g1))
-		t0 := loadF32x4(unsafe.Add(tp, i*4))
-		t1 := loadF32x4(unsafe.Add(tp, (n4+i)*4))
+		t0 := archsimd.LoadFloat32x4Array((*[4]float32)(trig[i:]))
+		t1 := archsimd.LoadFloat32x4Array((*[4]float32)(trig[n4+i:]))
 		re := x1.Mul(t0).Sub(x2.Mul(t1))
 		im := x2.Mul(t0).Add(x1.Mul(t1))
-		storeInterleaved4(unsafe.Add(op, (2*i)*4), re, im)
+		storeInterleaved4(outF[2*i:], re, im)
 	}
 	for ; i < n4; i++ {
 		x1 := spectrum[2*i]

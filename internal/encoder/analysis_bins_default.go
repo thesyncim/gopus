@@ -1,4 +1,4 @@
-//go:build !amd64 || !goexperiment.simd || nosimd || purego
+//go:build (!amd64 && !arm64) || !goexperiment.simd || nosimd || purego
 
 package encoder
 

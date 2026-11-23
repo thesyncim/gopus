@@ -2,10 +2,7 @@
 
 package celt
 
-import (
-	"simd/archsimd"
-	"unsafe"
-)
+import "simd/archsimd"
 
 // The SIMD inner kernels process four consecutive j values. Their scalar
 // counterparts retain the short and off-grid stages where a vector block
@@ -30,16 +27,14 @@ func kfBfly4M1CoreSIMD(fout []kissCpx, n int) {
 	if n <= 0 {
 		return
 	}
-	_ = fout[n*4-1]
-
-	base := unsafe.Pointer(unsafe.SliceData(fout))
+	ff := kissCpxAsFloat32(fout[:n*4])
 	blocks := n / 2
 	for block := 0; block < blocks; block++ {
-		p := unsafe.Add(base, block*64)
-		g0a01 := loadF32x4(p)
-		g1a01 := loadF32x4(unsafe.Add(p, 32))
-		g0a23 := loadF32x4(unsafe.Add(p, 16))
-		g1a23 := loadF32x4(unsafe.Add(p, 48))
+		blk := ff[block*16 : block*16+16]
+		g0a01 := archsimd.LoadFloat32x4Array((*[4]float32)(blk[0:]))
+		g1a01 := archsimd.LoadFloat32x4Array((*[4]float32)(blk[8:]))
+		g0a23 := archsimd.LoadFloat32x4Array((*[4]float32)(blk[4:]))
+		g1a23 := archsimd.LoadFloat32x4Array((*[4]float32)(blk[12:]))
 
 		a0 := g0a01.ToBits().ReshapeToUint64s().InterleaveLo(g1a01.ToBits().ReshapeToUint64s())
 		a1 := g0a01.ToBits().ReshapeToUint64s().InterleaveHi(g1a01.ToBits().ReshapeToUint64s())
@@ -68,10 +63,10 @@ func kfBfly4M1CoreSIMD(fout []kissCpx, n int) {
 		v23 := f2.ToBits().ReshapeToUint64s().InterleaveLo(v3.ToBits().ReshapeToUint64s()).ReshapeToUint32s().BitsToFloat32()
 		v45 := f0.ToBits().ReshapeToUint64s().InterleaveHi(v1.ToBits().ReshapeToUint64s()).ReshapeToUint32s().BitsToFloat32()
 		v67 := f2.ToBits().ReshapeToUint64s().InterleaveHi(v3.ToBits().ReshapeToUint64s()).ReshapeToUint32s().BitsToFloat32()
-		storeF32x4(p, v01)
-		storeF32x4(unsafe.Add(p, 16), v23)
-		storeF32x4(unsafe.Add(p, 32), v45)
-		storeF32x4(unsafe.Add(p, 48), v67)
+		v01.StoreArray((*[4]float32)(blk[0:]))
+		v23.StoreArray((*[4]float32)(blk[4:]))
+		v45.StoreArray((*[4]float32)(blk[8:]))
+		v67.StoreArray((*[4]float32)(blk[12:]))
 	}
 
 	if n&1 != 0 {
@@ -87,34 +82,32 @@ func kfBfly5InnerSIMD(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 		kfBfly5InnerScalar(fout, w, m, N, mm, fstride)
 		return
 	}
-	_ = fout[(N-1)*mm+5*m-1]
+	ff := kissCpxAsFloat32(fout[:(N-1)*mm+5*m])
 	_ = w[max(fstride*2*m, (m-1)*4*fstride)]
 
-	wBase := unsafe.Pointer(unsafe.SliceData(w))
-	ya := *(*kissCpx)(unsafe.Add(wBase, fstride*m*8))
-	yb := *(*kissCpx)(unsafe.Add(wBase, fstride*2*m*8))
+	ya := w[fstride*m]
+	yb := w[fstride*2*m]
 	yar, yai := archsimd.BroadcastFloat32x4(ya.r), archsimd.BroadcastFloat32x4(ya.i)
 	ybr, ybi := archsimd.BroadcastFloat32x4(yb.r), archsimd.BroadcastFloat32x4(yb.i)
-	foutBase := unsafe.Pointer(unsafe.SliceData(fout))
+	m2 := 2 * m
 
 	for i := 0; i < N; i++ {
 		base := i * mm
 		for j := 0; j < m; j += 4 {
-			idx0 := base + j
-			p0 := unsafe.Add(foutBase, idx0*8)
-			p1 := unsafe.Add(p0, m*8)
-			p2 := unsafe.Add(p1, m*8)
-			p3 := unsafe.Add(p2, m*8)
-			p4 := unsafe.Add(p3, m*8)
-			s0r, s0i := bflyLoadCpx4(p0)
-			b1r, b1i := bflyLoadCpx4(p1)
-			b2r, b2i := bflyLoadCpx4(p2)
-			b3r, b3i := bflyLoadCpx4(p3)
-			b4r, b4i := bflyLoadCpx4(p4)
-			w1r, w1i := bflyGatherTwiddle4(wBase, j*fstride, fstride)
-			w2r, w2i := bflyGatherTwiddle4(wBase, j*2*fstride, 2*fstride)
-			w3r, w3i := bflyGatherTwiddle4(wBase, j*3*fstride, 3*fstride)
-			w4r, w4i := bflyGatherTwiddle4(wBase, j*4*fstride, 4*fstride)
+			o0 := 2 * (base + j)
+			o1 := o0 + m2
+			o2 := o1 + m2
+			o3 := o2 + m2
+			o4 := o3 + m2
+			s0r, s0i := bflyLoadCpx4(ff[o0:])
+			b1r, b1i := bflyLoadCpx4(ff[o1:])
+			b2r, b2i := bflyLoadCpx4(ff[o2:])
+			b3r, b3i := bflyLoadCpx4(ff[o3:])
+			b4r, b4i := bflyLoadCpx4(ff[o4:])
+			w1r, w1i := bflyGatherTwiddle4(w, j*fstride, fstride)
+			w2r, w2i := bflyGatherTwiddle4(w, j*2*fstride, 2*fstride)
+			w3r, w3i := bflyGatherTwiddle4(w, j*3*fstride, 3*fstride)
+			w4r, w4i := bflyGatherTwiddle4(w, j*4*fstride, 4*fstride)
 
 			s1r, s1i := bflyMulSource4(b1r, b1i, w1r, w1i)
 			s2r, s2i := bflyMulSource4(b2r, b2i, w2r, w2i)
@@ -130,16 +123,16 @@ func kfBfly5InnerSIMD(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 			s5i := s0i.Add(s7i.MulAdd(yar, s8i.Mul(ybr)))
 			s6r := s10i.MulAdd(yai, s9i.Mul(ybi))
 			s6i := s10r.MulAdd(yai, s9r.Mul(ybi)).Neg()
-			bflyStoreCpx4(p0, out0r, out0i)
-			bflyStoreCpx4(p1, s5r.Sub(s6r), s5i.Sub(s6i))
-			bflyStoreCpx4(p4, s5r.Add(s6r), s5i.Add(s6i))
+			bflyStoreCpx4(ff[o0:], out0r, out0i)
+			bflyStoreCpx4(ff[o1:], s5r.Sub(s6r), s5i.Sub(s6i))
+			bflyStoreCpx4(ff[o4:], s5r.Add(s6r), s5i.Add(s6i))
 
 			s11r := s0r.Add(s7r.MulAdd(ybr, s8r.Mul(yar)))
 			s11i := s0i.Add(s7i.MulAdd(ybr, s8i.Mul(yar)))
 			s12r := s9i.MulAdd(yai, s10i.Mul(ybi).Neg())
 			s12i := s10r.MulAdd(ybi, s9r.Mul(yai).Neg())
-			bflyStoreCpx4(p2, s11r.Add(s12r), s11i.Add(s12i))
-			bflyStoreCpx4(p3, s11r.Sub(s12r), s11i.Sub(s12i))
+			bflyStoreCpx4(ff[o2:], s11r.Add(s12r), s11i.Add(s12i))
+			bflyStoreCpx4(ff[o3:], s11r.Sub(s12r), s11i.Sub(s12i))
 		}
 	}
 }
@@ -152,34 +145,33 @@ func kfBfly3InnerSIMD(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 		kfBfly3InnerScalar(fout, w, m, N, mm, fstride)
 		return
 	}
-	_ = fout[(N-1)*mm+3*m-1]
+	ff := kissCpxAsFloat32(fout[:(N-1)*mm+3*m])
 	_ = w[max(fstride*m, (m-1)*2*fstride)]
 
-	wBase := unsafe.Pointer(unsafe.SliceData(w))
-	epi3i := archsimd.BroadcastFloat32x4((*kissCpx)(unsafe.Add(wBase, fstride*m*8)).i)
-	foutBase := unsafe.Pointer(unsafe.SliceData(fout))
+	epi3i := archsimd.BroadcastFloat32x4(w[fstride*m].i)
+	half := archsimd.BroadcastFloat32x4(0.5)
+	m2 := 2 * m
 	for i := 0; i < N; i++ {
 		base := i * mm
 		for j := 0; j < m; j += 4 {
-			idx0 := base + j
-			p0 := unsafe.Add(foutBase, idx0*8)
-			p1 := unsafe.Add(p0, m*8)
-			p2 := unsafe.Add(p1, m*8)
-			a0r, a0i := bflyLoadCpx4(p0)
-			b1r, b1i := bflyLoadCpx4(p1)
-			b2r, b2i := bflyLoadCpx4(p2)
-			w1r, w1i := bflyGatherTwiddle4(wBase, j*fstride, fstride)
-			w2r, w2i := bflyGatherTwiddle4(wBase, j*2*fstride, 2*fstride)
+			o0 := 2 * (base + j)
+			o1 := o0 + m2
+			o2 := o1 + m2
+			a0r, a0i := bflyLoadCpx4(ff[o0:])
+			b1r, b1i := bflyLoadCpx4(ff[o1:])
+			b2r, b2i := bflyLoadCpx4(ff[o2:])
+			w1r, w1i := bflyGatherTwiddle4(w, j*fstride, fstride)
+			w2r, w2i := bflyGatherTwiddle4(w, j*2*fstride, 2*fstride)
 			s1r, s1i := bflyMulSource4(b1r, b1i, w1r, w1i)
 			s2r, s2i := bflyMulSource4(b2r, b2i, w2r, w2i)
 			s3r, s3i := s1r.Add(s2r), s1i.Add(s2i)
 			s0r, s0i := s1r.Sub(s2r), s1i.Sub(s2i)
-			h3r, h3i := s3r.Mul(archsimd.BroadcastFloat32x4(0.5)), s3i.Mul(archsimd.BroadcastFloat32x4(0.5))
+			h3r, h3i := s3r.Mul(half), s3i.Mul(half)
 			f1r, f1i := a0r.Sub(h3r), a0i.Sub(h3i)
 			s0r, s0i = s0r.Mul(epi3i), s0i.Mul(epi3i)
-			bflyStoreCpx4(p0, a0r.Add(s3r), a0i.Add(s3i))
-			bflyStoreCpx4(p2, f1r.Add(s0i), f1i.Sub(s0r))
-			bflyStoreCpx4(p1, f1r.Sub(s0i), f1i.Add(s0r))
+			bflyStoreCpx4(ff[o0:], a0r.Add(s3r), a0i.Add(s3i))
+			bflyStoreCpx4(ff[o2:], f1r.Add(s0i), f1i.Sub(s0r))
+			bflyStoreCpx4(ff[o1:], f1r.Sub(s0i), f1i.Add(s0r))
 		}
 	}
 }
@@ -192,26 +184,24 @@ func kfBfly4InnerSIMD(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 		kfBfly4InnerScalar(fout, w, m, N, mm, fstride)
 		return
 	}
-	_ = fout[(N-1)*mm+4*m-1]
+	ff := kissCpxAsFloat32(fout[:(N-1)*mm+4*m])
 	_ = w[(m-1)*3*fstride]
+	m2 := 2 * m
 
-	wBase := unsafe.Pointer(unsafe.SliceData(w))
-	foutBase := unsafe.Pointer(unsafe.SliceData(fout))
 	for i := 0; i < N; i++ {
 		base := i * mm
 		for j := 0; j < m; j += 4 {
-			idx0 := base + j
-			p0 := unsafe.Add(foutBase, idx0*8)
-			p1 := unsafe.Add(p0, m*8)
-			p2 := unsafe.Add(p1, m*8)
-			p3 := unsafe.Add(p2, m*8)
-			f0r, f0i := bflyLoadCpx4(p0)
-			b1r, b1i := bflyLoadCpx4(p1)
-			b2r, b2i := bflyLoadCpx4(p2)
-			b3r, b3i := bflyLoadCpx4(p3)
-			w1r, w1i := bflyGatherTwiddle4(wBase, j*fstride, fstride)
-			w2r, w2i := bflyGatherTwiddle4(wBase, j*2*fstride, 2*fstride)
-			w3r, w3i := bflyGatherTwiddle4(wBase, j*3*fstride, 3*fstride)
+			o0 := 2 * (base + j)
+			o1 := o0 + m2
+			o2 := o1 + m2
+			o3 := o2 + m2
+			f0r, f0i := bflyLoadCpx4(ff[o0:])
+			b1r, b1i := bflyLoadCpx4(ff[o1:])
+			b2r, b2i := bflyLoadCpx4(ff[o2:])
+			b3r, b3i := bflyLoadCpx4(ff[o3:])
+			w1r, w1i := bflyGatherTwiddle4(w, j*fstride, fstride)
+			w2r, w2i := bflyGatherTwiddle4(w, j*2*fstride, 2*fstride)
+			w3r, w3i := bflyGatherTwiddle4(w, j*3*fstride, 3*fstride)
 			s0r, s0i := bflyMulSource4(b1r, b1i, w1r, w1i)
 			s1r, s1i := bflyMulSource4(b2r, b2i, w2r, w2i)
 			s2r, s2i := bflyMulSource4(b3r, b3i, w3r, w3i)
@@ -223,31 +213,31 @@ func kfBfly4InnerSIMD(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 			out0r, out0i := f0r.Add(s3r), f0i.Add(s3i)
 			out1r, out1i := s5r.Add(s4i), s5i.Sub(s4r)
 			out3r, out3i := s5r.Sub(s4i), s5i.Add(s4r)
-			bflyStoreCpx4(p2, out2r, out2i)
-			bflyStoreCpx4(p0, out0r, out0i)
-			bflyStoreCpx4(p1, out1r, out1i)
-			bflyStoreCpx4(p3, out3r, out3i)
+			bflyStoreCpx4(ff[o2:], out2r, out2i)
+			bflyStoreCpx4(ff[o0:], out0r, out0i)
+			bflyStoreCpx4(ff[o1:], out1r, out1i)
+			bflyStoreCpx4(ff[o3:], out3r, out3i)
 		}
 	}
 }
 
-func bflyLoadCpx4(p unsafe.Pointer) (re, im archsimd.Float32x4) {
-	lo := loadF32x4(p).ToBits()
-	hi := loadF32x4(unsafe.Add(p, 16)).ToBits()
+func bflyLoadCpx4(s []float32) (re, im archsimd.Float32x4) {
+	lo := archsimd.LoadFloat32x4Array((*[4]float32)(s[0:])).ToBits()
+	hi := archsimd.LoadFloat32x4Array((*[4]float32)(s[4:])).ToBits()
 	return lo.ConcatEven(hi).BitsToFloat32(), lo.ConcatOdd(hi).BitsToFloat32()
 }
 
-func bflyStoreCpx4(p unsafe.Pointer, re, im archsimd.Float32x4) {
+func bflyStoreCpx4(s []float32, re, im archsimd.Float32x4) {
 	reBits, imBits := re.ToBits(), im.ToBits()
-	storeF32x4(p, reBits.InterleaveLo(imBits).BitsToFloat32())
-	storeF32x4(unsafe.Add(p, 16), reBits.InterleaveHi(imBits).BitsToFloat32())
+	reBits.InterleaveLo(imBits).BitsToFloat32().StoreArray((*[4]float32)(s[0:]))
+	reBits.InterleaveHi(imBits).BitsToFloat32().StoreArray((*[4]float32)(s[4:]))
 }
 
-func bflyGatherTwiddle4(wBase unsafe.Pointer, start, stride int) (re, im archsimd.Float32x4) {
-	t0 := *(*kissCpx)(unsafe.Add(wBase, start*8))
-	t1 := *(*kissCpx)(unsafe.Add(wBase, (start+stride)*8))
-	t2 := *(*kissCpx)(unsafe.Add(wBase, (start+2*stride)*8))
-	t3 := *(*kissCpx)(unsafe.Add(wBase, (start+3*stride)*8))
+func bflyGatherTwiddle4(w []kissCpx, start, stride int) (re, im archsimd.Float32x4) {
+	t0 := w[start]
+	t1 := w[start+stride]
+	t2 := w[start+2*stride]
+	t3 := w[start+3*stride]
 	re = archsimd.BroadcastFloat32x4(t0.r).SetElem(1, t1.r).SetElem(2, t2.r).SetElem(3, t3.r)
 	im = archsimd.BroadcastFloat32x4(t0.i).SetElem(1, t1.i).SetElem(2, t2.i).SetElem(3, t3.i)
 	return re, im

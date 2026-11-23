@@ -30,9 +30,6 @@ type kissFFTState struct {
 	bitrev  []int
 	w       []kissCpx
 	fstride []int // Pre-computed fstride array for fftImpl (avoids per-call allocation)
-	// bitrevBytes holds 8*bitrev[i], the byte offset of each bit-reversed
-	// slot in the FFT buffer; every entry is below 8*nfft.
-	bitrevBytes []uintptr
 	// stageTw holds each factor stage's twiddles packed for the Fast
 	// butterflies; see kissStageTwiddles.
 	stageTw []kissStageTwiddles
@@ -121,7 +118,7 @@ func newDynamicKissFFTState(nfft int, base *kissFFTState) *kissFFTState {
 	}
 
 	return &kissFFTState{nfft: nfft, shift: shift, factors: factors, bitrev: bitrev, w: w, fstride: fstride,
-		bitrevBytes: kissBitrevBytes(bitrev), stageTw: newKissStageTwiddles(factors, fstride, shift, w)}
+		stageTw: newKissStageTwiddles(factors, fstride, shift, w)}
 }
 
 func newStaticKissFFTState(nfft int) *kissFFTState {
@@ -176,24 +173,9 @@ func newStaticKissFFTState(nfft int) *kissFFTState {
 		factors:     factors,
 		bitrev:      bitrev,
 		w:           twiddles,
-		fstride:     fstride,
-		bitrevBytes: kissBitrevBytes(bitrev),
-		stageTw:     newKissStageTwiddles(factors, fstride, shift, twiddles),
+		fstride: fstride,
+		stageTw: newKissStageTwiddles(factors, fstride, shift, twiddles),
 	}
-}
-
-// kissBitrevBytes returns the byte offsets 8*bitrev[i] of the bit-reversed
-// FFT slots. It panics unless every slot is inside the len(bitrev)-point
-// buffer, which lets the offset stores skip their per-element checks.
-func kissBitrevBytes(bitrev []int) []uintptr {
-	off := make([]uintptr, len(bitrev))
-	for i, rev := range bitrev {
-		if uint(rev) >= uint(len(bitrev)) {
-			panic("celt: kiss FFT bit-reversal slot out of range")
-		}
-		off[i] = uintptr(rev) * 8
-	}
-	return off
 }
 
 // kfFactor computes the radix factors for kiss FFT.

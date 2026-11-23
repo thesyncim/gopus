@@ -2,8 +2,6 @@
 
 package celt
 
-import "unsafe"
-
 // imdctPreRotateFFT runs the clt_mdct_backward_c() pre-rotation and the
 // forward FFT, returning the FFT output. Like libopus, the scalar build stores
 // each pre-rotated value straight into its bit-reversed FFT slot, so fftIn is
@@ -17,7 +15,7 @@ func imdctPreRotateFFT(fftIn []complex64, fftTmp []kissCpx, spectrum, trig []flo
 		return kissFFT32ToScratch(fftIn, fftTmp, st)
 	}
 	fft := fftTmp[:n4]
-	imdctPreRotateKissPairs(fft, st.bitrevBytes, spectrum, trig, n4)
+	imdctPreRotateKissPairs(fft, st.bitrev, spectrum, trig, n4)
 	st.fftImpl(fft)
 	return fft
 }
@@ -49,7 +47,7 @@ func imdctPreRotateFFTStrided(fftIn []complex64, fftTmp []kissCpx, coeffs []floa
 	}
 	if st != nil && n4 > 0 && n2 == 2*n4 && len(st.bitrev) == n4 && len(fftTmp) >= n4 {
 		fft := fftTmp[:n4]
-		imdctPreRotateKissStep(fft, st.bitrevBytes, coeffs[first:first+(n2-1)*stride+1], stride, trig, n4)
+		imdctPreRotateKissStep(fft, st.bitrev, coeffs[first:first+(n2-1)*stride+1], stride, trig, n4)
 		st.fftImpl(fft)
 		return fft
 	}
@@ -59,32 +57,30 @@ func imdctPreRotateFFTStrided(fftIn []complex64, fftTmp []kissCpx, coeffs []floa
 
 // imdctPreRotateKissPairs is the clt_mdct_backward_c() pre-rotation of a
 // contiguous spectrum of n2 == 2*n4 values into the bit-reversed FFT slots.
-func imdctPreRotateKissPairs(dst []kissCpx, bitrevBytes []uintptr, spectrum, trig []float32, n4 int) {
-	imdctPreRotateKissStep(dst, bitrevBytes, spectrum[:2*n4], 1, trig, n4)
+func imdctPreRotateKissPairs(dst []kissCpx, bitrev []int, spectrum, trig []float32, n4 int) {
+	imdctPreRotateKissStep(dst, bitrev, spectrum[:2*n4], 1, trig, n4)
 }
 
 // imdctPreRotateKissStep is the clt_mdct_backward_c() pre-rotation for n2 ==
 // 2*n4 spectrum values spaced stride apart in the checked span
 // spectrum[:(n2-1)*stride+1]: x1 walks the even values up from the start and
-// x2 the odd values down from the end, like libopus xp1 and xp2, both
-// addressed by byte offsets. Each rotated value is stored as one complex at
-// byte offset bitrevBytes[i] of dst.
-func imdctPreRotateKissStep(dst []kissCpx, bitrevBytes []uintptr, spectrum []float32, stride int, trig []float32, n4 int) {
+// x2 the odd values down from the end, like libopus xp1 and xp2. Each rotated
+// value is stored at dst[bitrev[i]].
+func imdctPreRotateKissStep(dst []kissCpx, bitrev []int, spectrum []float32, stride int, trig []float32, n4 int) {
 	if n4 <= 0 {
 		return
 	}
-	sb := unsafe.Pointer(unsafe.SliceData(spectrum[:(2*n4-1)*stride+1]))
-	// Every bitrevBytes entry addresses a slot of the checked dst[:n4].
-	db := unsafe.Pointer(unsafe.SliceData(dst[:n4]))
+	spectrum = spectrum[:(2*n4-1)*stride+1]
+	dst = dst[:n4]
 	t0s := trig[:n4]
 	t1s := trig[n4 : 2*n4][:len(t0s)]
-	bitrevBytes = bitrevBytes[:len(t0s)]
-	step := uintptr(stride) * 8
-	off1 := uintptr(0)
-	off2 := uintptr((2*n4-1)*stride) * 4
-	for i, r := range bitrevBytes {
-		x1 := *(*float32)(unsafe.Add(sb, off1))
-		x2 := *(*float32)(unsafe.Add(sb, off2))
+	bitrev = bitrev[:len(t0s)]
+	step := 2 * stride
+	off1 := 0
+	off2 := (2*n4 - 1) * stride
+	for i, r := range bitrev {
+		x1 := spectrum[off1]
+		x2 := spectrum[off2]
 		off1 += step
 		off2 -= step
 		t0 := t0s[i]
@@ -100,7 +96,6 @@ func imdctPreRotateKissStep(dst []kissCpx, bitrevBytes []uintptr, spectrum []flo
 			yr = float32(x1*t0) - float32(x2*t1)
 			yi = float32(x2*t0) + float32(x1*t1)
 		}
-		*(*float32)(unsafe.Add(db, r)) = yr
-		*(*float32)(unsafe.Add(db, r+4)) = yi
+		dst[r] = kissCpx{r: yr, i: yi}
 	}
 }
