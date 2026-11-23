@@ -10,6 +10,14 @@ import (
 // Valid channel counts are 1 (mono) or 2 (stereo).
 // The decoder is ready to process CELT frames after creation.
 func NewDecoder(channels int) *Decoder {
+	d := &Decoder{}
+	d.Init(channels)
+	return d
+}
+
+// Init initializes d in place for channels (1 or 2) so callers can embed
+// celt.Decoder inline without a separate heap allocation.
+func (d *Decoder) Init(channels int) {
 	if channels < 1 {
 		channels = 1
 	}
@@ -17,11 +25,11 @@ func NewDecoder(channels int) *Decoder {
 		channels = 2
 	}
 
-	// Carve fixed-size float32 state slices from one contiguous backing array
-	// to minimize heap objects per Decoder.
+	// Carve fixed-size float32 state slices from d.stateBuf in the noscan tail
+	// to avoid a separate heap allocation per Decoder.
 	const energyLen = MaxBands * 2
 	plcLPCLen := celtPLCLPCOrder * channels
-	stateSlab := make([]float32, 4*energyLen+channels+plcLPCLen)
+	stateSlab := d.stateBuf[:4*energyLen+channels+plcLPCLen]
 	off := 0
 	carve := func(n int) []float32 {
 		s := stateSlab[off : off+n : off+n]
@@ -29,40 +37,34 @@ func NewDecoder(channels int) *Decoder {
 		return s
 	}
 
-	d := &Decoder{
-		channels:   int32(channels),
-		sampleRate: 48000, // Standard-mode default; EnableHD96kMode selects 96 kHz.
-		downsample: 1,
+	d.channels = int32(channels)
+	d.sampleRate = 48000 // Standard-mode default; EnableHD96kMode selects 96 kHz.
+	d.downsample = 1
 
-		// Energy-prediction history is sized to two channels regardless of the
-		// decoder channel count, matching libopus, which always allocates
-		// oldBandE/oldLogE/oldLogE2/backgroundLogE as 2*nbEBands. A mono stream
-		// keeps the right-channel slot as a shadow copy of the left (libopus
-		// `if (C==1) OPUS_COPY(&oldBandE[nbEBands], oldBandE, nbEBands)`), which the
-		// loss-recovery prediction folds back in after a concealed gap.
-		prevEnergy:       carve(energyLen),
-		prevLogE:         carve(energyLen),
-		prevLogE2:        carve(energyLen),
-		backgroundEnergy: carve(energyLen),
+	// Energy-prediction history is sized to two channels regardless of the
+	// decoder channel count, matching libopus, which always allocates
+	// oldBandE/oldLogE/oldLogE2/backgroundLogE as 2*nbEBands. A mono stream
+	// keeps the right-channel slot as a shadow copy of the left (libopus
+	// `if (C==1) OPUS_COPY(&oldBandE[nbEBands], oldBandE, nbEBands)`), which the
+	// loss-recovery prediction folds back in after a concealed gap.
+	d.prevEnergy = carve(energyLen)
+	d.prevLogE = carve(energyLen)
+	d.prevLogE2 = carve(energyLen)
+	d.backgroundEnergy = carve(energyLen)
 
-		// De-emphasis filter state, one per channel
-		preemphState: carve(channels),
+	// De-emphasis filter state, one per channel
+	d.preemphState = carve(channels)
+	d.plcLPC = carve(plcLPCLen)
 
-		plcLPC: carve(plcLPCLen),
-
-		// RNG state (libopus initializes to zero)
-		rng: 0,
-
-		bandwidth:              CELTFullband,
-		phaseInversionDisabled: channels == 1,
-	}
+	// RNG state (libopus initializes to zero)
+	d.rng = 0
+	d.bandwidth = CELTFullband
+	d.phaseInversionDisabled = channels == 1
 	d.plcStateVal.Init()
 	d.plcState = &d.plcStateVal
 
 	// Match libopus init/reset defaults (oldLogE/oldLogE2 = -28, buffers cleared).
 	d.Reset()
-
-	return d
 }
 
 // SetPhaseInversionDisabled toggles stereo phase inversion during CELT decoding.

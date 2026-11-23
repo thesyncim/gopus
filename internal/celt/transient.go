@@ -623,27 +623,35 @@ func (e *Encoder) transientAnalysisScratchF32(pcm []float32, frameSize int, allo
 		// in[i+c*len].
 		srcL := pcm[:2*len(energy)]
 		srcR := pcm[samplesPerChannel : samplesPerChannel+2*len(energy)]
-		var tone []float32
 		if deferStereoToneDetect {
-			tone = toneBuf[:2*len(energy)]
-		}
-		for i := range energy {
-			// srcL, srcR and tone advance by one sample pair per step, so each
-			// iteration checks its bounds once.
-			_ = srcL[1]
-			_ = srcR[1]
-			xL0 := float32(srcL[0])
-			xR0 := float32(srcR[0])
-			xL1 := float32(srcL[1])
-			xR1 := float32(srcR[1])
-			srcL = srcL[2:]
-			srcR = srcR[2:]
-			if tone != nil {
-				_ = tone[1]
-				tone[0] = xL0 + xR0
-				tone[1] = xL1 + xR1
-				tone = tone[2:]
+			tone := toneBuf[:2*len(energy)]
+			for k := range tone {
+				tone[k] = srcL[k] + srcR[k]
 			}
+		}
+		warm := min(warmupPairs, len(energy))
+		for i := range warm {
+			xL0, xL1 := srcL[2*i], srcL[2*i+1]
+			xR0, xR1 := srcR[2*i], srcR[2*i+1]
+			hp00L := hp0L
+			hp00R := hp0R
+			hp0L = hp0L - xL0 + hpFeedback*hp1L
+			hp0R = hp0R - xR0 + hpFeedback*hp1R
+			hp1L = xL0 - hp00L
+			hp1R = xR0 - hp00R
+			hp00L = hp0L
+			hp00R = hp0R
+			hp0L = hp0L - xL1 + hpFeedback*hp1L
+			hp0R = hp0R - xR1 + hpFeedback*hp1R
+			hp1L = xL1 - hp00L
+			hp1R = xR1 - hp00R
+			energy[i] = 0
+			energyR[i] = 0
+		}
+		for i := warm; i < len(energy); i++ {
+			idx := 2 * i
+			xL0, xL1 := srcL[idx], srcL[idx+1]
+			xR0, xR1 := srcR[idx], srcR[idx+1]
 			// L and R high-pass filter computations interleaved so the CPU
 			// can overlap their independent chains to hide IIR multiply latency.
 			yL0 := hp0L + xL0
@@ -663,10 +671,6 @@ func (e *Encoder) transientAnalysisScratchF32(pcm []float32, frameSize int, allo
 			hp0R = hp0R - xR1 + hpFeedback*hp1R
 			hp1L = xL1 - hp00L
 			hp1R = xR1 - hp00R
-
-			if i < warmupPairs {
-				yL0, yL1, yR0, yR1 = 0, 0, 0, 0
-			}
 
 			// Energy and masking for both channels interleaved.
 			pairL := yL0*yL0 + yL1*yL1

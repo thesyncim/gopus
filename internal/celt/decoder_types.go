@@ -165,4 +165,5 @@ type Decoder struct {
 
 	plcStateVal plc.State
 	stdAlloc    stdAllocState
+	stateBuf    [4*MaxBands*2 + 2 + celtPLCLPCOrder*2]float32
 }

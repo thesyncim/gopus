@@ -152,6 +152,14 @@ func (d *Decoder) PLCLowbandCaptured() int { return d.plcLowbandCaptured }
 // NewDecoder creates a new SILK decoder with proper initial state.
 // The decoder is ready to process SILK frames after creation.
 func NewDecoder() *Decoder {
+	d := &Decoder{}
+	d.Init()
+	return d
+}
+
+// Init initializes d in place so callers can embed silk.Decoder inline without
+// a separate heap allocation.
+func (d *Decoder) Init() {
 	// Pre-calculate max buffer sizes based on SILK constants:
 	// - maxSubFrameLength = 80 (5ms * 16kHz)
 	// - maxLPCOrder = 16
@@ -170,9 +178,7 @@ func NewDecoder() *Decoder {
 		maxUpsampleSize = 5760 // 3 * 320 * 6 = 5760 (maxFramesPerPacket * maxFrameLength * 6x upsample)
 	)
 
-	d := &Decoder{
-		apiSampleRate: 48000,
-	}
+	d.apiSampleRate = 48000
 	d.plcStateVal.Init()
 	d.plcState = &d.plcStateVal
 
@@ -211,8 +217,6 @@ func NewDecoder() *Decoder {
 	d.stereoMidFloat = d.scratchF32.AllocN(maxOutInt16Size)
 	resetDecoderState(&d.state[0])
 	resetDecoderState(&d.state[1])
-
-	return d
 }
 
 // SetAPISampleRate sets the decoder output rate used by the libopus SILK

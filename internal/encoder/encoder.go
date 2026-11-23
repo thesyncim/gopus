@@ -143,9 +143,12 @@ type Encoder struct {
 	scratchCELTPrefill       []opusRes // CELT transition prefill source (Fs/400 * channels)
 	floatInputFrame          []float32 // Current public float32 frame view, if available
 
-	// Embedded FEC and DTX state values (pointers at offset 0 of each struct).
-	fecVal fecState
-	dtxVal dtxState
+	// Embedded FEC, DTX, and tonality analyzer state values. analyzerVal sits
+	// at the pointer/noscan boundary so its ~26 KB noscan tail and all scalar
+	// fields below remain excluded from GC scanning.
+	fecVal      fecState
+	dtxVal      dtxState
+	analyzerVal TonalityAnalysisState
 
 	// --- Pointer-free (noscan) tail ---
 
@@ -234,14 +237,23 @@ type Encoder struct {
 	widthMem               StereoWidthMem  // Stateful stereo width computation memory
 	toMono                 int32           // Stereo->mono transition countdown (0=inactive)
 	fecConfig              int32           // FEC config: 0=disabled, 1=enabled, 2=music-safe
-	hasCELTPrefill         bool
-	floatInputExact        bool // True when pcm originated from float32 samples
+	hasCELTPrefill   bool
+	floatInputExact  bool // True when pcm originated from float32 samples
+	scratchPacketBuf [defaultScratchPacketBytes]byte
 }
 
 // NewEncoder creates an Opus encoder for sampleRate and channels. Unsupported
 // sample rates fall back to 48 kHz; 96 kHz is retained when QEXT is enabled.
 // Channel counts below one select mono, and counts above two select stereo.
 func NewEncoder(sampleRate, channels int) *Encoder {
+	e := &Encoder{}
+	e.Init(sampleRate, channels)
+	return e
+}
+
+// Init initializes e in place for sampleRate and channels so callers can embed
+// encoder.Encoder inline without a separate heap allocation.
+func (e *Encoder) Init(sampleRate, channels int) {
 	switch sampleRate {
 	case 8000, 12000, 16000, 24000, 48000:
 	case 96000:
@@ -258,50 +270,48 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 		channels = 2
 	}
 
-	e := &Encoder{
-		mode:                   ModeAuto,
-		bandwidth:              types.BandwidthFullband,
-		sampleRate:             int32(sampleRate),
-		channels:               int32(channels),
-		frameSize:              int32(sampleRate / 50),
-		lowDelay:               false,
-		bitrateMode:            ModeCVBR,
-		useVBR:                 true,
-		vbrConstraint:          true,
-		bitrate:                64000,
-		fecEnabled:             false,
-		packetLoss:             0,
-		dtxEnabled:             false,
-		rng:                    22222,
-		complexity:             9,
-		signalType:             types.SignalAuto,
-		maxBandwidth:           types.BandwidthFullband,
-		forceChannels:          -1,
-		lsbDepth:               24,
-		predictionDisabled:     false,
-		phaseInversionDisabled: false,
-		analyzer:               NewTonalityAnalysisState(sampleRate),
-		scratchPacket:          make([]byte, defaultScratchPacketBytes),
-		prevMode:               ModeAuto,
-		prevPacketMode:         ModeAuto,
-		prevAutoMode:           ModeAuto,
-		intMode:                ModeHybrid,
-		intBandwidth:           types.BandwidthFullband,
-		voiceRatio:             -1,
-		streamChannels:         int32(channels),
-		// opus_encoder_init zeroes the state before setting stream_channels;
-		// prev_channels stays zero until the first encoded frame.
-		prevChannels:              0,
-		autoBandwidth:             types.BandwidthFullband,
-		first:                     true,
-		prevHBGain:                1,
-		hybridStereoWidthQ14:      1 << 14,
-		encoderFixedOuterQ8Fields: newFixedOuterQ8Fields(),
-	}
+	e.mode = ModeAuto
+	e.bandwidth = types.BandwidthFullband
+	e.sampleRate = int32(sampleRate)
+	e.channels = int32(channels)
+	e.frameSize = int32(sampleRate / 50)
+	e.lowDelay = false
+	e.bitrateMode = ModeCVBR
+	e.useVBR = true
+	e.vbrConstraint = true
+	e.bitrate = 64000
+	e.fecEnabled = false
+	e.packetLoss = 0
+	e.dtxEnabled = false
+	e.rng = 22222
+	e.complexity = 9
+	e.signalType = types.SignalAuto
+	e.maxBandwidth = types.BandwidthFullband
+	e.forceChannels = -1
+	e.lsbDepth = 24
+	e.predictionDisabled = false
+	e.phaseInversionDisabled = false
+	e.analyzerVal.Init(sampleRate)
+	e.analyzer = &e.analyzerVal
+	e.scratchPacket = e.scratchPacketBuf[:]
+	e.prevMode = ModeAuto
+	e.prevPacketMode = ModeAuto
+	e.prevAutoMode = ModeAuto
+	e.intMode = ModeHybrid
+	e.intBandwidth = types.BandwidthFullband
+	e.voiceRatio = -1
+	e.streamChannels = int32(channels)
+	// opus_encoder_init zeroes the state before setting stream_channels;
+	// prev_channels stays zero until the first encoded frame.
+	e.prevChannels = 0
+	e.autoBandwidth = types.BandwidthFullband
+	e.first = true
+	e.prevHBGain = 1
+	e.hybridStereoWidthQ14 = 1 << 14
+	e.encoderFixedOuterQ8Fields = newFixedOuterQ8Fields()
 	e.fec = &e.fecVal
 	e.dtxVal.init()
 	e.dtx = &e.dtxVal
-	return e
 }
 
 // SetMode sets the encoding mode.
@@ -861,20 +871,21 @@ func (e *Encoder) EncodeShortMixedWithAnalysisMaxBytes(pcm []float32, frameSize 
 }
 
 func (e *Encoder) prepareOpusResInput(pcm []float32) []opusRes {
-	// Back all frame-sized input/delay scratch buffers with one reusable arena.
+	// Back all frame-sized DC/delay scratch buffers with one reusable arena.
+	// pcm is already in the opusRes (float32) domain and is never mutated by
+	// encodeOpusResWithAnalysisMaxBytes, so return it directly without copying.
 	if len(pcm) > 0 {
 		ch := max(int(e.channels), 1)
 		sr := int(e.sampleRate)
 		encBufLen := (sr / 100) * ch
 		prefillLen := (sr / 400) * ch
-		need := 3*len(pcm) + prefillLen
+		need := 2*len(pcm) + prefillLen
 		carveDelay := len(e.delayBuffer) == 0 && encBufLen > 0
 		if carveDelay {
 			need += encBufLen
 		}
 		if e.pcmBump.Cap() < need {
 			e.pcmBump.Ensure(need)
-			e.scratchInputPCM = e.pcmBump.AllocN(len(pcm))
 			e.scratchDCPCM = e.pcmBump.AllocN(len(pcm))
 			e.scratchDelayedPCM = e.pcmBump.AllocN(len(pcm))
 			if prefillLen > 0 {
@@ -885,9 +896,7 @@ func (e *Encoder) prepareOpusResInput(pcm []float32) []opusRes {
 			}
 		}
 	}
-	inputPCM := e.ensureInputPCM(len(pcm))
-	copy(inputPCM, pcm)
-	return inputPCM
+	return pcm
 }
 
 // encodeOpusResWithAnalysisMaxBytes is the core single-frame encode pipeline,
@@ -1878,7 +1887,27 @@ func (e *Encoder) dcRejectFrame(in []opusRes, frameSize int, floatOffset int) []
 	if channels == 2 {
 		m0 := e.hpMem[0]
 		m2 := e.hpMem[2]
-		for k := 0; k+1 < len(src); k += 2 {
+		k := 0
+		for ; k+3 < len(src); k += 4 {
+			s := src[k : k+4 : k+4]
+			o := out[k : k+4 : k+4]
+			x0, x1, x2, x3 := s[0], s[1], s[2], s[3]
+			// Precompute coef*x + verySmall in parallel so the two independent
+			// stereo IIR chains depend on a single FMA per sample.
+			c0 := coef*x0 + verySmall
+			c1 := coef*x1 + verySmall
+			c2 := coef*x2 + verySmall
+			c3 := coef*x3 + verySmall
+			o[0] = x0 - m0
+			o[1] = x1 - m2
+			m0 = c0 + coef2*m0
+			m2 = c1 + coef2*m2
+			o[2] = x2 - m0
+			o[3] = x3 - m2
+			m0 = c2 + coef2*m0
+			m2 = c3 + coef2*m2
+		}
+		for ; k+1 < len(src); k += 2 {
 			x0 := src[k]
 			x1 := src[k+1]
 			out[k] = x0 - m0
@@ -1890,7 +1919,26 @@ func (e *Encoder) dcRejectFrame(in []opusRes, frameSize int, floatOffset int) []
 		e.hpMem[2] = m2
 	} else {
 		m0 := e.hpMem[0]
-		for i, x := range src {
+		i := 0
+		for ; i+3 < len(src); i += 4 {
+			s := src[i : i+4 : i+4]
+			o := out[i : i+4 : i+4]
+			x0, x1, x2, x3 := s[0], s[1], s[2], s[3]
+			c0 := coef*x0 + verySmall
+			c1 := coef*x1 + verySmall
+			c2 := coef*x2 + verySmall
+			c3 := coef*x3 + verySmall
+			o[0] = x0 - m0
+			m0 = c0 + coef2*m0
+			o[1] = x1 - m0
+			m0 = c1 + coef2*m0
+			o[2] = x2 - m0
+			m0 = c2 + coef2*m0
+			o[3] = x3 - m0
+			m0 = c3 + coef2*m0
+		}
+		for ; i < len(src); i++ {
+			x := src[i]
 			out[i] = x - m0
 			m0 = coef*x + verySmall + coef2*m0
 		}
@@ -1902,13 +1950,6 @@ func (e *Encoder) dcRejectFrame(in []opusRes, frameSize int, floatOffset int) []
 // dcRejectVerySmall holds libopus VERY_SMALL as a variable, so the dc_reject
 // loops keep it in a register instead of reloading the constant every sample.
 var dcRejectVerySmall = [1]float32{1e-30}
-
-func (e *Encoder) ensureInputPCM(size int) []opusRes {
-	if cap(e.scratchInputPCM) < size {
-		e.scratchInputPCM = make([]opusRes, size)
-	}
-	return e.scratchInputPCM[:size]
-}
 
 func (e *Encoder) ensureDCPCM(size int) []opusRes {
 	if cap(e.scratchDCPCM) < size {

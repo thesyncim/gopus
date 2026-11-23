@@ -69,8 +69,10 @@ type Decoder struct {
 	decoderHD96kFields
 	decoderFixedFields
 	fixedQEXT decoderFixedQEXTFields
-	// hybridDecVal sits at the pointer/noscan boundary so its embedded
-	// plc.State tail stays excluded from GC scanning.
+	// Embedded sub-decoders sit before the noscan tail so all scalar fields and
+	// fecBuf below remain excluded from GC scanning.
+	silkDecVal   silk.Decoder
+	celtDecVal   celt.Decoder
 	hybridDecVal hybrid.Decoder
 
 	// --- Pointer-free (noscan) tail ---
@@ -111,6 +113,7 @@ type Decoder struct {
 	pitchDNNLoaded    bool
 	plcModelLoaded    bool
 	farganModelLoaded bool
+	fecBuf            [defaultMaxPacketBytes]byte
 }
 
 // NewDecoder returns a Decoder configured by cfg. It returns an error if the
@@ -160,16 +163,7 @@ func NewDecoder(cfg DecoderConfig) (*Decoder, error) {
 		return nil, ErrInvalidMaxPacketSamples
 	}
 
-	silkDec := silk.NewDecoder()
-	silkDec.SetAPISampleRate(internalRate)
-	celtDec := celt.NewDecoder(cfg.Channels)
-	if err := celtDec.SetAPISampleRate(internalRate); err != nil {
-		return nil, err
-	}
-
 	d := &Decoder{
-		silkDecoder:      silkDec,
-		celtDecoder:      celtDec,
 		sampleRate:       int32(internalRate),
 		channels:         int32(cfg.Channels),
 		maxPacketSamples: maxPacketSamples,
@@ -178,8 +172,20 @@ func NewDecoder(cfg DecoderConfig) (*Decoder, error) {
 		prevMode:         ModeHybrid,               // Default for PLC until first decode
 		lastPacketMode:   ModeHybrid,
 		lastBandwidth:    BandwidthFullband,
-		fecData:          make([]byte, maxPacketBytes),
 	}
+	if maxPacketBytes <= len(d.fecBuf) {
+		d.fecData = d.fecBuf[:maxPacketBytes]
+	} else {
+		d.fecData = make([]byte, maxPacketBytes)
+	}
+	d.silkDecVal.Init()
+	d.silkDecVal.SetAPISampleRate(internalRate)
+	d.silkDecoder = &d.silkDecVal
+	d.celtDecVal.Init(cfg.Channels)
+	if err := d.celtDecVal.SetAPISampleRate(internalRate); err != nil {
+		return nil, err
+	}
+	d.celtDecoder = &d.celtDecVal
 	// Back the fixed float32 decode work buffers with one contiguous arena.
 	pcmLen := maxPacketSamples * cfg.Channels
 	d.scratchF32.Ensure(pcmLen + 2*transLen + silkPLCLen + hybridSilkLen)
@@ -188,7 +194,7 @@ func NewDecoder(cfg DecoderConfig) (*Decoder, error) {
 	d.scratchRedundant = d.scratchF32.AllocN(transLen)
 	d.scratchSilkPLC = d.scratchF32.AllocN(silkPLCLen)
 	hybridSilkScratch := d.scratchF32.AllocN(hybridSilkLen)
-	d.hybridDecVal.InitWithSharedDecoders(cfg.Channels, silkDec, celtDec, hybridSilkScratch)
+	d.hybridDecVal.InitWithSharedDecoders(cfg.Channels, d.silkDecoder, d.celtDecoder, hybridSilkScratch)
 	d.hybridDecVal.SetAPISampleRate(internalRate)
 	d.hybridDecoder = &d.hybridDecVal
 	if cfg.SampleRate == 96000 {

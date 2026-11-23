@@ -131,6 +131,8 @@ type streamState struct {
 	plcPCM        []float32
 	streamOSCEFields
 	streamFixedFields
+	silkDecVal   silk.Decoder
+	celtDecVal   celt.Decoder
 	hybridDecVal hybrid.Decoder
 
 	// --- Pointer-free (noscan) tail ---
@@ -174,29 +176,32 @@ func (d *streamState) clearSoftClipMem() {
 }
 
 func newStreamDecoder(sampleRate, channels int) *streamState {
-	silkDec := silk.NewDecoder()
-	silkDec.SetAPISampleRate(sampleRate)
-	celtDec := celt.NewDecoder(channels)
+	d := &streamState{}
+	d.init(sampleRate, channels)
+	return d
+}
+
+func (d *streamState) init(sampleRate, channels int) {
+	d.sampleRate = int32(sampleRate)
+	d.channels = int32(channels)
+	d.lastMode = streamModeHybrid
+	d.lastBandwidth = int32(types.BandwidthFullband)
+	d.lastFrameSize = int32(sampleRate / 50)
+	d.lastTOCFrameSize = int32(sampleRate / 400)
+	d.silkDecVal.Init()
+	d.silkDecVal.SetAPISampleRate(sampleRate)
+	d.silkDec = &d.silkDecVal
+	d.celtDecVal.Init(channels)
 	if sampleRate == 96000 {
-		configureStreamNative96kCELT(celtDec)
+		configureStreamNative96kCELT(&d.celtDecVal)
 	} else {
-		celtDec.SetDownsample(48000 / sampleRate)
+		d.celtDecVal.SetDownsample(48000 / sampleRate)
 	}
-	d := &streamState{
-		sampleRate:       int32(sampleRate),
-		channels:         int32(channels),
-		celtDec:          celtDec,
-		silkDec:          silkDec,
-		lastMode:         streamModeHybrid,
-		lastBandwidth:    int32(types.BandwidthFullband),
-		lastFrameSize:    int32(sampleRate / 50),
-		lastTOCFrameSize: int32(sampleRate / 400),
-	}
-	d.hybridDecVal.InitWithSharedDecoders(channels, silkDec, celtDec, nil)
+	d.celtDec = &d.celtDecVal
+	d.hybridDecVal.InitWithSharedDecoders(channels, d.silkDec, d.celtDec, nil)
 	d.hybridDecVal.SetAPISampleRate(sampleRate)
 	d.hybridDec = &d.hybridDecVal
 	d.initOSCELossHook()
-	return d
 }
 
 // Decode decodes a packet for mono streams.
@@ -893,17 +898,20 @@ func NewDecoder(sampleRate, channels, streams, coupledStreams int, mapping []byt
 		}
 	}
 
-	// Create stream decoders
-	// First M streams are coupled (stereo), remaining N-M are mono
+	// Create stream decoders in one contiguous backing slice so each stream
+	// avoids separate heap allocations for streamState, silk.Decoder, and celt.Decoder.
+	// First M streams are coupled (stereo), remaining N-M are mono.
+	states := make([]streamState, streams)
 	decoders := make([]streamDecoder, streams)
 	for i := range streams {
-		var channels int
+		var ch int
 		if i < coupledStreams {
-			channels = 2 // Coupled stream = stereo
+			ch = 2 // Coupled stream = stereo
 		} else {
-			channels = 1 // Uncoupled stream = mono
+			ch = 1 // Uncoupled stream = mono
 		}
-		decoders[i] = newStreamDecoder(sampleRate, channels)
+		states[i].init(sampleRate, ch)
+		decoders[i] = &states[i]
 	}
 
 	// Copy mapping to avoid external mutation

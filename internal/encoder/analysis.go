@@ -525,12 +525,17 @@ type TonalityAnalysisState struct {
 // followed by tonality_analysis_reset(): LSBDepth defaults to 24 and all
 // reset-scoped state is cleared.
 func NewTonalityAnalysisState(fs int) *TonalityAnalysisState {
-	s := &TonalityAnalysisState{
-		Fs:       int32(fs),
-		LSBDepth: 24,
-	}
-	s.Reset()
+	s := &TonalityAnalysisState{}
+	s.Init(fs)
 	return s
+}
+
+// Init initializes s in place for sample rate fs so callers can embed
+// TonalityAnalysisState inline without a separate heap allocation.
+func (s *TonalityAnalysisState) Init(fs int) {
+	s.Fs = int32(fs)
+	s.LSBDepth = 24
+	s.Reset()
 }
 
 // Reset clears all reset-scoped analyzer state (the libopus
