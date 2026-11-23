@@ -863,6 +863,7 @@ type Decoder struct {
 	pitchDNNLoaded    bool
 	plcModelLoaded    bool
 	farganModelLoaded bool
+	plcStateVal       plc.State
 }
 
 // NewDecoder returns a multistream decoder for channels of interleaved PCM.
@@ -919,15 +920,17 @@ func NewDecoder(sampleRate, channels, streams, coupledStreams int, mapping []byt
 	mappingCopy := make([]byte, len(mapping))
 	copy(mappingCopy, mapping)
 
-	return &Decoder{
+	d := &Decoder{
 		sampleRate:     int32(sampleRate),
 		outputChannels: channels,
 		streams:        streams,
 		coupledStreams: coupledStreams,
 		mapping:        mappingCopy,
 		decoders:       decoders,
-		plcState:       plc.NewState(),
-	}, nil
+	}
+	d.plcStateVal.Init()
+	d.plcState = &d.plcStateVal
+	return d, nil
 }
 
 func validSampleRate(rate int) bool {

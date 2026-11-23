@@ -1,4 +1,4 @@
-//go:build arm64 && !nosimd && !purego
+//go:build (arm64 || amd64) && !nosimd && !purego
 
 package silk
 

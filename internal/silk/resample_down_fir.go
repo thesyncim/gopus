@@ -67,13 +67,18 @@ var silkResampler16Coefs = []int16{
 // DownsamplingResampler implements the libopus down_FIR resampling algorithm.
 // This is used for encoder mode (48kHz -> SILK rates).
 type DownsamplingResampler struct {
-	// AR2 IIR filter state (2 elements)
-	sIIR [2]int32
+	// Pointer-bearing fields sit first so scalar state and inline backing
+	// arrays live in the GC noscan tail.
+	sFIR       []int32
+	coefs      []int16 // Full coefficient array (AR2 + FIR)
+	firCoefs   []int16 // Just the FIR coefficients (after AR2)
+	delayBuf   []int16
+	scratchBuf []int32
+	scratchIn  []int16 // ProcessInto: input int16 conversion
+	scratchOut []int16 // ProcessInto: output int16 buffer
 
-	// FIR filter state (size depends on FIR order)
-	sFIR []int32
-
-	// Configuration
+	// --- Pointer-free (noscan) tail ---
+	sIIR        [2]int32
 	fsInKHz     int32
 	fsOutKHz    int32
 	batchSize   int32
@@ -81,16 +86,8 @@ type DownsamplingResampler struct {
 	invRatioQ16 int32
 	firOrder    int
 	firFracs    int
-	coefs       []int16 // Full coefficient array (AR2 + FIR)
-	firCoefs    []int16 // Just the FIR coefficients (after AR2)
-
-	// Delay buffer
-	delayBuf []int16
-
-	// Scratch buffers
-	scratchBuf []int32
-	scratchIn  []int16 // ProcessInto: input int16 conversion
-	scratchOut []int16 // ProcessInto: output int16 buffer
+	sFIRBuf     [resamplerDownOrderFIR2]int32
+	delayBufArr [48]int16
 }
 
 // DownsamplingResamplerState holds the internal state of the downsampling resampler.
@@ -216,9 +213,19 @@ func (r *DownsamplingResampler) init(fsIn, fsOut int, forEncoder bool) {
 		r.invRatioQ16++
 	}
 
-	// Initialize state
-	clear(ensureInt32Slice(&r.sFIR, r.firOrder))
-	clear(ensureInt16Slice(&r.delayBuf, int(r.fsInKHz)))
+	// Initialize state using inline fixed arrays for standard rates (0 allocs).
+	if r.firOrder <= len(r.sFIRBuf) {
+		r.sFIR = r.sFIRBuf[:r.firOrder:r.firOrder]
+		clear(r.sFIR)
+	} else {
+		clear(ensureInt32Slice(&r.sFIR, r.firOrder))
+	}
+	if int(r.fsInKHz) <= len(r.delayBufArr) {
+		r.delayBuf = r.delayBufArr[:r.fsInKHz:r.fsInKHz]
+		clear(r.delayBuf)
+	} else {
+		clear(ensureInt16Slice(&r.delayBuf, int(r.fsInKHz)))
+	}
 	ensureInt32Slice(&r.scratchBuf, int(r.batchSize)+r.firOrder)
 }
 
