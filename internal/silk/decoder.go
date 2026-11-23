@@ -26,9 +26,9 @@ type Decoder struct {
 	rangeDecoder    *rangecoding.Decoder
 	fecRangeDecoder rangecoding.Decoder
 
-	// Resamplers for each bandwidth (created on demand).
+	// Resamplers for each bandwidth (NB=0, MB=1, WB=2), created on demand.
 	// Separate resampler state per channel to match libopus.
-	resamplers map[Bandwidth]*resamplerPair
+	resamplers [3]resamplerPair
 
 	// Per-decoder PLC state (do not share across decoder instances).
 	plcState *plc.State
@@ -140,8 +140,10 @@ type Decoder struct {
 	lastFrameCtrlValid    [2]bool
 
 	// Large pointer-free decoder state structs
-	stereo        stereoDecState
-	lastFrameCtrl [2]decoderControl
+	plcStateVal      plc.State
+	scratchPredQ8Buf [maxLPCOrder]uint8
+	stereo           stereoDecState
+	lastFrameCtrl    [2]decoderControl
 }
 
 // ArmPLCLowbandCapture arms (or, with buf==nil, disarms) capture of the next
@@ -187,22 +189,18 @@ func NewDecoder() *Decoder {
 
 	d := &Decoder{
 		apiSampleRate: 48000,
-		prevLPCValues: make([]float32, 16),  // Max for WB (d_LPC = 16)
-		prevLSFQ15:    make([]int16, 16),    // Max for WB (d_LPC = 16)
-		outputHistory: make([]float32, 322), // Max pitch lag (288) + LTP taps (5) + margin
-		historyQ0:     make([]int16, 322),
-
-		// scratchPredQ8 is the only fixed scratch kept standalone (uint8); the rest
-		// are carved from the per-type arenas below.
-		scratchPredQ8: make([]uint8, maxLPCOrder),
-		plcState:      plc.NewState(),
 	}
-	// Carve the fixed-size scratch into one arena per element type (a single
-	// allocation each, in one contiguous cache region, instead of ~27 separate
-	// buffers). All of these are pure per-frame scratch — overwritten before read —
-	// so backing them from a shared per-type arena is bit-exact.
-	d.scratchI16.Ensure(maxSLTPSize + maxPulsesSize + maxLPCOrder + maxResamplerIn +
+	d.plcStateVal.Init()
+	d.plcState = &d.plcStateVal
+	d.scratchPredQ8 = d.scratchPredQ8Buf[:]
+
+	// Carve fixed-size state and scratch slices into one arena per element type
+	// (three allocations total instead of ~30 separate buffers).
+	const historyLen = 322 // Max pitch lag (288) + LTP taps (5) + margin
+	d.scratchI16.Ensure(maxLPCOrder + historyLen + maxSLTPSize + maxPulsesSize + maxLPCOrder + maxResamplerIn +
 		maxResamplerOut + maxResamplerBuf + 7*maxOutInt16Size + 2*(maxFrameLength+2))
+	d.prevLSFQ15 = d.scratchI16.AllocN(maxLPCOrder)
+	d.historyQ0 = d.scratchI16.AllocN(historyLen)
 	d.scratchSLTP = d.scratchI16.AllocN(maxSLTPSize)
 	d.scratchOutInt16 = d.scratchI16.AllocN(maxOutInt16Size)
 	d.scratchFECOut = d.scratchI16.AllocN(maxOutInt16Size)
@@ -226,7 +224,9 @@ func NewDecoder() *Decoder {
 	d.scratchSumPulses = d.scratchI32.AllocN(maxIterSize)
 	d.scratchNLshifts = d.scratchI32.AllocN(maxIterSize)
 
-	d.scratchF32.Ensure(maxOutputSize + maxResamplerOut + maxUpsampleSize + 6*maxOutInt16Size)
+	d.scratchF32.Ensure(maxLPCOrder + historyLen + maxOutputSize + maxResamplerOut + maxUpsampleSize + 6*maxOutInt16Size)
+	d.prevLPCValues = d.scratchF32.AllocN(maxLPCOrder)
+	d.outputHistory = d.scratchF32.AllocN(historyLen)
 	d.scratchOutput = d.scratchF32.AllocN(maxOutputSize)
 	d.resamplerScratchResult = d.scratchF32.AllocN(maxResamplerOut)
 	d.upsampleScratch = d.scratchF32.AllocN(maxUpsampleSize)
@@ -255,7 +255,7 @@ func (d *Decoder) SetAPISampleRate(sampleRate int) {
 		d.apiSampleRate = 48000
 	}
 	d.ensureStereoResamplerScratch(d.outputSampleRate())
-	d.resamplers = nil
+	d.resamplers = [3]resamplerPair{}
 }
 
 // ensureStereoResamplerScratch keeps room for both resampled channels of the
@@ -348,15 +348,12 @@ func (d *Decoder) Reset() {
 	d.plcLowbandCaptureArm = false
 
 	// Reset resampler state for a clean stream start
-	for _, pair := range d.resamplers {
-		if pair == nil {
-			continue
+	for i := range d.resamplers {
+		if d.resamplers[i].left != nil {
+			d.resamplers[i].left.Reset()
 		}
-		if pair.left != nil {
-			pair.left.Reset()
-		}
-		if pair.right != nil {
-			pair.right.Reset()
+		if d.resamplers[i].right != nil {
+			d.resamplers[i].right.Reset()
 		}
 	}
 
@@ -837,17 +834,20 @@ func (d *Decoder) GetResamplerRightChannel(bandwidth Bandwidth) *LibopusResample
 	return d.GetResamplerForChannel(bandwidth, 1)
 }
 
+func resamplerIndex(bandwidth Bandwidth) int {
+	switch bandwidth {
+	case BandwidthNarrowband:
+		return 0
+	case BandwidthMediumband:
+		return 1
+	default:
+		return 2
+	}
+}
+
 // GetResamplerForChannel returns the resampler for the specified channel and bandwidth.
 func (d *Decoder) GetResamplerForChannel(bandwidth Bandwidth, channel int) *LibopusResampler {
-	if d.resamplers == nil {
-		d.resamplers = make(map[Bandwidth]*resamplerPair)
-	}
-
-	pair, ok := d.resamplers[bandwidth]
-	if !ok {
-		pair = &resamplerPair{}
-		d.resamplers[bandwidth] = pair
-	}
+	pair := &d.resamplers[resamplerIndex(bandwidth)]
 
 	config := GetBandwidthConfig(bandwidth)
 	if channel == 1 {
@@ -1090,14 +1090,10 @@ func (d *Decoder) ResetSideChannel() {
 	d.setupScratchBuffers()
 	d.stereo.predPrevQ13 = [2]int16{}
 	d.stereo.sSide = [2]int16{}
-	if d.resamplers == nil {
-		return
-	}
-	for _, pair := range d.resamplers {
-		if pair == nil || pair.right == nil {
-			continue
+	for i := range d.resamplers {
+		if d.resamplers[i].right != nil {
+			d.resamplers[i].right.Reset()
 		}
-		pair.right.Reset()
 	}
 }
 
@@ -1143,13 +1139,12 @@ func (d *Decoder) handleBandwidthChange(bandwidth Bandwidth) {
 	if d.hasPrevBandwidth && d.prevBandwidth != bandwidth {
 		// Sample rate changed - reset the resampler for the NEW bandwidth
 		// but keep sMid values to match libopus behavior.
-		if pair, ok := d.resamplers[bandwidth]; ok && pair != nil {
-			if pair.left != nil {
-				pair.left.Reset()
-			}
-			if pair.right != nil {
-				pair.right.Reset()
-			}
+		pair := &d.resamplers[resamplerIndex(bandwidth)]
+		if pair.left != nil {
+			pair.left.Reset()
+		}
+		if pair.right != nil {
+			pair.right.Reset()
 		}
 	}
 	d.prevBandwidth = bandwidth

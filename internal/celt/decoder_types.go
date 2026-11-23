@@ -163,5 +163,6 @@ type Decoder struct {
 	redundancyActive       bool
 	directOutAccum         bool
 
-	stdAlloc stdAllocState
+	plcStateVal plc.State
+	stdAlloc    stdAllocState
 }

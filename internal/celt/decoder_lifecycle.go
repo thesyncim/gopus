@@ -55,8 +55,9 @@ func NewDecoder(channels int) *Decoder {
 
 		bandwidth:              CELTFullband,
 		phaseInversionDisabled: channels == 1,
-		plcState:               plc.NewState(),
 	}
+	d.plcStateVal.Init()
+	d.plcState = &d.plcStateVal
 
 	// Match libopus init/reset defaults (oldLogE/oldLogE2 = -28, buffers cleared).
 	d.Reset()

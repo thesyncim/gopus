@@ -93,39 +93,70 @@ const (
 
 // Encoder is the unified Opus encoder that orchestrates SILK and CELT sub-encoders.
 type Encoder struct {
+	// Pointer-bearing fields are grouped first so Go's GC stops scanning at
+	// ptrdata, leaving scalar state and fixed-size value arrays in the noscan
+	// tail.
+
 	// Sub-encoders (created lazily)
 	silk        *silk.PacketEncoder
 	celtEncoder *celt.Encoder
 
-	// silkMode mirrors libopus st->silk_mode: the controls handed to silk_Encode
-	// for the current frame and the status it reports back.
-	silkMode silk.EncControl
-	// silkPrefillPending marks that scratchSilkPrefill holds the 10 ms of delay
-	// history for the silk_Encode prefill of this frame.
-	silkPrefillPending bool
-	// silkBWSwitch mirrors libopus st->silk_bw_switch: the previous frame
-	// signalled an internal SILK bandwidth switch, so this frame carries the
-	// CELT->SILK redundant frame and a SILK prefill that keeps the variable LP
-	// filter state (prefill 2).
-	silkBWSwitch bool
-	// nonfinalFrame mirrors libopus st->nonfinal_frame: the frame being coded
-	// is a sub-frame before the last one of a multi-frame packet, where SILK
-	// cannot switch its bandwidth.
-	nonfinalFrame bool
 	// frameRangeEncoder and framePayload are the range coder of a frame and
-	// its buffer (opus_encode_frame_native's ec_enc over data+1), which also
-	// takes the redundant CELT frame after the payload.
+	// its buffer (opus_encode_frame_native's ec_enc over data+1).
 	frameRangeEncoder rangecoding.Encoder
 	framePayload      []byte
-	// redundancyScratch holds a redundant CELT frame of a mode switch.
-	redundancyScratch [257]byte
-	// frameFinalRange is st->rangeFinal of the last coded frame.
-	frameFinalRange uint32
-	// prevHBGain is st->prev_HB_gain, the high-band gain of the previous
-	// frame that gain_fade() starts from.
-	prevHBGain opusVal16
-	// hybridStereoWidthQ14 is st->hybrid_stereo_width_Q14, the stereo width
-	// the previous frame applied.
+
+	fec *fecState
+	dtx *dtxState
+
+	// celtEnergyMask carries per-band surround masking into CELT dynalloc control.
+	celtEnergyMask []float32
+
+	encoderQEXTFields
+	encoderFixedCELTFields
+	encoderFixedOuterQ8Fields
+
+	// dnnBlob retains the validated model blob for encoder neural features,
+	// matching the lifetime of libopus OPUS_SET_DNN_BLOB.
+	dnnBlob *dnnblob.Blob
+	encoderDREDFields
+
+	// Tonality and speech/music analysis.
+	analyzer *TonalityAnalysisState
+
+	inputBuffer []opusRes
+	delayBuffer []opusRes
+
+	// pcmBump backs the two frameSize-sized input-domain PCM scratch buffers.
+	pcmBump arena.Bump[opusRes]
+
+	// Scratch buffers for zero-allocation encoding
+	scratchDCPCM             []opusRes // DC rejected PCM buffer
+	scratchInputPCM          []opusRes // Public PCM rounded into the libopus opus_res domain
+	scratchPacket            []byte    // Output packet buffer
+	scratchFrameSlots        [6][]byte // Per-subframe slice headers for long packets
+	scratchFrameBytes        []byte    // Backing storage for kept subframe payloads
+	scratchQEXTPayloadBytes  []byte    // Backing storage for kept QEXT payloads
+	scratchDelayedPCM        []opusRes // Delay-compensated CELT input
+	scratchTransitionPrefill []opusRes // Delay-history CELT transition prefill window (Fs/400)
+	scratchSilkPrefill       []opusRes
+	scratchCELTPrefill       []opusRes // CELT transition prefill source (Fs/400 * channels)
+	floatInputFrame          []float32 // Current public float32 frame view, if available
+
+	// Embedded FEC and DTX state values (pointers at offset 0 of each struct).
+	fecVal fecState
+	dtxVal dtxState
+
+	// --- Pointer-free (noscan) tail ---
+
+	// silkMode mirrors libopus st->silk_mode.
+	silkMode             silk.EncControl
+	silkPrefillPending   bool
+	silkBWSwitch         bool
+	nonfinalFrame        bool
+	redundancyScratch    [257]byte
+	frameFinalRange      uint32
+	prevHBGain           opusVal16
 	hybridStereoWidthQ14 int16
 
 	// Configuration
@@ -144,88 +175,38 @@ type Encoder struct {
 	vbrConstraint bool
 	bitrate       int32 // Target bits per second
 
-	// FEC controls
-	fecEnabled        bool
-	packetLoss        int32 // Expected packet loss percentage (0-100)
-	lastOpusVADActive bool
-	lastOpusVADValid  bool
-	lastOpusVADProb   float32
-	// Getter-only availability: the Opus decision fields also participate in
-	// coding, so this bit distinguishes a fresh result from retained state after
-	// Reset without changing the encoder's decision state.
+	// FEC / VAD / multi-frame DTX controls
+	fecEnabled                  bool
+	packetLoss                  int32 // Expected packet loss percentage (0-100)
+	lastOpusVADActive           bool
+	lastOpusVADValid            bool
+	lastOpusVADProb             float32
 	lastOpusVADActivityObserved bool
-	// multiFrameDTXCount is the number of internal sub-frames the most recent
-	// encode*MultiFramePacket call suppressed via the per-sub-frame DTX decision
-	// (libopus opus_encoder.c dtx_count). It is transient per Encode call.
-	multiFrameDTXCount int
-	// multiFrameLastSubframeDTX records whether the final internal sub-frame of
-	// the most recent encode*MultiFramePacket call was DTX-suppressed. libopus
-	// reports st->rangeFinal from the last opus_encode_frame_native call in the
-	// repacketizer loop, and that call zeroes rangeFinal when it DTXes
-	// (opus_encoder.c:2569), so a packet whose last sub-frame is suppressed has a
-	// final range of 0. It is transient per Encode call.
-	multiFrameLastSubframeDTX bool
-	// multiFrameCommitted and multiFrameLastCommitted record whether any
-	// SILK/Hybrid sub-frame of the most recent multi-frame packet, and its last
-	// one, reached the end-of-frame bookkeeping of opus_encode_frame_native; a
-	// SILK DTX sub-frame returns before it. They are transient per Encode call.
-	multiFrameCommitted     bool
-	multiFrameLastCommitted bool
-	fec                     *fecState
+	multiFrameDTXCount          int
+	multiFrameLastSubframeDTX   bool
+	multiFrameCommitted         bool
+	multiFrameLastCommitted     bool
 
 	// DTX (Discontinuous Transmission) controls
 	dtxEnabled bool
-	dtx        *dtxState
 	rng        uint32 // RNG for comfort noise
 	finalRange uint32
 
-	// Complexity control (0-10, higher = better quality but slower)
-	complexity int32
-
-	// Signal type hint for mode selection
-	signalType types.Signal
-
-	// Maximum bandwidth limit (actual bandwidth is clamped to this)
-	maxBandwidth types.Bandwidth
-
-	// Force channels (-1=auto, 1=mono, 2=stereo)
-	forceChannels int32
-
-	// LFE mode flag.
-	// When true, force CELT-only narrowband behavior for this stream.
-	lfe bool
-
-	// LSB depth of input signal (8-24 bits, affects DTX sensitivity)
-	lsbDepth int32
-
-	// Prediction disabled (reduces inter-frame dependency for error resilience)
-	predictionDisabled bool
-
-	// Phase inversion disabled (for stereo decorrelation)
+	// Complexity and mode controls
+	complexity             int32
+	signalType             types.Signal
+	maxBandwidth           types.Bandwidth
+	forceChannels          int32
+	lfe                    bool
+	lsbDepth               int32
+	predictionDisabled     bool
 	phaseInversionDisabled bool
 
-	// celtEnergyMask carries per-band surround masking into CELT dynalloc control.
-	celtEnergyMask []float32
-
-	encoderQEXTFields
-	encoderFixedCELTFields
-	encoderFixedOuterQ8Fields
-
-	// dnnBlob retains the validated model blob for encoder neural features,
-	// matching the lifetime of libopus OPUS_SET_DNN_BLOB.
-	dnnBlob *dnnblob.Blob
-	encoderDREDFields
-
 	// DC rejection / variable-cutoff HP filter state.
-	hpMem [4]float32
-	// variableHPSmth2Q15 is the Opus-level smoothed HP cutoff (log2 domain, Q15)
-	// driving hp_cutoff() for VoIP input (src/opus_encoder.c). -1 means
-	// "not yet initialized" so it is seeded on first use.
+	hpMem                 [4]float32
 	variableHPSmth2Q15    int32
 	variableHPSmth2Inited bool
 
-	// Tonality and speech/music analysis.
-	analyzer *TonalityAnalysisState
 	// Last frame analysis info from RunAnalysis(), used by mode heuristics.
 	lastAnalysisInfo    AnalysisInfo
 	lastAnalysisValid   bool
@@ -236,17 +217,8 @@ type Encoder struct {
 	prevMode            Mode
 	prevPacketMode      Mode
 	prevAutoMode        Mode
-	// intMode / intBandwidth mirror libopus opus_encoder.c st->mode / st->bandwidth:
-	// the internal selected mode/bandwidth state carried between frames. They are
-	// initialized to MODE_HYBRID / OPUS_BANDWIDTH_FULLBAND (opus_encoder.c:319-320)
-	// and updated to the actual selected values after every full encode. The
-	// low-rate "PLC frame" early-exit (opus_encoder.c:1340) reads these STALE values
-	// to build its minimal TOC-only packet, before the per-frame mode/bandwidth
-	// selection would overwrite them.
-	intMode      Mode
-	intBandwidth types.Bandwidth
-	inputBuffer  []opusRes
-	delayBuffer  []opusRes
+	intMode             Mode
+	intBandwidth        types.Bandwidth
 
 	// Auto-mode state (matching libopus OpusEncoder fields)
 	voiceRatio             int32           // Persistent voice ratio (-1 = unset, 0-100)
@@ -262,29 +234,8 @@ type Encoder struct {
 	widthMem               StereoWidthMem  // Stateful stereo width computation memory
 	toMono                 int32           // Stereo->mono transition countdown (0=inactive)
 	fecConfig              int32           // FEC config: 0=disabled, 1=enabled, 2=music-safe
-
-	// pcmBump backs the two frameSize-sized input-domain PCM scratch buffers
-	// (scratchInputPCM/scratchDCPCM) with one contiguous
-	// allocation, carved per-frame at the encode entry and re-carved only when a
-	// larger frame is seen (so it sizes to the current frame, not the max).
-	pcmBump arena.Bump[opusRes]
-
-	// Scratch buffers for zero-allocation encoding
-	scratchDCPCM    []opusRes // DC rejected PCM buffer
-	scratchInputPCM []opusRes // Public PCM rounded into the libopus opus_res domain
-	scratchPacket   []byte    // Output packet buffer
-	// Reusable long-packet assembly scratch (40/60/80/100/120 ms paths).
-	scratchFrameSlots       [6][]byte // Per-subframe slice headers for long packets
-	scratchFrameBytes       []byte    // Backing storage for kept subframe payloads
-	scratchQEXTPayloadBytes []byte    // Backing storage for kept QEXT payloads
-	scratchDelayedPCM       []opusRes // Delay-compensated CELT input
-	// Snapshot of libopus delay-history CELT transition prefill window (Fs/400).
-	scratchTransitionPrefill []opusRes
-	scratchSilkPrefill       []opusRes
-	scratchCELTPrefill       []opusRes // CELT transition prefill source (Fs/400 * channels)
-	hasCELTPrefill           bool
-	floatInputFrame          []float32 // Current public float32 frame view, if available
-	floatInputExact          bool      // True when pcm originated from float32 samples
+	hasCELTPrefill         bool
+	floatInputExact        bool // True when pcm originated from float32 samples
 }
 
 // NewEncoder creates an Opus encoder for sampleRate and channels. Unsupported
@@ -320,9 +271,7 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 		bitrate:                64000,
 		fecEnabled:             false,
 		packetLoss:             0,
-		fec:                    newFECState(),
 		dtxEnabled:             false,
-		dtx:                    newDTXState(),
 		rng:                    22222,
 		complexity:             9,
 		signalType:             types.SignalAuto,
@@ -349,6 +298,9 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 		hybridStereoWidthQ14:      1 << 14,
 		encoderFixedOuterQ8Fields: newFixedOuterQ8Fields(),
 	}
+	e.fec = &e.fecVal
+	e.dtxVal.init()
+	e.dtx = &e.dtxVal
 	return e
 }
 

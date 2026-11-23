@@ -37,7 +37,8 @@ const (
 // dtxState holds state for discontinuous transmission.
 type dtxState struct {
 	// Standalone VAD storage; Opus-level DTX uses the frame activity decision.
-	vad *VADState
+	vad    *VADState
+	vadVal VADState
 
 	// Counter for consecutive no-activity frames in milliseconds (Q1 format)
 	noActivityMsQ1 int32
@@ -53,14 +54,20 @@ type dtxState struct {
 	peakSignalEnergy opusVal32
 }
 
-// newDTXState creates initial DTX state with multi-band VAD.
-func newDTXState() *dtxState {
-	return &dtxState{
-		vad:             NewVADState(),
-		noActivityMsQ1:  0,
-		inDTXMode:       false,
+// init initializes d in place with multi-band VAD state.
+func (d *dtxState) init() {
+	*d = dtxState{
 		frameDurationMs: 20, // Default 20ms frames
 	}
+	d.vadVal.Reset()
+	d.vad = &d.vadVal
+}
+
+// newDTXState creates initial DTX state with multi-band VAD.
+func newDTXState() *dtxState {
+	var d dtxState
+	d.init()
+	return &d
 }
 
 // reset resets DTX state when speech resumes.

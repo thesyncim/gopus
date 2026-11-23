@@ -1161,6 +1161,7 @@ type encoderScratch struct {
 	// contiguous allocation instead of ~40 separate ones. See ensureEncodeFloatArena;
 	// the per-field ensure* sizing lines reslice/clear within their cap-pinned slot.
 	f32 arena.Bump[float32]
+	i32 arena.Bump[int32]
 
 	// LSB-depth quantized input buffer
 	quantizedInputF32 []float32
@@ -1463,26 +1464,38 @@ func (e *Encoder) ensureScratch(frameSize int) {
 		s.normR = nil
 	}
 
-	// Allocation buffers
-	s.caps = ensureInt32Slice(&s.caps, modeBands)
-	s.offsets = ensureInt32Slice(&s.offsets, modeBands)
+	// Allocation and TF int32 scratch carved from one contiguous arena.
+	needI32 := 9 * modeBands
+	if s.i32.Cap() < needI32 {
+		s.i32.Ensure(needI32)
+		s.caps = s.i32.AllocN(modeBands)
+		s.offsets = s.i32.AllocN(modeBands)
+		s.allocBits = s.i32.AllocN(modeBands)
+		s.allocFineBits = s.i32.AllocN(modeBands)
+		s.allocFinePrio = s.i32.AllocN(modeBands)
+		s.allocCaps = s.i32.AllocN(modeBands)
+		s.tfRes = s.i32.AllocN(modeBands)
+		s.allocThresh = s.i32.AllocN(modeBands)
+		s.allocTrim = s.i32.AllocN(modeBands)
+	} else {
+		s.caps = s.caps[:modeBands]
+		s.offsets = s.offsets[:modeBands]
+		s.allocBits = s.allocBits[:modeBands]
+		s.allocFineBits = s.allocFineBits[:modeBands]
+		s.allocFinePrio = s.allocFinePrio[:modeBands]
+		s.allocCaps = s.allocCaps[:modeBands]
+		s.tfRes = s.tfRes[:modeBands]
+		s.allocThresh = s.allocThresh[:modeBands]
+		s.allocTrim = s.allocTrim[:modeBands]
+	}
 	if len(s.logN) < modeBands {
 		s.logN = make([]int16, modeBands)
 	}
-	s.allocBits = ensureInt32Slice(&s.allocBits, modeBands)
-	s.allocFineBits = ensureInt32Slice(&s.allocFineBits, modeBands)
-	s.allocFinePrio = ensureInt32Slice(&s.allocFinePrio, modeBands)
-	s.allocCaps = ensureInt32Slice(&s.allocCaps, modeBands)
 	// Initialize AllocationResult with pre-allocated slices
 	s.allocResult.BandBits = s.allocBits
 	s.allocResult.FineBits = s.allocFineBits
 	s.allocResult.FinePriority = s.allocFinePrio
 	s.allocResult.Caps = s.allocCaps
-
-	// TF results
-	s.tfRes = ensureInt32Slice(&s.tfRes, modeBands)
-
-	// Deinterleave buffers
 
 	// MDCT forward transform scratch (float32)
 	n4 := frameSize / 2 // n4 = frameSize/2 for N=2*frameSize MDCT
@@ -1499,12 +1512,6 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	s.transientEnergyR = ensureFloat32Slice(&s.transientEnergyR, samplesPerChannel/2)
 	s.transientX = ensureFloat32Slice(&s.transientX, samplesPerChannel)
 
-	// ComputeAllocation scratch
-	s.allocBits = ensureInt32Slice(&s.allocBits, modeBands)
-	s.allocFineBits = ensureInt32Slice(&s.allocFineBits, modeBands)
-	s.allocFinePrio = ensureInt32Slice(&s.allocFinePrio, modeBands)
-	s.allocThresh = ensureInt32Slice(&s.allocThresh, modeBands)
-	s.allocTrim = ensureInt32Slice(&s.allocTrim, modeBands)
 	if extsupport.QEXT && e.qextActive() {
 		qs := s.ensureQEXTScratch()
 		qs.extraBits = ensureInt32Slice(&qs.extraBits, modeBands+nbQEXTBands)

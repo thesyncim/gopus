@@ -42,14 +42,11 @@ func (d *Decoder) SnapshotDecoderState(bandwidth Bandwidth, channel int) Decoder
 	snap.SLPCQ14 = st.sLPCQ14Buf
 	snap.ExcQ14 = st.excQ14
 	var resampler *LibopusResampler
-	if d.resamplers != nil {
-		if pair := d.resamplers[bandwidth]; pair != nil {
-			if channel == 1 {
-				resampler = pair.right
-			} else {
-				resampler = pair.left
-			}
-		}
+	pair := &d.resamplers[resamplerIndex(bandwidth)]
+	if channel == 1 {
+		resampler = pair.right
+	} else {
+		resampler = pair.left
 	}
 	if resampler == nil {
 		return snap

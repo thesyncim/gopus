@@ -79,14 +79,21 @@ type State struct {
 // NewState creates a new PLC state with initial values.
 // The state starts with full gain (fadeFactor = 1.0) and
 // zero lost packet count.
-func NewState() *State {
-	return &State{
+// Init resets s to its newly constructed default state.
+func (s *State) Init() {
+	*s = State{
 		lostCount:     0,
 		mode:          ModeSILK, // Default; will be set by actual decoding
 		fadeFactor:    1.0,
 		lastFrameSize: 960, // Default 20ms at 48kHz
 		lastChannels:  1,
 	}
+}
+
+func NewState() *State {
+	var s State
+	s.Init()
+	return &s
 }
 
 // Reset clears PLC state after receiving a good packet.

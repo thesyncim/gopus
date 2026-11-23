@@ -39,10 +39,20 @@ type cngState struct {
 }
 
 type decoderState struct {
-	pitchLagLowBitsICDF  []uint8
-	pitchContourICDF     []uint8
-	nlsfCB               *nlsfCB
-	prevGainQ16          int32
+	pitchLagLowBitsICDF []uint8
+	pitchContourICDF    []uint8
+	nlsfCB              *nlsfCB
+	// Scratch buffer references (set by parent Decoder for hot-path optimization).
+	// Grouped at offset 0 so the large value arrays below sit in the GC noscan tail.
+	scratchSLPC      []int32 // Pre-allocated sLPC buffer
+	scratchSLTP      []int16 // Pre-allocated sLTP buffer
+	scratchSLTPQ15   []int32 // Pre-allocated sLTP_Q15 buffer
+	scratchPresQ14   []int32 // Pre-allocated presQ14 buffer
+	scratchEcIx      []int16 // Pre-allocated ecIx buffer
+	scratchPredQ8    []uint8 // Pre-allocated predQ8 buffer
+	scratchSumPulses []int32 // Size: 21
+	scratchNLshifts  []int32 // Size: 21
+	prevGainQ16      int32
 	excQ14               [maxFrameLength]int32
 	sLPCQ14Buf           [maxLPCOrder]int32
 	outBuf               [maxFrameLength + 2*maxSubFrameLength]int16
@@ -76,21 +86,6 @@ type decoderState struct {
 
 	// Comfort noise generation state (libopus silk_CNG).
 	cng cngState
-
-	// Scratch buffer references (set by parent Decoder for hot-path optimization).
-	// These are nil if the decoderState is used standalone (e.g., in tests).
-	scratchSLPC    []int32 // Pre-allocated sLPC buffer
-	scratchSLTP    []int16 // Pre-allocated sLTP buffer
-	scratchSLTPQ15 []int32 // Pre-allocated sLTP_Q15 buffer
-	scratchPresQ14 []int32 // Pre-allocated presQ14 buffer
-
-	// Additional scratch buffers for silkDecodeIndices
-	scratchEcIx   []int16 // Pre-allocated ecIx buffer
-	scratchPredQ8 []uint8 // Pre-allocated predQ8 buffer
-
-	// Scratch buffers for pulse decoder
-	scratchSumPulses []int32 // Size: 21
-	scratchNLshifts  []int32 // Size: 21
 }
 
 type decoderControl struct {
