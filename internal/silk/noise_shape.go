@@ -52,6 +52,10 @@ const (
 // NoiseShapeState holds the noise shaping state that persists across frames.
 // This mirrors libopus silk_shape_state_FLP structure.
 type NoiseShapeState struct {
+	// Pointer-bearing embedded params sits first so scalar fields and fixed
+	// parameter arrays live in the GC noscan tail.
+	params NoiseShapeParams
+
 	// Smoothed harmonic shaping gain (float)
 	HarmShapeGainSmth float32
 
@@ -65,9 +69,6 @@ type NoiseShapeState struct {
 	harmBuf [4]int32
 	tiltBuf [4]int32
 	lfBuf   [4]int32
-
-	// Embedded params to avoid heap allocation
-	params NoiseShapeParams
 }
 
 // NoiseShapeParams holds the computed noise shaping parameters for a frame.

@@ -432,9 +432,12 @@ func generatePacketExtensions(dst []byte, length int, extensions []packetExtensi
 		return 0, ErrBufferTooSmall
 	}
 
-	frameMinIdx := make([]int, nbFrames)
-	frameMaxIdx := make([]int, nbFrames)
-	frameRepeatIdx := make([]int, nbFrames)
+	var frameMinIdxBuf [maxRepacketizerFrames]int
+	var frameMaxIdxBuf [maxRepacketizerFrames]int
+	var frameRepeatIdxBuf [maxRepacketizerFrames]int
+	frameMinIdx := frameMinIdxBuf[:nbFrames]
+	frameMaxIdx := frameMaxIdxBuf[:nbFrames]
+	frameRepeatIdx := frameRepeatIdxBuf[:nbFrames]
 	for f := range nbFrames {
 		frameMinIdx[f] = len(extensions)
 	}

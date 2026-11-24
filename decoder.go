@@ -69,11 +69,12 @@ type Decoder struct {
 	decoderHD96kFields
 	decoderFixedFields
 	fixedQEXT decoderFixedQEXTFields
-	// Embedded sub-decoders sit before the noscan tail so all scalar fields and
-	// fecBuf below remain excluded from GC scanning.
-	silkDecVal   silk.Decoder
-	celtDecVal   celt.Decoder
+	// Embedded sub-decoders are ordered so silkDecVal (which has an ~8.7 KB
+	// noscan tail) sits last at the pointer/noscan boundary, leaving its tail
+	// and all scalar fields and fecBuf below excluded from GC scanning.
 	hybridDecVal hybrid.Decoder
+	celtDecVal   celt.Decoder
+	silkDecVal   silk.Decoder
 
 	// --- Pointer-free (noscan) tail ---
 	sampleRate         int32

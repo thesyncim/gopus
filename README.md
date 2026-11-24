@@ -3,7 +3,7 @@
 Pure-Go implementation of the Opus audio codec (RFC 6716 / RFC 8251) — no cgo, no C toolchain, and **zero `unsafe` in the entire Opus codec core**.
 
 - **Memory-safe**: `gopus`, `multistream`, `container/ogg`, and all internal codec packages (`celt`, `silk`, `hybrid`, `encoder`, `rangecoding`, `opusmath`, `dnnmath`, `dred`, `osce`, `lpcnetplc`) import **zero `unsafe`** and perform no raw pointer arithmetic.
-- **Zero-allocation hot paths**: caller-buffer encode/decode APIs run at **0 B/op, 0 allocs/op** after warmup.
+- **Zero-allocation, GC-invisible hot paths**: caller-buffer encode, decode, repacketizer, Ogg, and RED APIs run at **0 B/op, 0 allocs/op** after warmup, with long-lived codec structs laid out to keep large scalar buffers in Go's `noscan` tail.
 - **Faster than libopus 1.6.1**: beats pinned libopus 1.6.1 C SIMD on Apple M4 Max with Go 1.27's `GOEXPERIMENT=simd` (**0.88×** encode aggregate, **0.94×** float32 RFC decode) while keeping scalar `purego` builds fast and portable.
 - **Parity-verified**: tested continuously against pinned libopus 1.6.1 and the RFC 8251 test vectors on Linux, macOS, and Windows.
 - **Full-featured**: SILK, CELT, and Hybrid modes; mono, stereo, multistream, and ambisonics; 8–48 kHz (96 kHz via `gopus_qext`); 2.5–120 ms frames; Ogg Opus (`container/ogg`); RTP RED (`container/red`); standalone `VAD` and `SpeechDetector`.
@@ -18,7 +18,7 @@ Pure-Go implementation of the Opus audio codec (RFC 6716 / RFC 8251) — no cgo,
 Requires **Go 1.27.4** or newer.
 
 ```sh
-go get github.com/thesyncim/gopus@v0.2.9
+go get github.com/thesyncim/gopus@v0.2.10
 ```
 
 ## Quick start
@@ -274,7 +274,7 @@ API is pre-v1 (`v0.1.0` is retracted). Each release requires green CI on the tag
 - `test-windows`
 <!-- required-checks:end -->
 
-- Latest release: [v0.2.9](https://github.com/thesyncim/gopus/releases/tag/v0.2.9)
+- Latest release: [v0.2.10](https://github.com/thesyncim/gopus/releases/tag/v0.2.10)
 - Security: [SECURITY.md](SECURITY.md)
 - Contributing: [CONTRIBUTING.md](CONTRIBUTING.md) · [Code of Conduct](CODE_OF_CONDUCT.md)
 - License: [LICENSE](LICENSE)

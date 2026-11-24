@@ -5,45 +5,49 @@ const (
 	maxRepacketizerDuration48k = 5760 // 120ms at 48kHz
 )
 
+type repacketizerSpan struct {
+	off uint32
+	len uint32
+}
+
 // Repacketizer copies frames from Opus packets and assembles packets from
 // contiguous frame ranges. Added packets must have the same TOC configuration
 // and channel flag (bits 7 through 2); their frame-count codes may differ. The
 // accumulator accepts at most 48 frames and 120 ms of audio. Repacketizer is not
 // safe for concurrent use.
 type Repacketizer struct {
+	// Pointer-bearing fields sit first so Go's GC stops scanning at ptrdata,
+	// leaving the span tables and scalar metadata in the noscan tail.
+	frameBuf  []byte
+	padBuf    []byte
 	toc       byte
+	hasPad    bool
+	numFrames int
 	frameSize int
-	frames    [][]byte
-	paddings  [][]byte
-	padFrames []int
+	frames    [maxRepacketizerFrames]repacketizerSpan
+	paddings  [maxRepacketizerFrames]repacketizerSpan
+	padFrames [maxRepacketizerFrames]uint8
 }
 
 // NewRepacketizer creates an empty repacketizer.
 func NewRepacketizer() *Repacketizer {
-	r := &Repacketizer{
-		frames:    make([][]byte, 0, maxRepacketizerFrames),
-		paddings:  make([][]byte, 0, maxRepacketizerFrames),
-		padFrames: make([]int, 0, maxRepacketizerFrames),
-	}
-	r.Reset()
-	return r
+	return &Repacketizer{}
 }
 
 // Reset discards all accumulated frames so the repacketizer can be reused.
 func (r *Repacketizer) Reset() {
 	r.toc = 0
+	r.hasPad = false
+	r.numFrames = 0
 	r.frameSize = 0
-	clear(r.frames)
-	clear(r.paddings)
-	r.frames = r.frames[:0]
-	r.paddings = r.paddings[:0]
-	r.padFrames = r.padFrames[:0]
+	r.frameBuf = r.frameBuf[:0]
+	r.padBuf = r.padBuf[:0]
 }
 
 // NumFrames returns the number of accumulated audio frames, not the number of
 // packets passed to Cat.
 func (r *Repacketizer) NumFrames() int {
-	return len(r.frames)
+	return r.numFrames
 }
 
 // Cat parses packet and copies its encoded frame data into the accumulator.
@@ -73,14 +77,14 @@ func (r *Repacketizer) Cat(packet []byte) error {
 	}
 	frameOffset := len(packet) - info.Padding - frameBytes
 
-	if len(r.frames) == 0 {
+	if r.numFrames == 0 {
 		r.toc = packet[0]
 		r.frameSize = info.TOC.FrameSize
 	} else if (r.toc & 0xFC) != (packet[0] & 0xFC) {
 		return ErrInvalidPacket
 	}
 
-	totalFrames := len(r.frames) + info.FrameCount
+	totalFrames := r.numFrames + info.FrameCount
 	if totalFrames > maxRepacketizerFrames {
 		return ErrInvalidPacket
 	}
@@ -88,26 +92,36 @@ func (r *Repacketizer) Cat(packet []byte) error {
 		return ErrInvalidPacket
 	}
 
-	paddingFrameCount := 0
+	paddingFrameCount := uint8(0)
 	if info.Padding > 0 {
-		paddingFrameCount = info.FrameCount
+		paddingFrameCount = uint8(info.FrameCount)
 	}
+	baseFrameOff := len(r.frameBuf)
+	r.frameBuf = append(r.frameBuf, packet[frameOffset:frameOffset+frameBytes]...)
+	curFrameOff := baseFrameOff
+
+	var padSpan repacketizerSpan
+	if len(paddingBytes) > 0 {
+		padOff := len(r.padBuf)
+		r.padBuf = append(r.padBuf, paddingBytes...)
+		padSpan = repacketizerSpan{off: uint32(padOff), len: uint32(len(paddingBytes))}
+		r.hasPad = true
+	}
+
+	idx := r.numFrames
 	for i, frameSize := range info.FrameSizes {
-		frame := packet[frameOffset : frameOffset+frameSize]
-		owned := make([]byte, len(frame))
-		copy(owned, frame)
-		r.frames = append(r.frames, owned)
+		r.frames[idx] = repacketizerSpan{off: uint32(curFrameOff), len: uint32(frameSize)}
 		if i == 0 && len(paddingBytes) > 0 {
-			ownedPadding := make([]byte, len(paddingBytes))
-			copy(ownedPadding, paddingBytes)
-			r.paddings = append(r.paddings, ownedPadding)
-			r.padFrames = append(r.padFrames, paddingFrameCount)
+			r.paddings[idx] = padSpan
+			r.padFrames[idx] = paddingFrameCount
 		} else {
-			r.paddings = append(r.paddings, nil)
-			r.padFrames = append(r.padFrames, 0)
+			r.paddings[idx] = repacketizerSpan{}
+			r.padFrames[idx] = 0
 		}
-		frameOffset += frameSize
+		curFrameOff += frameSize
+		idx++
 	}
+	r.numFrames = idx
 
 	return nil
 }
@@ -118,21 +132,32 @@ func (r *Repacketizer) Cat(packet []byte) error {
 // for an empty or out-of-range range, ErrInternalError for malformed packet
 // extensions, and ErrBufferTooSmall when data is short.
 func (r *Repacketizer) OutRange(begin, end int, data []byte) (int, error) {
-	if begin < 0 || begin >= end || end > len(r.frames) {
+	if begin < 0 || begin >= end || end > r.numFrames {
 		return 0, ErrInvalidArgument
 	}
-	extensions, err := r.collectExtensions(begin, end)
-	if err != nil {
-		return 0, ErrInternalError
+	var extStack [16]packetExtensionData
+	var extensions []packetExtensionData
+	if r.hasPad {
+		var err error
+		extensions, err = r.collectExtensionsInto(begin, end, extStack[:0])
+		if err != nil {
+			return 0, ErrInternalError
+		}
 	}
-	return buildRepacketizedPacketWithOptions(r.toc&0xFC, r.frames[begin:end], data, 0, false, extensions)
+	var frameSlices [maxRepacketizerFrames][]byte
+	count := end - begin
+	for i := 0; i < count; i++ {
+		s := r.frames[begin+i]
+		frameSlices[i] = r.frameBuf[s.off : s.off+s.len]
+	}
+	return buildRepacketizedPacketWithOptions(r.toc&0xFC, frameSlices[:count], data, 0, false, extensions)
 }
 
 // Out assembles all accumulated frames into one Opus packet. data must have
 // enough length for the output packet; the returned count is the number of bytes
 // written.
 func (r *Repacketizer) Out(data []byte) (int, error) {
-	return r.OutRange(0, len(r.frames), data)
+	return r.OutRange(0, r.numFrames, data)
 }
 
 // PacketPad pads a packet in place to exactly newLen bytes.
@@ -189,7 +214,13 @@ func PacketPad(data []byte, length, newLen int) error {
 		paddingBytes = src[length-padding:]
 	}
 
-	extensions := make([]packetExtensionData, extensionCount)
+	var extStack [16]packetExtensionData
+	var extensions []packetExtensionData
+	if extensionCount <= len(extStack) {
+		extensions = extStack[:extensionCount]
+	} else {
+		extensions = make([]packetExtensionData, extensionCount)
+	}
 	extensionCount, err = parsePacketExtensions(paddingBytes, frameCount, extensions)
 	if err != nil {
 		return ErrInternalError
