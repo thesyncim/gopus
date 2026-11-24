@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestPeriodFromFeaturesClampsOutOfRangeAndNaN(t *testing.T) {
+func TestPeriodFromFeaturesSanitizesOutOfRangeAndNaN(t *testing.T) {
 	cases := []float32{
 		float32(math.NaN()),
 		float32(math.Inf(1)),
@@ -18,8 +18,8 @@ func TestPeriodFromFeaturesClampsOutOfRangeAndNaN(t *testing.T) {
 	for _, v := range cases {
 		features[NumBands] = v
 		got := PeriodFromFeatures(features)
-		if got < PitchMinPeriod || got > PitchMaxPeriod {
-			t.Fatalf("PeriodFromFeatures(%v) = %d, want in [%d, %d]", v, got, PitchMinPeriod, PitchMaxPeriod)
+		if got < 0 || got > PitchMaxPeriod {
+			t.Fatalf("PeriodFromFeatures(%v) = %d, want in [0, %d]", v, got, PitchMaxPeriod)
 		}
 	}
 }

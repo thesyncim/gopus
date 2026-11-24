@@ -248,7 +248,7 @@ func (a *Analysis) computeFrameFeatures(in []float32) {
 	pitchExp := (1.0 / 60.0) * ((opusmath.CReal(a.dnnPitch) + 1.5) * 60.0)
 	pitchVal := 0.5 + 256.0/opusmath.PowCReal(2.0, pitchExp)
 	pitch := PitchMaxPeriod
-	if pitchVal == pitchVal {
+	if pitchVal >= 0 && pitchVal <= 1e6 {
 		pitch = clampInt(int(opusmath.FloorCRealToInt32(pitchVal)), PitchMinPeriod, PitchMaxPeriod)
 	}
 	xx := innerProdFloat(a.lpBuf[PitchMaxPeriod:PitchMaxPeriod+FrameSize], a.lpBuf[PitchMaxPeriod:PitchMaxPeriod+FrameSize], FrameSize)

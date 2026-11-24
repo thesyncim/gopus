@@ -122,14 +122,15 @@ func quantizeDREDLatents(q []int32, x []float32, scale, dzone, rTable, p0Table [
 			continue
 		}
 		xqi := xq[i] - delta[i]*deadzone[i]
-		if !(xqi == xqi) {
-			q[i] = 0
-			continue
-		}
-		if xqi > 1e6 {
-			xqi = 1e6
-		} else if xqi < -1e6 {
-			xqi = -1e6
+		if !(xqi >= -1e6 && xqi <= 1e6) {
+			if xqi > 1e6 {
+				xqi = 1e6
+			} else if xqi < -1e6 {
+				xqi = -1e6
+			} else {
+				q[i] = 0
+				continue
+			}
 		}
 		q[i] = opusmath.FloorF32ToInt32(0.5 + xqi)
 	}
