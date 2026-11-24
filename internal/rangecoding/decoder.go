@@ -88,13 +88,19 @@ func (d *Decoder) readByte() byte {
 //
 //go:nosplit
 func (d *Decoder) normalized(rng, val uint32) (uint32, uint32) {
-	for rng <= EC_CODE_BOT {
-		d.nbitsTotal += EC_SYM_BITS
-		rng <<= EC_SYM_BITS
-		sym := uint32(d.rem) << EC_SYM_BITS
-		d.rem = int32(d.readByte())
-		sym = (sym | uint32(d.rem)) >> (EC_SYM_BITS - EC_CODE_EXTRA)
-		val = (val<<EC_SYM_BITS + EC_SYM_MAX&^sym) & (EC_CODE_TOP - 1)
+	if rng <= EC_CODE_BOT {
+		if rng == 0 {
+			d.err = 1
+			return 0, val
+		}
+		for rng <= EC_CODE_BOT {
+			d.nbitsTotal += EC_SYM_BITS
+			rng <<= EC_SYM_BITS
+			sym := uint32(d.rem) << EC_SYM_BITS
+			d.rem = int32(d.readByte())
+			sym = (sym | uint32(d.rem)) >> (EC_SYM_BITS - EC_CODE_EXTRA)
+			val = (val<<EC_SYM_BITS + EC_SYM_MAX&^sym) & (EC_CODE_TOP - 1)
+		}
 	}
 	return rng, val
 }
@@ -1214,7 +1220,7 @@ func (d *Decoder) Decode(ft uint32) uint32 {
 //
 //go:nosplit
 func (d *Decoder) DecodeBin(bits uint) uint32 {
-	if bits == 0 || bits >= 24 {
+	if bits == 0 {
 		return 0
 	}
 	ft := uint32(1) << bits
@@ -1234,18 +1240,10 @@ func (d *Decoder) DecodeBin(bits uint) uint32 {
 
 //go:nosplit
 func (d *Decoder) update(fl, fh, ft uint32) {
-	if fl >= fh || fh > ft || d.ext == 0 {
-		d.err = 1
-		return
-	}
 	s := d.ext * (ft - fh)
 	rng := d.rng - s
 	if fl > 0 {
 		rng = d.ext * (fh - fl)
-	}
-	if rng == 0 {
-		d.err = 1
-		return
 	}
 	d.rng, d.val = d.normalized(rng, d.val-s)
 }

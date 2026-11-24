@@ -15,11 +15,16 @@ func xcorrKernel4Float32NeonOrdered(x, y []float32, sum *[4]float32, length int)
 	if length <= 0 {
 		return
 	}
-	_ = x[length-1]
-	_ = y[length+2]
+	x = x[:length:length]
+	y = y[: length+3 : length+3]
 	acc := archsimd.LoadFloat32x4Array(sum)
-	for i := 0; i < length; i++ {
-		acc = archsimd.LoadFloat32x4Array((*[4]float32)(y[i:])).MulAdd(archsimd.BroadcastFloat32x4(x[i]), acc)
+	i := 0
+	for ; i+2 <= length; i += 2 {
+		acc = archsimd.LoadFloat32x4Array((*[4]float32)(y[i : i+4])).MulAdd(archsimd.BroadcastFloat32x4(x[i]), acc)
+		acc = archsimd.LoadFloat32x4Array((*[4]float32)(y[i+1 : i+5])).MulAdd(archsimd.BroadcastFloat32x4(x[i+1]), acc)
+	}
+	for ; i < length; i++ {
+		acc = archsimd.LoadFloat32x4Array((*[4]float32)(y[i : i+4])).MulAdd(archsimd.BroadcastFloat32x4(x[i]), acc)
 	}
 	acc.StoreArray(sum)
 }
@@ -33,16 +38,28 @@ func xcorrKernel16Float32NeonOrdered(x, y []float32, dst *[16]float32, length in
 		*dst = [16]float32{}
 		return
 	}
-	_ = x[length-1]
-	_ = y[length+14]
+	x = x[:length:length]
+	y = y[: length+15 : length+15]
 	var acc0, acc1, acc2, acc3 archsimd.Float32x4
-	for i := 0; i < length; i++ {
+	i := 0
+	for ; i+2 <= length; i += 2 {
+		bx0 := archsimd.BroadcastFloat32x4(x[i])
+		bx1 := archsimd.BroadcastFloat32x4(x[i+1])
+		acc0 = archsimd.LoadFloat32x4Array((*[4]float32)(y[i : i+4])).MulAdd(bx0, acc0)
+		acc1 = archsimd.LoadFloat32x4Array((*[4]float32)(y[i+4 : i+8])).MulAdd(bx0, acc1)
+		acc2 = archsimd.LoadFloat32x4Array((*[4]float32)(y[i+8 : i+12])).MulAdd(bx0, acc2)
+		acc3 = archsimd.LoadFloat32x4Array((*[4]float32)(y[i+12 : i+16])).MulAdd(bx0, acc3)
+		acc0 = archsimd.LoadFloat32x4Array((*[4]float32)(y[i+1 : i+5])).MulAdd(bx1, acc0)
+		acc1 = archsimd.LoadFloat32x4Array((*[4]float32)(y[i+5 : i+9])).MulAdd(bx1, acc1)
+		acc2 = archsimd.LoadFloat32x4Array((*[4]float32)(y[i+9 : i+13])).MulAdd(bx1, acc2)
+		acc3 = archsimd.LoadFloat32x4Array((*[4]float32)(y[i+13 : i+17])).MulAdd(bx1, acc3)
+	}
+	for ; i < length; i++ {
 		bx := archsimd.BroadcastFloat32x4(x[i])
-		yi := y[i : i+16 : i+16]
-		acc0 = archsimd.LoadFloat32x4Array((*[4]float32)(yi[0:4])).MulAdd(bx, acc0)
-		acc1 = archsimd.LoadFloat32x4Array((*[4]float32)(yi[4:8])).MulAdd(bx, acc1)
-		acc2 = archsimd.LoadFloat32x4Array((*[4]float32)(yi[8:12])).MulAdd(bx, acc2)
-		acc3 = archsimd.LoadFloat32x4Array((*[4]float32)(yi[12:16])).MulAdd(bx, acc3)
+		acc0 = archsimd.LoadFloat32x4Array((*[4]float32)(y[i : i+4])).MulAdd(bx, acc0)
+		acc1 = archsimd.LoadFloat32x4Array((*[4]float32)(y[i+4 : i+8])).MulAdd(bx, acc1)
+		acc2 = archsimd.LoadFloat32x4Array((*[4]float32)(y[i+8 : i+12])).MulAdd(bx, acc2)
+		acc3 = archsimd.LoadFloat32x4Array((*[4]float32)(y[i+12 : i+16])).MulAdd(bx, acc3)
 	}
 	acc0.StoreArray((*[4]float32)(dst[0:4]))
 	acc1.StoreArray((*[4]float32)(dst[4:8]))
