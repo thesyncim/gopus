@@ -485,9 +485,7 @@ func (e *Encoder) transientAnalysisMonoFloat32(pcm []float32, frameSize int, all
 		j := i << 1
 		x0 := src[j]
 		y0 := hp0 + x0
-		hp00 := hp0
 		hp0 = hp0 - x0 + hpFeedback*hp1
-		hp1 = x0 - hp00
 
 		x1 := src[j+1]
 		y1 := hp0 + x1
