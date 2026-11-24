@@ -101,6 +101,9 @@ func parseCustomSignallingPacket(mode *CustomMode, packet []byte, outputCapacity
 					countBytes = 254
 				}
 				paddingTotal += countBytes
+				if paddingTotal > len(packet)-frame.payloadOffset {
+					return frame, ErrInvalidPacket
+				}
 				if count != 255 {
 					break
 				}

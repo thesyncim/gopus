@@ -26,7 +26,7 @@ func defaultProjectionDemixingMatrix(channels, streams, coupled uint8) ([]byte, 
 }
 
 func identityDemixingMatrix(channels, streams, coupled uint8) []byte {
-	cols := int(streams + coupled)
+	cols := decodedChannelCount(streams, coupled)
 	rows := int(channels)
 	matrix := make([]byte, 2*rows*cols)
 

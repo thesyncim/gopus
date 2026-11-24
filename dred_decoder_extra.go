@@ -353,14 +353,25 @@ func (d *Decoder) DecodeDRED(dred *DRED, dredOffsetSamples int, pcm []float32, f
 // Decoder API rate; the frame size must be a positive multiple of 2.5 ms, and pcm
 // must hold frameSizeSamples*Channels elements. It returns samples per channel.
 func (d *Decoder) DecodeDREDInt24(dred *DRED, dredOffsetSamples int, pcm []int32, frameSizeSamples int) (int, error) {
+	if d == nil || dred == nil || !dred.Processed() {
+		return 0, ErrInvalidArgument
+	}
+	if !d.dredNeuralConcealmentReady() {
+		return 0, ErrOptionalExtensionUnavailable
+	}
 	if frameSizeSamples <= 0 {
 		return 0, ErrInvalidArgument
 	}
 	channels := int(d.channels)
-	needed := frameSizeSamples * channels
-	if len(pcm) < needed {
+	sampleRate := int(d.sampleRate)
+	lossQuantum := sampleRate / 400
+	if channels <= 0 || lossQuantum <= 0 || frameSizeSamples < lossQuantum || frameSizeSamples%lossQuantum != 0 {
+		return 0, ErrInvalidArgument
+	}
+	if frameSizeSamples > len(pcm)/channels {
 		return 0, ErrBufferTooSmall
 	}
+	needed := frameSizeSamples * channels
 	d.ensureScratchPCM(needed)
 	n, err := d.decodeExplicitDREDFloat(dred, dredOffsetSamples, d.scratchPCM[:needed], frameSizeSamples)
 	if err != nil {

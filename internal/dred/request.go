@@ -1,5 +1,7 @@
 package dred
 
+import "math/bits"
+
 // RequestedFeatureFrames mirrors opus_dred_parse()'s min_feature_frames bound
 // for a caller-provided max_dred_samples request. The result is capped to the
 // libopus decoder's fixed DRED feature window.
@@ -7,12 +9,16 @@ func RequestedFeatureFrames(maxDredSamples, sampleRate int) int {
 	if sampleRate <= 0 || maxDredSamples < 0 {
 		return 0
 	}
-	offset := 100 * maxDredSamples / sampleRate
-	featureFrames := 2 + offset
-	if featureFrames > 2*NumRedundancyFrames {
-		return 2 * NumRedundancyFrames
+	const maxFeatureFrames = 2 * NumRedundancyFrames
+	hi, lo := bits.Mul64(100, uint64(maxDredSamples))
+	if hi >= uint64(sampleRate) {
+		return maxFeatureFrames
 	}
-	return featureFrames
+	offset, _ := bits.Div64(hi, lo, uint64(sampleRate))
+	if offset >= maxFeatureFrames-2 {
+		return maxFeatureFrames
+	}
+	return 2 + int(offset)
 }
 
 // MaxLatentsForRequest reports the maximum number of latent chunks libopus can
