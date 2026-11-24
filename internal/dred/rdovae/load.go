@@ -53,7 +53,7 @@ func loadLinearLayer(blob *dnnblob.Blob, spec LinearLayerSpec) (LinearLayer, err
 	}
 	if spec.Weights != "" {
 		expected := spec.NbInputs * spec.NbOutputs
-		if totalBlocks > 0 {
+		if spec.WeightsIdx != "" {
 			expected = SparseBlockSize * totalBlocks
 		}
 		layer.Weights, err = loadInt8Record(blob, spec.Weights, expected)
@@ -67,7 +67,7 @@ func loadLinearLayer(blob *dnnblob.Blob, spec LinearLayerSpec) (LinearLayer, err
 	}
 	if spec.FloatWeights != "" {
 		expected := spec.NbInputs * spec.NbOutputs
-		if totalBlocks > 0 {
+		if spec.WeightsIdx != "" {
 			expected = SparseBlockSize * totalBlocks
 		}
 		layer.FloatWeights, err = loadOptionalFloatRecord(blob, spec.FloatWeights, expected)
@@ -128,6 +128,9 @@ func loadSparseIndexRecord(blob *dnnblob.Blob, name string, nbInputs, nbOutputs 
 	totalBlocks := 0
 	out := nbOutputs
 	for remain > 0 {
+		if out < 8 {
+			return dnnblob.Int32View{}, 0, errInvalidModel
+		}
 		nbBlocks := int(values.At(idx))
 		idx++
 		if nbBlocks < 0 || remain < nbBlocks+1 {
@@ -136,7 +139,7 @@ func loadSparseIndexRecord(blob *dnnblob.Blob, name string, nbInputs, nbOutputs 
 		for range nbBlocks {
 			pos := int(values.At(idx))
 			idx++
-			if pos+3 >= nbInputs || (pos&0x3) != 0 {
+			if pos < 0 || pos+3 >= nbInputs || (pos&0x3) != 0 {
 				return dnnblob.Int32View{}, 0, errInvalidModel
 			}
 		}

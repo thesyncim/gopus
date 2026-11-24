@@ -29,11 +29,11 @@ func (d *Decoder) decodeInt1696k(data []byte, pcm []int16) (int, error) {
 	d.beginFixedPacket()
 	defer d.endFixedPacket()
 	channels := int(d.channels)
-	// Reuse the decoder-owned float scratch used by the other public integer
-	// wrappers. Match the caller's exact length on every call: exposing a
-	// warmed larger scratch slice here would let an undersized output buffer
-	// decode farther than the public API permits.
-	d.ensureScratchPCM(len(pcm))
+	scratchLen, err := d.scratchLen96k(data, len(pcm), channels)
+	if err != nil {
+		return 0, err
+	}
+	d.ensureScratchPCM(scratchLen)
 	// Integer decode owns the soft-clip history. The public float wrapper clears
 	// that history after each Decode call, so route through the raw packet decode
 	// with clearing disabled before applying the int16 soft clip below.
@@ -60,9 +60,11 @@ func (d *Decoder) decodeInt2496k(data []byte, pcm []int32) (int, error) {
 	d.beginFixedPacket()
 	defer d.endFixedPacket()
 	channels := int(d.channels)
-	// Keep the temporary float buffer decoder-owned and set its length to the
-	// caller's length for the same undersized-buffer behavior as Decode.
-	d.ensureScratchPCM(len(pcm))
+	scratchLen, err := d.scratchLen96k(data, len(pcm), channels)
+	if err != nil {
+		return 0, err
+	}
+	d.ensureScratchPCM(scratchLen)
 	// opus_decode24 disables clipping in opus_decode_native, which clears the
 	// int16 soft-clip history after a received packet. The native PLC branch
 	// returns before that clearing step.
@@ -73,6 +75,22 @@ func (d *Decoder) decodeInt2496k(data []byte, pcm []int32) (int, error) {
 	d.fixedApplyDecodeGain(n * channels)
 	d.finishInt24Output(pcm, d.scratchPCM, n, channels)
 	return n, nil
+}
+
+// scratchLen96k validates packet/PLC bounds before sizing d.scratchPCM so
+// oversized caller buffers or rejected packets cannot grow retained scratch.
+func (d *Decoder) scratchLen96k(data []byte, pcmLen, channels int) (int, error) {
+	if len(data) == 0 {
+		frameSize, err := d.plcOutputFrameSize(pcmLen)
+		if err != nil {
+			return 0, err
+		}
+		return frameSize * channels, nil
+	}
+	if len(data) > d.maxPacketBytes {
+		return 0, ErrPacketTooLarge
+	}
+	return min(pcmLen, d.maxPacketSamples*channels), nil
 }
 
 // init96kDecoder initialises a new Decoder for native 96 kHz API output.

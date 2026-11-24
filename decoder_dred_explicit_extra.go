@@ -59,13 +59,13 @@ func (d *Decoder) decodeExplicitDREDFloat(dred *DRED, dredOffsetSamples int, pcm
 	channels := int(d.channels)
 	sampleRate := int(d.sampleRate)
 	lossQuantum := sampleRate / 400
-	if lossQuantum <= 0 || frameSizeSamples < lossQuantum || frameSizeSamples%lossQuantum != 0 {
+	if channels <= 0 || lossQuantum <= 0 || frameSizeSamples < lossQuantum || frameSizeSamples%lossQuantum != 0 {
 		return 0, ErrInvalidArgument
 	}
-	needed := frameSizeSamples * channels
-	if len(pcm) < needed {
+	if frameSizeSamples > len(pcm)/channels {
 		return 0, ErrBufferTooSmall
 	}
+	needed := frameSizeSamples * channels
 
 	// Explicit DRED queues FEC features before concealment; analysis priming is
 	// only for non-FEC neural PLC entry history.
@@ -94,10 +94,10 @@ func (d *Decoder) decodeExplicitDRED48kNeuralFloat(dred *DRED, dredOffsetSamples
 	}
 	channels := int(d.channels)
 	sampleRate := int(d.sampleRate)
-	needed := frameSizeSamples * channels
-	if frameSizeSamples <= 0 || len(pcm) < needed {
+	if channels <= 0 || frameSizeSamples <= 0 || frameSizeSamples > len(pcm)/channels {
 		return 0, ErrBufferTooSmall
 	}
+	needed := frameSizeSamples * channels
 	d.queueExplicitDREDRecovery(dred, dredOffsetSamples, frameSizeSamples)
 	// Standalone DRED has already queued its parsed features. Keep cached
 	// sidecar scheduling out of this path so it cannot replace the explicit
@@ -281,10 +281,10 @@ func (d *Decoder) decodeCELTNeuralPLCInto(pcm []float32, frameSizeSamples int, s
 		return 0, false, nil
 	}
 	channels := int(d.channels)
-	needed := frameSizeSamples * channels
-	if frameSizeSamples <= 0 || len(pcm) < needed {
+	if frameSizeSamples <= 0 || frameSizeSamples > len(pcm)/channels {
 		return 0, false, ErrBufferTooSmall
 	}
+	needed := frameSizeSamples * channels
 	if !d.ensureDREDNeuralConcealmentRuntime() {
 		return 0, false, nil
 	}
@@ -335,10 +335,11 @@ func (d *Decoder) decodeSILKNeuralPLCInto(pcm []float32, frameSizeSamples int, s
 	if d.channels < 1 || d.channels > 2 {
 		return 0, false, nil
 	}
-	needed := frameSizeSamples * int(d.channels)
-	if frameSizeSamples <= 0 || len(pcm) < needed {
+	channels := int(d.channels)
+	if frameSizeSamples <= 0 || frameSizeSamples > len(pcm)/channels {
 		return 0, false, ErrBufferTooSmall
 	}
+	needed := frameSizeSamples * channels
 	if !d.ensureDREDNeuralConcealmentRuntime() {
 		return 0, false, nil
 	}

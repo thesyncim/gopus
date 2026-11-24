@@ -3,8 +3,7 @@ package ogg
 import (
 	"encoding/binary"
 	"io"
-	"math/rand"
-	"time"
+	"math/rand/v2"
 )
 
 // WriterConfig configures a Writer.
@@ -179,8 +178,7 @@ func NewWriterWithConfig(w io.Writer, config WriterConfig) (*Writer, error) {
 	}
 
 	// Generate random serial number.
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	serial := rng.Uint32()
+	serial := rand.Uint32()
 
 	ow := &Writer{
 		w:      w,
