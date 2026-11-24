@@ -565,7 +565,7 @@ func (or *Reader) SeekGranule(target uint64) error {
 			return err
 		}
 		or.pktScratch = out
-		if granule >= target {
+		if granule != ^uint64(0) && granule >= target {
 			or.pushback = append(or.pushback[:0], out...)
 			or.pushbackG = granule
 			or.hasPush = true

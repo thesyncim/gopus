@@ -61,7 +61,7 @@ type Page struct {
 // it. An empty packet is represented by one zero entry, and lengths divisible
 // by 255 include an extra zero entry to mark packet completion.
 func BuildSegmentTable(packetLen int) []byte {
-	if packetLen == 0 {
+	if packetLen <= 0 {
 		return []byte{0}
 	}
 
