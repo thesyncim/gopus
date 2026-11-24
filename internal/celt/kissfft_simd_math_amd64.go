@@ -32,30 +32,6 @@ func bflyHalfSub4AMD64(a, b, half archsimd.Float32x4) archsimd.Float32x4 {
 	return a.Sub(half.Mul(b))
 }
 
-func bflyMulSource8AMD64(ar, ai, wr, wi archsimd.Float32x8) (re, im archsimd.Float32x8) {
-	return ar.Mul(wr).Sub(ai.Mul(wi)), ar.Mul(wi).Add(ai.Mul(wr))
-}
-
-func bflyMulSource8UnfusedAMD64(ar, ai, wr, wi archsimd.Float32x8) (re, im archsimd.Float32x8) {
-	return bflyMulSource8AMD64(ar, ai, wr, wi)
-}
-
-func bflyMulSource8FusedAMD64(ar, ai, wr, wi archsimd.Float32x8) (re, im archsimd.Float32x8) {
-	return bflyMulSource8AMD64(ar, ai, wr, wi)
-}
-
-func bflyMulAddSource8AMD64(a, b, c, d archsimd.Float32x8) archsimd.Float32x8 {
-	return a.Mul(b).Add(c.Mul(d))
-}
-
-func bflyMulSubSource8AMD64(a, b, c, d archsimd.Float32x8) archsimd.Float32x8 {
-	return a.Mul(b).Sub(c.Mul(d))
-}
-
-func bflyHalfSub8AMD64(a, b, half archsimd.Float32x8) archsimd.Float32x8 {
-	return a.Sub(half.Mul(b))
-}
-
 func bfly2M4GroupOutputsAMD64(fr, fi, r, i, tw archsimd.Float32x4, lane0, lane1, lane2, lane3 archsimd.Mask32x4, fused bool) (minusR, minusI, plusR, plusI archsimd.Float32x4) {
 	_ = fused
 	sumRI := r.Add(i)

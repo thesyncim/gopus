@@ -8,9 +8,6 @@ import "simd/archsimd"
 // their API lists AVX (golang/go#81405). Keep this kernel behind AVX2.
 var analysisBinsUseAVX2 = archsimd.X86.AVX2() && (!analysisAvgModFMAEnabled || archsimd.X86.FMA())
 
-var analysisPerm0213U32x8 = [8]uint32{0, 1, 4, 5, 2, 3, 6, 7}
-var analysisPerm2031U32x8 = [8]uint32{4, 5, 0, 1, 6, 7, 2, 3}
-
 func (s *TonalityAnalysisState) analysisBinsSIMD(out *[960]float32, tonality, tonality2, noisiness []float32) int {
 	if !analysisBinsUseAVX2 {
 		return 1
@@ -19,10 +16,9 @@ func (s *TonalityAnalysisState) analysisBinsSIMD(out *[960]float32, tonality, to
 }
 
 // analysisBinsAVX2 runs tonality_analysis's per-bin phase loop for bins
-// 1..236, eight bins per step on 256-bit AVX2 vectors followed by a four-bin
-// tail, and returns the first bin left to the scalar loop. Every lane
-// preserves the scalar operand order. The call boundary keeps Go 1.27 from
-// hoisting SIMD instructions above the CPU check.
+// 1..236, four bins per step, and returns the first bin left to the scalar
+// loop. Every lane preserves the scalar operand order. The call boundary
+// keeps Go 1.27 from hoisting SIMD instructions above the CPU check.
 //
 //go:noinline
 func (s *TonalityAnalysisState) analysisBinsAVX2(out *[960]float32, tonality, tonality2, noisiness []float32) int {
@@ -30,90 +26,13 @@ func (s *TonalityAnalysisState) analysisBinsAVX2(out *[960]float32, tonality, to
 	tonality2 = tonality2[:240]
 	noisiness = noisiness[:240]
 	of := out[:]
-	perm0213 := archsimd.LoadUint32x8Array(&analysisPerm0213U32x8)
-	perm2031 := archsimd.LoadUint32x8Array(&analysisPerm2031U32x8)
-	scale8 := archsimd.BroadcastFloat32x8(analysisAtanScale)
-	quarter8 := archsimd.BroadcastFloat32x8(0.25)
-	two8 := archsimd.BroadcastFloat32x8(2)
-	one8 := archsimd.BroadcastFloat32x8(1)
-	k8 := archsimd.BroadcastFloat32x8(40.0 * 16.0 * analysisPi4)
-	c0158 := archsimd.BroadcastFloat32x8(0.015)
-
-	i := 1
-	for ; i+8 <= 237; i += 8 {
-		lo := archsimd.LoadFloat32x8Array((*[8]float32)(of[2*i:]))
-		hi := archsimd.LoadFloat32x8Array((*[8]float32)(of[2*i+8:]))
-		re := lo.ConcatPermuteScalarsGrouped(0, 2, 4, 6, hi).Permute(perm0213)
-		im := lo.ConcatPermuteScalarsGrouped(1, 3, 5, 7, hi).Permute(perm0213)
-		// Mirror bins 480-i-k for lanes k = 0..7.
-		mlo := archsimd.LoadFloat32x8Array((*[8]float32)(of[2*(473-i):]))
-		mhi := archsimd.LoadFloat32x8Array((*[8]float32)(of[2*(477-i):]))
-		reM := mhi.ConcatPermuteScalarsGrouped(2, 0, 6, 4, mlo).Permute(perm2031)
-		imM := mhi.ConcatPermuteScalarsGrouped(3, 1, 7, 5, mlo).Permute(perm2031)
-
-		if analysisAvgModFMAEnabled {
-			imM.MulAdd(imM, im.MulAdd(im, re.MulAdd(re, reM.Mul(reM)))).StoreArray((*[8]float32)(s.scratchBinE[i : i+8]))
-		} else {
-			reM.Mul(reM).Add(re.Mul(re)).Add(im.Mul(im)).Add(imM.Mul(imM)).StoreArray((*[8]float32)(s.scratchBinE[i : i+8]))
-		}
-
-		x1r := re.Add(reM)
-		x1i := im.Sub(imM)
-		x2r := im.Add(imM)
-		x2i := reM.Sub(re)
-
-		angle := scale8.Mul(analysisAtan2x8(x1i, x1r))
-		dAngle := angle.Sub(archsimd.LoadFloat32x8Array((*[8]float32)(s.Angle[i:])))
-		d2Angle := dAngle.Sub(archsimd.LoadFloat32x8Array((*[8]float32)(s.DAngle[i:])))
-
-		angle2 := scale8.Mul(analysisAtan2x8(x2i, x2r))
-		dAngle2 := angle2.Sub(angle)
-		d2Angle2 := dAngle2.Sub(dAngle)
-
-		mod1 := d2Angle.Sub(analysisFloat2Intx8(d2Angle))
-		mod2 := d2Angle2.Sub(analysisFloat2Intx8(d2Angle2))
-		mod1.Abs().Add(mod2.Abs()).StoreArray((*[8]float32)(noisiness[i:]))
-		mod1 = mod1.Mul(mod1)
-		mod2 = mod2.Mul(mod2)
-		mod2 = mod2.Mul(mod2)
-		var avgMod archsimd.Float32x8
-		d2Old := archsimd.LoadFloat32x8Array((*[8]float32)(s.D2Angle[i:]))
-		if analysisAvgModFMAEnabled {
-			avgAccum := mod1.MulAdd(mod1, d2Old)
-			avgMod = quarter8.Mul(avgAccum.Add(two8.Mul(mod2)))
-		} else {
-			mod1 = mod1.Mul(mod1)
-			avgMod = quarter8.Mul(d2Old.Add(mod1).Add(two8.Mul(mod2)))
-		}
-		one8.Div(analysisToneDenominatorSIMD8(k8, avgMod, one8)).Sub(c0158).StoreArray((*[8]float32)(tonality[i:]))
-		one8.Div(analysisToneDenominatorSIMD8(k8, mod2, one8)).Sub(c0158).StoreArray((*[8]float32)(tonality2[i:]))
-
-		angle2.StoreArray((*[8]float32)(s.Angle[i:]))
-		dAngle2.StoreArray((*[8]float32)(s.DAngle[i:]))
-		mod2.StoreArray((*[8]float32)(s.D2Angle[i:]))
-		if analysisPerBinTraceEnabled && analysisPerBinTraceHook != nil {
-			var avgModValues [8]float32
-			avgMod.StoreArray(&avgModValues)
-			for lane := range 8 {
-				bin := i + lane
-				analysisPerBinTraceHook(analysisPerBinTraceSnapshot{
-					Bin:       int32(bin),
-					AvgMod:    avgModValues[lane],
-					Tonality:  tonality[bin],
-					Tonality2: tonality2[bin],
-					Noisiness: noisiness[bin],
-				})
-			}
-		}
-	}
-	archsimd.ClearAVXUpperBits()
-
 	scale := archsimd.BroadcastFloat32x4(analysisAtanScale)
 	quarter := archsimd.BroadcastFloat32x4(0.25)
 	two := archsimd.BroadcastFloat32x4(2)
 	one := archsimd.BroadcastFloat32x4(1)
 	k := archsimd.BroadcastFloat32x4(40.0 * 16.0 * analysisPi4)
 	c015 := archsimd.BroadcastFloat32x4(0.015)
+	i := 1
 	for ; i+4 <= 237; i += 4 {
 		lo := archsimd.LoadFloat32x4Array((*[4]float32)(of[2*i:]))
 		hi := archsimd.LoadFloat32x4Array((*[4]float32)(of[2*i+4:]))
@@ -183,31 +102,6 @@ func (s *TonalityAnalysisState) analysisBinsAVX2(out *[960]float32, tonality, to
 		}
 	}
 	return i
-}
-
-// analysisAtan2x8 is analysisAtan2 on eight lanes.
-func analysisAtan2x8(y, x archsimd.Float32x8) archsimd.Float32x8 {
-	x2 := x.Mul(x)
-	y2 := y.Mul(y)
-	xy := x.Mul(y)
-	zero := archsimd.Float32x8{}
-	swap := x2.Less(y2)
-	p := y2.IfElse(swap, x2)
-	q := x2.IfElse(swap, y2)
-	num := xy.Neg().IfElse(swap, xy).Mul(analysisAtan2PolyTermSIMD8(p, q, archsimd.BroadcastFloat32x8(analysisAtanCA)))
-	den := analysisAtan2PolyTermSIMD8(p, q, archsimd.BroadcastFloat32x8(analysisAtanCB)).Mul(
-		analysisAtan2PolyTermSIMD8(p, q, archsimd.BroadcastFloat32x8(analysisAtanCC)))
-	cE := archsimd.BroadcastFloat32x8(analysisAtanCE)
-	negCE := archsimd.BroadcastFloat32x8(-analysisAtanCE)
-	s1 := negCE.IfElse(y.Less(zero), cE)
-	s2 := zero.IfElse(swap, negCE.IfElse(xy.Less(zero), cE))
-	atan := num.Div(den).Add(s1).Sub(s2)
-	return zero.IfElse(x2.Add(y2).Less(archsimd.BroadcastFloat32x8(1e-18)), atan)
-}
-
-// analysisFloat2Intx8 is float(float2int(x)) on eight lanes.
-func analysisFloat2Intx8(x archsimd.Float32x8) archsimd.Float32x8 {
-	return x.Round().ConvertToInt32().ConvertToFloat32()
 }
 
 // analysisAtan2x4 is analysisAtan2 on four lanes.

@@ -9,7 +9,3 @@ import "simd/archsimd"
 func expRotation1VectorPair(x1, x2, c, s, ms archsimd.Float32x4) (nextStride, current archsimd.Float32x4) {
 	return x2.MulAdd(c, x1.Mul(s)), x1.MulAdd(c, x2.Mul(ms))
 }
-
-func expRotation1VectorPair8(x1, x2, c, s, ms archsimd.Float32x8) (nextStride, current archsimd.Float32x8) {
-	return x2.MulAdd(c, x1.Mul(s)), x1.MulAdd(c, x2.Mul(ms))
-}

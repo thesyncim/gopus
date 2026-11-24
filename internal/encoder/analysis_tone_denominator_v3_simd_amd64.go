@@ -9,7 +9,3 @@ import "simd/archsimd"
 func analysisToneDenominatorSIMD(k, modulation, one archsimd.Float32x4) archsimd.Float32x4 {
 	return k.MulAdd(modulation, one)
 }
-
-func analysisToneDenominatorSIMD8(k, modulation, one archsimd.Float32x8) archsimd.Float32x8 {
-	return k.MulAdd(modulation, one)
-}
