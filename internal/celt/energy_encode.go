@@ -697,17 +697,14 @@ func (e *Encoder) decideIntraMode(energies []celtGLog, startBand, nbBands int, l
 	startState := &e.scratch.coarseStartState
 	e.rangeEncoder.SaveStateShallowInto(startState)
 
-	oldStart := ensureGLogSlice(&e.scratch.coarseOldStart, len(e.prevEnergy))
+	oldStart := ensureGLogSliceNoClear(&e.scratch.coarseOldStart, len(e.prevEnergy))
 	copy(oldStart, e.prevEnergy)
 
 	probIntra := eProbModel[lm][1][:]
 	probInter := eProbModel[lm][0][:]
-	workOldE := ensureGLogSlice(&e.scratch.quantizedEnergies, len(e.prevEnergy))
+	workOldE := ensureGLogSliceNoClear(&e.scratch.quantizedEnergies, len(e.prevEnergy))
 	workErr := ensureGLogSlice(&e.scratch.coarseError, len(e.prevEnergy))
 	workEnergies := ensureGLogSlice(&e.scratch.coarseDecisionE, len(e.prevEnergy))
-	for i := range workEnergies {
-		workEnergies[i] = 0
-	}
 	// workOldE / workErr / workEnergies use the energy-prediction per-channel
 	// stride: MaxBands for the static codec, the mode's nbEBands for a per-mode
 	// custom layout (mono keeps c==0, so the two are identical).

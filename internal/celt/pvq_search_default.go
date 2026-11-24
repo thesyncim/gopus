@@ -1,4 +1,22 @@
+//go:build !arm64 || !goexperiment.simd || nosimd || purego
+
 package celt
+
+func pvqExtractAbsSignNorm(x []celtNorm, absX []float32, y []float32, signx []byte, iy []int32, n int) {
+	pvqExtractAbsSignNormScalar(x, absX, y, signx, iy, n)
+}
+
+func pvqExtractAbsSignOnlySum(x []celtNorm, absX []float32, signx []byte, n int) float32 {
+	return pvqExtractAbsSignOnlySumScalar(x, absX, signx, n)
+}
+
+func pvqProjectHighPulse(absX, y []float32, iy []int32, rcp float32, n, pulsesLeft int) (float32, float32, int) {
+	return pvqProjectHighPulseScalar(absX, y, iy, rcp, n, pulsesLeft)
+}
+
+func pvqRestoreSigns(iy []int32, signx []byte, n int) {
+	pvqRestoreSignsScalar(iy, signx, n)
+}
 
 // pvqSearchPulseLoop places pulsesLeft pulses using the rate-distortion
 // criterion. Go fallback for non-SIMD architectures.

@@ -2,11 +2,7 @@
 
 package celt
 
-import (
-	"unsafe"
-
-	"simd/archsimd"
-)
+import "simd/archsimd"
 
 var stereoMergeUsesAVX = archsimd.X86.AVX()
 
@@ -45,18 +41,18 @@ func stereoMergeRescaleNEON(x, y []float32, mid, lgain, rgain float32) {
 //go:noinline
 func stereoMergeRescaleAVXFMA(x, y []float32, mid, lgain, rgain float32) int {
 	n := len(x) &^ 3
+	x = x[:n]
+	y = y[:n]
 	midv := broadcastF32x4Arch(mid)
 	lg := broadcastF32x4Arch(lgain)
 	rg := broadcastF32x4Arch(rgain)
-	xp := unsafe.Pointer(unsafe.SliceData(x))
-	yp := unsafe.Pointer(unsafe.SliceData(y))
 	for i := 0; i < n; i += 4 {
-		xv := loadF32x4(unsafe.Add(xp, 4*i))
-		yv := loadF32x4(unsafe.Add(yp, 4*i))
+		xv := archsimd.LoadFloat32x4Array((*[4]float32)(x[i:]))
+		yv := archsimd.LoadFloat32x4Array((*[4]float32)(y[i:]))
 		left := midv.MulAdd(xv, yv.Neg())
 		right := midv.MulAdd(xv, yv)
-		storeF32x4(unsafe.Add(xp, 4*i), lg.Mul(left))
-		storeF32x4(unsafe.Add(yp, 4*i), rg.Mul(right))
+		lg.Mul(left).StoreArray((*[4]float32)(x[i:]))
+		rg.Mul(right).StoreArray((*[4]float32)(y[i:]))
 	}
 	return n
 }
@@ -64,16 +60,16 @@ func stereoMergeRescaleAVXFMA(x, y []float32, mid, lgain, rgain float32) int {
 //go:noinline
 func stereoMergeRescaleAVX(x, y []float32, mid, lgain, rgain float32) int {
 	n := len(x) &^ 3
+	x = x[:n]
+	y = y[:n]
 	midv := broadcastF32x4Arch(mid)
 	lg := broadcastF32x4Arch(lgain)
 	rg := broadcastF32x4Arch(rgain)
-	xp := unsafe.Pointer(unsafe.SliceData(x))
-	yp := unsafe.Pointer(unsafe.SliceData(y))
 	for i := 0; i < n; i += 4 {
-		l := midv.Mul(loadF32x4(unsafe.Add(xp, 4*i)))
-		r := loadF32x4(unsafe.Add(yp, 4*i))
-		storeF32x4(unsafe.Add(xp, 4*i), lg.Mul(l.Sub(r)))
-		storeF32x4(unsafe.Add(yp, 4*i), rg.Mul(l.Add(r)))
+		l := midv.Mul(archsimd.LoadFloat32x4Array((*[4]float32)(x[i:])))
+		r := archsimd.LoadFloat32x4Array((*[4]float32)(y[i:]))
+		lg.Mul(l.Sub(r)).StoreArray((*[4]float32)(x[i:]))
+		rg.Mul(l.Add(r)).StoreArray((*[4]float32)(y[i:]))
 	}
 	return n
 }

@@ -2,10 +2,7 @@
 
 package silk
 
-import (
-	"simd/archsimd"
-	"unsafe"
-)
+import "simd/archsimd"
 
 var firInterpolUsesAVX2 = archsimd.X86.AVX2()
 
@@ -36,20 +33,20 @@ func firInterpolVec(dst, buf []int16, indexIncrQ16 int32) int {
 	if last := int((int32(nOut-1)*indexIncrQ16)>>16) + 8; last > len(buf) {
 		return 0
 	}
-	return firInterpolVecAVX2(dst, buf, indexIncrQ16, nOut)
+	return firInterpolVecAVX2(dst[:nOut], buf, indexIncrQ16)
 }
 
 //go:noinline
-func firInterpolVecAVX2(dst, buf []int16, indexIncrQ16 int32, nOut int) int {
+func firInterpolVecAVX2(dst, buf []int16, indexIncrQ16 int32) int {
+	nOut := len(dst)
 	taps := &silkResamplerFIR12Taps
-	base := unsafe.Pointer(unsafe.SliceData(buf))
 	one := archsimd.BroadcastInt32x4(1)
 	dot := func(indexQ16 int32) archsimd.Int32x4 {
-		x := archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(base, 2*int(indexQ16>>16))))
+		x := archsimd.LoadInt16x8Array((*[8]int16)(buf[int(indexQ16>>16):]))
 		return x.DotProductPairs(archsimd.LoadInt16x8Array(&taps[((indexQ16&0xFFFF)*12)>>16]))
 	}
 	indexQ16 := int32(0)
-	for n := 0; n < nOut; n += 8 {
+	for n := 0; n+8 <= nOut; n += 8 {
 		d0 := dot(indexQ16)
 		d1 := dot(indexQ16 + indexIncrQ16)
 		d2 := dot(indexQ16 + 2*indexIncrQ16)
@@ -63,7 +60,7 @@ func firInterpolVecAVX2(dst, buf []int16, indexIncrQ16 int32, nOut int) int {
 		// silk_RSHIFT_ROUND(res_Q15, 15), then silk_SAT16 in the pack.
 		lo = lo.ShiftAllRight(14).Add(one).ShiftAllRight(1)
 		hi = hi.ShiftAllRight(14).Add(one).ShiftAllRight(1)
-		lo.SaturateToInt16Concat(hi).StoreArray((*[8]int16)(dst[n : n+8]))
+		lo.SaturateToInt16Concat(hi).StoreArray((*[8]int16)(dst[n:]))
 		indexQ16 += 8 * indexIncrQ16
 	}
 	return nOut

@@ -6,7 +6,6 @@ import "testing"
 
 var kernelPortBenchF32 float32
 var kernelPortBenchU32 uint32
-var kernelPortBenchCpx kissCpx
 
 const kernelPortBenchBatch = 64
 
@@ -18,7 +17,16 @@ func kernelPortBenchFloat32(n int) []float32 {
 	return x
 }
 
-func kernelPortBenchComplex(n int) []kissCpx {
+func kernelPortBenchInterleaved(n int) []float32 {
+	x := make([]float32, 2*n)
+	for i := range n {
+		x[2*i] = float32((i*17)%113-56) * 0.015625
+		x[2*i+1] = float32((i*29)%109-54) * 0.015625
+	}
+	return x
+}
+
+func kernelPortBenchTwiddles(n int) []kissCpx {
 	x := make([]kissCpx, n)
 	for i := range x {
 		x[i] = kissCpx{
@@ -67,10 +75,10 @@ func BenchmarkPortCwrsiFastCore(b *testing.B) {
 
 func BenchmarkPortKfBfly4M1Core(b *testing.B) {
 	const n = 128
-	initial := kernelPortBenchComplex(n * 4)
-	work := make([][]kissCpx, kernelPortBenchBatch)
+	initial := kernelPortBenchInterleaved(n * 4)
+	work := make([][]float32, kernelPortBenchBatch)
 	for i := range work {
-		work[i] = make([]kissCpx, len(initial))
+		work[i] = make([]float32, len(initial))
 	}
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -86,18 +94,18 @@ func BenchmarkPortKfBfly4M1Core(b *testing.B) {
 		}
 	}
 	b.StopTimer()
-	kernelPortBenchCpx = work[(b.N-1)%kernelPortBenchBatch][len(initial)-1]
+	kernelPortBenchF32 = work[(b.N-1)%kernelPortBenchBatch][len(initial)-1]
 }
 
-func benchmarkPortKfBflyInner(b *testing.B, radix int, fn func([]kissCpx, []kissCpx, int, int, int, int)) {
+func benchmarkPortKfBflyInner(b *testing.B, radix int, fn func([]float32, []kissCpx, int, int, int, int)) {
 	const m, n, fstride = 8, 4, 8
 	mm := radix * m
-	initial := kernelPortBenchComplex(n * mm)
-	work := make([][]kissCpx, kernelPortBenchBatch)
+	initial := kernelPortBenchInterleaved(n * mm)
+	work := make([][]float32, kernelPortBenchBatch)
 	for i := range work {
-		work[i] = make([]kissCpx, len(initial))
+		work[i] = make([]float32, len(initial))
 	}
-	w := kernelPortBenchComplex((radix*m-1)*fstride + 1)
+	w := kernelPortBenchTwiddles((radix*m-1)*fstride + 1)
 	b.ReportAllocs()
 	b.ResetTimer()
 	for offset := 0; offset < b.N; offset += kernelPortBenchBatch {
@@ -112,7 +120,7 @@ func benchmarkPortKfBflyInner(b *testing.B, radix int, fn func([]kissCpx, []kiss
 		}
 	}
 	b.StopTimer()
-	kernelPortBenchCpx = work[(b.N-1)%kernelPortBenchBatch][len(initial)-1]
+	kernelPortBenchF32 = work[(b.N-1)%kernelPortBenchBatch][len(initial)-1]
 }
 
 func BenchmarkPortKfBfly3Inner(b *testing.B) {
@@ -127,9 +135,9 @@ func BenchmarkPortKfBfly5Inner(b *testing.B) {
 	benchmarkPortKfBflyInner(b, 5, kfBfly5Inner)
 }
 
-func benchmarkPortMDCTFold(b *testing.B, fn func([]kissCpx, []int, []float32, []float32, []float32, int, int, int, int, int, int, int, int, float32)) {
+func benchmarkPortMDCTFold(b *testing.B, fn func([]float32, []int, []float32, []float32, []float32, int, int, int, int, int, int, int, int, float32)) {
 	const n4, n2, blocks = 64, 128, 8
-	dst := kernelPortBenchComplex(n4)
+	dst := kernelPortBenchInterleaved(n4)
 	bitrev := make([]int, n4)
 	for i := range bitrev {
 		bitrev[i] = i
@@ -142,7 +150,7 @@ func benchmarkPortMDCTFold(b *testing.B, fn func([]kissCpx, []int, []float32, []
 	for i := 0; i < b.N; i++ {
 		fn(dst, bitrev, samples, window, trig, 0, n4, n2, 128, 220, 20, 200, blocks, 0.5)
 	}
-	kernelPortBenchCpx = dst[blocks*4-1]
+	kernelPortBenchF32 = dst[blocks*8-1]
 }
 
 func BenchmarkPortMDCTFold1StoreNeon(b *testing.B) {
@@ -155,7 +163,7 @@ func BenchmarkPortMDCTFold3StoreNeon(b *testing.B) {
 
 func BenchmarkPortMDCTMidFoldStoreNeon(b *testing.B) {
 	const n4, blocks = 64, 8
-	dst := kernelPortBenchComplex(n4)
+	dst := kernelPortBenchInterleaved(n4)
 	bitrev := make([]int, n4)
 	for i := range bitrev {
 		bitrev[i] = i
@@ -167,14 +175,14 @@ func BenchmarkPortMDCTMidFoldStoreNeon(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		mdctMidFoldStoreNeon(dst, bitrev, samples, trig, 0, n4, 80, 220, blocks, 0.5)
 	}
-	kernelPortBenchCpx = dst[blocks*4-1]
+	kernelPortBenchF32 = dst[blocks*8-1]
 }
 
 func BenchmarkPortMDCTPostTwiddleNeon(b *testing.B) {
 	const n4 = 64
 	n2 := 2 * n4
 	coeffs := kernelPortBenchFloat32(n2)
-	fftStage := kernelPortBenchComplex(n4)
+	fftStage := kernelPortBenchInterleaved(n4)
 	trig := kernelPortBenchFloat32(n2)
 	b.ReportAllocs()
 	b.ResetTimer()

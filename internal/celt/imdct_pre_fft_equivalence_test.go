@@ -19,14 +19,14 @@ func TestIMDCTPreRotateFFTMatchesSplitPath(t *testing.T) {
 			for i := range spectrum {
 				spectrum[i] = float32(rng.NormFloat64() * math.Pow(10, float64(rng.Intn(8))))
 			}
-			fftIn := make([]complex64, n4)
-			got := imdctPreRotateFFT(fftIn, make([]kissCpx, n4), spectrum, trig, n2, n4, st)
+			fftIn := make([]float32, 2*n4)
+			got := imdctPreRotateFFT(fftIn, make([]float32, 2*n4), spectrum, trig, n2, n4, st)
 
-			wantIn := make([]complex64, n4)
+			wantIn := make([]float32, 2*n4)
 			imdctPreRotateF32Spectrum(wantIn, spectrum, trig, n2, n4)
-			want := kissFFT32ToScratch(wantIn, make([]kissCpx, n4), st)
+			want := kissFFT32InterleavedToScratch(wantIn, make([]float32, 2*n4), st)
 			for i := range want {
-				if math.Float32bits(got[i].r) != math.Float32bits(want[i].r) || math.Float32bits(got[i].i) != math.Float32bits(want[i].i) {
+				if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
 					t.Fatalf("n=%d iter %d: out[%d]=%v want %v", n, iter, i, got[i], want[i])
 				}
 			}
@@ -44,9 +44,9 @@ func TestIMDCTPostRotateScalarMatchesReference(t *testing.T) {
 		for i := range trig {
 			trig[i] = float32(rng.Float64()*2 - 1)
 		}
-		fft := make([]kissCpx, n4)
+		fft := make([]float32, 2*n4)
 		for i := range fft {
-			fft[i] = kissCpx{float32(rng.NormFloat64() * 1e3), float32(rng.NormFloat64() * 1e3)}
+			fft[i] = float32(rng.NormFloat64() * 1e3)
 		}
 		got := make([]float32, n2)
 		imdctPostRotateF32FromKissScalar(got, fft, trig, n2, n4)
@@ -55,11 +55,11 @@ func TestIMDCTPostRotateScalarMatchesReference(t *testing.T) {
 		yp0, yp1 := 0, n2-2
 		for i := range (n4 + 1) >> 1 {
 			k := n4 - 1 - i
-			re, im := fft[i].i, fft[i].r
+			re, im := fft[2*i+1], fft[2*i]
 			t0, t1 := trig[i], trig[n4+i]
 			yr := mdctMulAddMix(re, im, t0, t1)
 			yi := mdctMulSubMix(re, im, t1, t0)
-			re2, im2 := fft[k].i, fft[k].r
+			re2, im2 := fft[2*k+1], fft[2*k]
 			want[yp0] = yr
 			want[yp1+1] = yi
 			t0, t1 = trig[n4-i-1], trig[n2-i-1]

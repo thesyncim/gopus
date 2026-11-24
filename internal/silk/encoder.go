@@ -1,6 +1,9 @@
 package silk
 
-import "github.com/thesyncim/gopus/internal/rangecoding"
+import (
+	"github.com/thesyncim/gopus/internal/arena"
+	"github.com/thesyncim/gopus/internal/rangecoding"
+)
 
 // Encoder is the state of one SILK encoder channel (silk_encoder_state_FLP,
 // silk/float/structs_FLP.h): the input buffer the resampler fills, the VAD, the
@@ -22,9 +25,16 @@ type Encoder struct {
 	// Range encoder the current frame is coded into.
 	rangeEncoder *rangecoding.Encoder
 
-	resampler       *LibopusResampler // API rate -> internal rate (sCmn.resampler_state)
-	nsqState        *NSQState         // Noise shaping quantizer state for proper libopus-matching
-	noiseShapeState *NoiseShapeState  // Noise shaping analysis state for adaptive parameters
+	resampler          *LibopusResampler // API rate -> internal rate (sCmn.resampler_state)
+	nsqState           *NSQState         // Noise shaping quantizer state for proper libopus-matching
+	noiseShapeState    *NoiseShapeState  // Noise shaping analysis state for adaptive parameters
+	resamplerVal       LibopusResampler  // Embedded backing storage for resampler
+	noiseShapeStateVal NoiseShapeState   // Embedded backing storage for noiseShapeState
+
+	// Per-type scratch arenas carved in newEncoder to avoid ~50 separate slice allocations.
+	encScratchF32 arena.Bump[float32]
+	encScratchI16 arena.Bump[int16]
+	encScratchI32 arena.Bump[int32]
 
 	// silk_setup_resamplers scratch: x_buf as int16 at the internal rate and
 	// at the API rate, and the resampler taking x_buf back to the API rate.
@@ -122,12 +132,19 @@ type Encoder struct {
 	// frameF32 holds the LP-filtered frame as silk_float normalized to [-1, 1].
 	frameF32 []float32
 
-	// lbrrNSQState sits at the pointer/noscan boundary: its only pointer
+	// nsqStateVal sits at the pointer/noscan boundary: its only pointer
 	// (scratch *nsqScratch) is at offset 0 of NSQState, so its 4.3 KB nsqCore
 	// and everything below are excluded from GC scanning.
-	lbrrNSQState NSQState // copy of nsqState the LBRR quantization runs on
+	nsqStateVal NSQState
 
 	// --- Pointer-free (noscan) tail ---
+
+	// Inline backing arrays for LBRR pulses, Burg CReal work buffers, and
+	// small int8/uint8 scratch slices (pointer-free, zero heap allocs).
+	lbrrPulsesBuf    [maxFramesPerPacket][maxFrameLength]int8
+	scratchCRealBuf  [5*silkMaxOrderLPC + 2]silkCReal
+	scratchI8Buf     [maxFrameLength + maxLPCOrder + 1 + maxNbSubfr]int8
+	scratchPredQ8Buf [maxLPCOrder]uint8
 
 	// nsqLowerCopy is sNSQ_copy[1] of silk_encode_frame_FLP: the persistent NSQ
 	// state of the best under-budget gain pass, written only when that pass is
@@ -330,20 +347,129 @@ func ensureByteSlice(buf *[]byte, n int) []byte {
 // first silk_control_encoder picks one. The buffers are sized for the highest
 // internal rate, so a rate change reuses them.
 func newEncoder() *Encoder {
-	lbrrPulses := [maxFramesPerPacket][]int8{}
-	for i := range lbrrPulses {
-		lbrrPulses[i] = make([]int8, maxFrameLength)
+	const (
+		xBufLen        = (ltpMemLengthMs+laShapeMs)*maxFsKHz + maxFrameLength // 720
+		pitchResLen    = (ltpMemLengthMs+laPitchMs)*maxFsKHz + maxFrameLength // 704
+		maxLag4kHz     = peMaxLagMS * 4                                       // 72
+		dCompLen       = peMaxLagMS*8 + 5                                     // 149
+		st3Len         = maxNbSubfr * peNbCbksStage3Max * peNbStage3Lags      // 680
+		maxPitchWinLen = (ltpMemLengthMs+laPitchMs)*maxFsKHz + maxFrameLength // 704
+		maxLtpResLen   = maxFrameLength + maxLPCOrder + ltpMemLength          // 656
+		maxIter        = (maxFrameLength >> log2ShellCodecFrameLength) + 1    // 21
+	)
+	enc := &Encoder{}
+	enc.resampler = &enc.resamplerVal
+	enc.nsqStateVal = NSQState{
+		nsqCore: nsqCore{prevGainQ16: 1 << 16},
+		scratch: newNSQScratch(),
 	}
-	enc := &Encoder{
-		resampler: &LibopusResampler{},
-		// x_buf: LTP memory, noise shaping lookahead and one frame.
-		xBuf:            make([]float32, (ltpMemLengthMs+laShapeMs)*maxFsKHz+maxFrameLength),
-		nsqState:        NewNSQState(),
-		noiseShapeState: NewNoiseShapeState(),
-		// Pitch residual: LTP memory, one frame and the pitch lookahead.
-		scratchPitchRes32: make([]float32, (ltpMemLengthMs+laPitchMs)*maxFsKHz+maxFrameLength),
-		lbrrPulses:        lbrrPulses,
+	enc.nsqState = &enc.nsqStateVal
+	enc.noiseShapeState = &enc.noiseShapeStateVal
+	enc.noiseShapeState.Reset()
+
+	for i := range enc.lbrrPulses {
+		enc.lbrrPulses[i] = enc.lbrrPulsesBuf[i][:]
 	}
+
+	// Carve Burg CReal scratch from inline buffer (0 allocs).
+	cr := enc.scratchCRealBuf[:]
+	enc.scratchBurgAf = cr[:silkMaxOrderLPC]
+	cr = cr[silkMaxOrderLPC:]
+	enc.scratchBurgCFirstRow = cr[:silkMaxOrderLPC]
+	cr = cr[silkMaxOrderLPC:]
+	enc.scratchBurgCLastRow = cr[:silkMaxOrderLPC]
+	cr = cr[silkMaxOrderLPC:]
+	enc.scratchBurgCAf = cr[:silkMaxOrderLPC+1]
+	cr = cr[silkMaxOrderLPC+1:]
+	enc.scratchBurgCAb = cr[:silkMaxOrderLPC+1]
+
+	// Carve small int8/uint8 scratch from inline buffers (0 allocs).
+	i8 := enc.scratchI8Buf[:]
+	enc.scratchPaddedPulses = i8[:maxFrameLength]
+	i8 = i8[maxFrameLength:]
+	enc.scratchNLSFIndices = i8[:maxLPCOrder+1]
+	i8 = i8[maxLPCOrder+1:]
+	enc.scratchGainInd = i8[:maxNbSubfr]
+	enc.scratchPredQ8 = enc.scratchPredQ8Buf[:]
+
+	// Carve all float32 scratch from one contiguous noscan arena.
+	enc.encScratchF32.Ensure(
+		xBufLen + pitchResLen + maxFrameLength + maxFrameLength/2 +
+			(maxLag4kHz + 5) + (maxLag4kHz + 1) + 2*st3Len +
+			maxLPCOrder + maxPitchWinLen + maxPitchWinLen +
+			(maxLPCOrder + 1) + 2*maxLPCOrder + maxLtpResLen +
+			maxLtpResLen + maxNbSubfr + 2*maxLPCOrder +
+			xBufLen + maxLtpResLen + maxNbSubfr + maxFrameLength,
+	)
+	enc.xBuf = enc.encScratchF32.AllocN(xBufLen)
+	enc.scratchPitchRes32 = enc.encScratchF32.AllocN(pitchResLen)
+	enc.scratchFrame8kHz = enc.encScratchF32.AllocN(maxFrameLength)
+	enc.scratchFrame4kHz = enc.encScratchF32.AllocN(maxFrameLength / 2)
+	enc.scratchPitchC = enc.encScratchF32.AllocN(maxLag4kHz + 5)
+	enc.scratchPitchXcorr = enc.encScratchF32.AllocN(maxLag4kHz + 1)
+	enc.scratchPitchCorrSt3 = enc.encScratchF32.AllocN(st3Len)
+	enc.scratchPitchEnergySt3 = enc.encScratchF32.AllocN(st3Len)
+	enc.scratchBurgResult = enc.encScratchF32.AllocN(maxLPCOrder)
+	enc.scratchPitchInput32 = enc.encScratchF32.AllocN(maxPitchWinLen)
+	enc.scratchPitchWsig32 = enc.encScratchF32.AllocN(maxPitchWinLen)
+	enc.scratchPitchAuto32 = enc.encScratchF32.AllocN(maxLPCOrder + 1)
+	enc.scratchPitchRefl32 = enc.encScratchF32.AllocN(maxLPCOrder)
+	enc.scratchPitchA32 = enc.encScratchF32.AllocN(maxLPCOrder)
+	enc.scratchLtpResF32 = enc.encScratchF32.AllocN(maxLtpResLen)
+	enc.scratchLpcResF32 = enc.encScratchF32.AllocN(maxLtpResLen)
+	enc.scratchResNrg = enc.encScratchF32.AllocN(maxNbSubfr)
+	enc.scratchPredCoefF32A = enc.encScratchF32.AllocN(maxLPCOrder)
+	enc.scratchPredCoefF32B = enc.encScratchF32.AllocN(maxLPCOrder)
+	enc.scratchLpcX = enc.encScratchF32.AllocN(xBufLen)
+	enc.scratchLpcResidual = enc.encScratchF32.AllocN(maxLtpResLen)
+	enc.scratchGains = enc.encScratchF32.AllocN(maxNbSubfr)
+	enc.frameF32 = enc.encScratchF32.AllocN(maxFrameLength)
+
+	// Carve all int16 scratch from one contiguous noscan arena.
+	enc.encScratchI16.Ensure(
+		maxLPCOrder + maxFrameLength + maxFrameLength + maxFrameLength/2 +
+			dCompLen + maxFrameLength + maxNbSubfr*maxShapeLpcOrder +
+			maxNbSubfr*ltpOrderConst + 2*maxLPCOrder + maxLPCOrder +
+			5*maxLPCOrder + maxFrameLength,
+	)
+	enc.scratchLSFQ15 = enc.encScratchI16.AllocN(maxLPCOrder)
+	enc.scratchFrame16Fix = enc.encScratchI16.AllocN(maxFrameLength)
+	enc.scratchFrame8Fix = enc.encScratchI16.AllocN(maxFrameLength)
+	enc.scratchFrame4Fix = enc.encScratchI16.AllocN(maxFrameLength / 2)
+	enc.scratchDComp = enc.encScratchI16.AllocN(dCompLen)
+	enc.scratchInputQ0 = enc.encScratchI16.AllocN(maxFrameLength)
+	enc.scratchArShpQ13 = enc.encScratchI16.AllocN(maxNbSubfr * maxShapeLpcOrder)
+	enc.scratchLtpCoefQ14 = enc.encScratchI16.AllocN(maxNbSubfr * ltpOrderConst)
+	enc.scratchPredCoefQ12 = enc.encScratchI16.AllocN(2 * maxLPCOrder)
+	enc.scratchLpcQ12 = enc.encScratchI16.AllocN(maxLPCOrder)
+	enc.scratchEcIx = enc.encScratchI16.AllocN(maxLPCOrder)
+	enc.scratchResQ10 = enc.encScratchI16.AllocN(maxLPCOrder)
+	enc.scratchNLSFWeights = enc.encScratchI16.AllocN(maxLPCOrder)
+	enc.scratchNLSFWeightsTmp = enc.encScratchI16.AllocN(maxLPCOrder)
+	enc.scratchNLSFTempQ15 = enc.encScratchI16.AllocN(maxLPCOrder)
+	enc.vadScratch = enc.encScratchI16.AllocN(maxFrameLength)
+
+	// Carve all int32 scratch from one contiguous noscan arena.
+	enc.encScratchI32.Ensure(
+		maxFrameLength + 2*maxIter + maxLPCOrder + (maxFrameLength + 4) +
+			peDSrchLength + maxNbSubfr + 7*maxNbSubfr + maxLPCOrder,
+	)
+	enc.scratchAbsPulses = enc.encScratchI32.AllocN(maxFrameLength)
+	enc.scratchSumPulses = enc.encScratchI32.AllocN(maxIter)
+	enc.scratchNRshifts = enc.encScratchI32.AllocN(maxIter)
+	enc.scratchLPCQ16 = enc.encScratchI32.AllocN(maxLPCOrder)
+	enc.scratchResampler = enc.encScratchI32.AllocN(maxFrameLength + 4)
+	enc.scratchDSrch = enc.encScratchI32.AllocN(peDSrchLength)
+	enc.scratchPitchLags = enc.encScratchI32.AllocN(maxNbSubfr)
+	enc.scratchGainsUnqQ16 = enc.encScratchI32.AllocN(maxNbSubfr)
+	enc.scratchGainsQ16 = enc.encScratchI32.AllocN(maxNbSubfr)
+	enc.scratchLBRRGainsQ16 = enc.encScratchI32.AllocN(maxNbSubfr)
+	enc.scratchPitchL = enc.encScratchI32.AllocN(maxNbSubfr)
+	enc.scratchHarmShapeGainQ14 = enc.encScratchI32.AllocN(maxNbSubfr)
+	enc.scratchTiltQ14 = enc.encScratchI32.AllocN(maxNbSubfr)
+	enc.scratchLfShpQ14 = enc.encScratchI32.AllocN(maxNbSubfr)
+	enc.scratchLsfResiduals = enc.encScratchI32.AllocN(maxLPCOrder)
+
 	enc.reset()
 	return enc
 }

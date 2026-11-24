@@ -9,38 +9,35 @@ import (
 // randBoundedKissCpx draws components across the whole range the Fast
 // butterflies accept: zeros, subnormals, ordinary values and magnitudes just
 // below 2^100.
-func randBoundedKissCpx(rng *rand.Rand) kissCpx {
-	f := func() float32 {
-		switch rng.Intn(8) {
-		case 0:
-			return 0
-		case 1:
-			return math.Float32frombits(rng.Uint32() & 0x807fffff) // subnormal
-		case 2:
-			// Largest bounded exponents.
-			return math.Float32frombits(rng.Uint32()&0x807fffff | uint32(0xe0+rng.Intn(3))<<23)
-		default:
-			return float32(rng.NormFloat64() * math.Pow(10, float64(rng.Intn(12))))
-		}
+func randBoundedFloat32(rng *rand.Rand) float32 {
+	switch rng.Intn(8) {
+	case 0:
+		return 0
+	case 1:
+		return math.Float32frombits(rng.Uint32() & 0x807fffff) // subnormal
+	case 2:
+		// Largest bounded exponents.
+		return math.Float32frombits(rng.Uint32()&0x807fffff | uint32(0xe0+rng.Intn(3))<<23)
+	default:
+		return float32(rng.NormFloat64() * math.Pow(10, float64(rng.Intn(12))))
 	}
-	return kissCpx{f(), f()}
 }
 
 func TestKfBflyInnerFastMatchesScalar(t *testing.T) {
 	rng := rand.New(rand.NewSource(0x6b66))
-	type bfly func(fout, w []kissCpx, m, N, mm, fstride int)
+	type bfly func(fout []float32, w []kissCpx, m, N, mm, fstride int)
 	cases := []struct {
 		name       string
 		radix      int
 		fast, want bfly
 	}{
-		{"radix3", 3, func(fout, w []kissCpx, m, N, mm, fstride int) {
+		{"radix3", 3, func(fout []float32, w []kissCpx, m, N, mm, fstride int) {
 			kfBfly3InnerFast(fout, packKissTwiddles3(w, m, fstride), w[fstride*m].i, N, mm)
 		}, kfBfly3InnerScalar},
-		{"radix4", 4, func(fout, w []kissCpx, m, N, mm, fstride int) {
+		{"radix4", 4, func(fout []float32, w []kissCpx, m, N, mm, fstride int) {
 			kfBfly4InnerFast(fout, packKissTwiddles4(w, m, fstride), N, mm)
 		}, kfBfly4InnerScalar},
-		{"radix5", 5, func(fout, w []kissCpx, m, N, mm, fstride int) {
+		{"radix5", 5, func(fout []float32, w []kissCpx, m, N, mm, fstride int) {
 			kfBfly5InnerFast(fout, packKissTwiddles5(w, m, fstride), w[fstride*m], w[2*fstride*m], N, mm)
 		}, kfBfly5InnerScalar},
 	}
@@ -50,9 +47,9 @@ func TestKfBflyInnerFastMatchesScalar(t *testing.T) {
 			N := 1 + rng.Intn(6)
 			mm := tc.radix*m + rng.Intn(3)
 			fstride := 1 + rng.Intn(4)
-			fout := make([]kissCpx, N*mm+tc.radix*m)
+			fout := make([]float32, 2*(N*mm+tc.radix*m))
 			for i := range fout {
-				fout[i] = randBoundedKissCpx(rng)
+				fout[i] = randBoundedFloat32(rng)
 			}
 			// Twiddles are unit-magnitude rotations.
 			w := make([]kissCpx, fstride*tc.radix*m+1)
@@ -60,13 +57,13 @@ func TestKfBflyInnerFastMatchesScalar(t *testing.T) {
 				s, c := math.Sincos(rng.Float64() * 2 * math.Pi)
 				w[i] = kissCpx{float32(c), float32(s)}
 			}
-			want := append([]kissCpx(nil), fout...)
+			want := append([]float32(nil), fout...)
 			tc.want(want, w, m, N, mm, fstride)
 			tc.fast(fout, w, m, N, mm, fstride)
 			for i := range fout {
-				if math.Float32bits(fout[i].r) != math.Float32bits(want[i].r) || math.Float32bits(fout[i].i) != math.Float32bits(want[i].i) {
-					t.Fatalf("%s iter %d m=%d N=%d mm=%d fs=%d: out[%d]=%08x,%08x want %08x,%08x", tc.name, iter, m, N, mm, fstride, i,
-						math.Float32bits(fout[i].r), math.Float32bits(fout[i].i), math.Float32bits(want[i].r), math.Float32bits(want[i].i))
+				if math.Float32bits(fout[i]) != math.Float32bits(want[i]) {
+					t.Fatalf("%s iter %d m=%d N=%d mm=%d fs=%d: out[%d]=%08x want %08x", tc.name, iter, m, N, mm, fstride, i,
+						math.Float32bits(fout[i]), math.Float32bits(want[i]))
 				}
 			}
 		}
@@ -87,13 +84,9 @@ func TestKissFFTInputBounded(t *testing.T) {
 		{float32(math.NaN()), false}, {math.Float32frombits(0xffc00001), false},
 	} {
 		for pos := 0; pos < 5; pos++ {
-			x := make([]kissCpx, 3)
-			x[pos/2].r = 7
-			if pos%2 == 0 {
-				x[pos/2].r = tc.v
-			} else {
-				x[pos/2].i = tc.v
-			}
+			x := make([]float32, 6)
+			x[2*(pos/2)] = 7
+			x[pos] = tc.v
 			if got := kissFFTInputBounded(x); got != tc.want {
 				t.Fatalf("kissFFTInputBounded with %08x at %d = %t, want %t", math.Float32bits(tc.v), pos, got, tc.want)
 			}
@@ -108,20 +101,20 @@ func TestKissFFTBoundedFastPathMatchesScalar(t *testing.T) {
 	for _, n := range []int{60, 120, 240, 480, 960} {
 		st := getKissFFTState(n)
 		for iter := 0; iter < 20; iter++ {
-			in := make([]kissCpx, n)
+			in := make([]float32, 2*n)
 			scale := math.Pow(2, float64(rng.Intn(100)))
 			for i := range in {
-				in[i] = kissCpx{float32(rng.NormFloat64() * scale / 4), float32(rng.NormFloat64() * scale / 4)}
+				in[i] = float32(rng.NormFloat64() * scale / 4)
 			}
 			if !kissFFTInputBounded(in) {
 				continue
 			}
-			got := append([]kissCpx(nil), in...)
-			want := append([]kissCpx(nil), in...)
+			got := append([]float32(nil), in...)
+			want := append([]float32(nil), in...)
 			kissFFTStagesForTest(st, got, true)
 			kissFFTStagesForTest(st, want, false)
 			for i := range got {
-				if math.Float32bits(got[i].r) != math.Float32bits(want[i].r) || math.Float32bits(got[i].i) != math.Float32bits(want[i].i) {
+				if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
 					t.Fatalf("n=%d iter %d: out[%d]=%v want %v", n, iter, i, got[i], want[i])
 				}
 			}
@@ -132,7 +125,7 @@ func TestKissFFTBoundedFastPathMatchesScalar(t *testing.T) {
 // kissFFTStagesForTest mirrors fftImpl's stage loop while keeping the
 // reference stages scalar on every build. The fast flag selects packed scalar
 // butterflies only; production SIMD stages have separate C-oracle coverage.
-func kissFFTStagesForTest(st *kissFFTState, fout []kissCpx, fast bool) {
+func kissFFTStagesForTest(st *kissFFTState, fout []float32, fast bool) {
 	L := 0
 	for 2*L+1 < len(st.factors) {
 		m := st.factors[2*L+1]
@@ -202,33 +195,36 @@ func TestKfBfly4M1CoreScalarMatchesReference(t *testing.T) {
 		}
 	}
 	for _, n := range []int{1, 2, 3, 15, 30, 60, 120, 240} {
-		got := make([]kissCpx, 4*n)
+		got := make([]float32, 8*n)
 		for i := range got {
-			got[i] = kissCpx{pick(), pick()}
+			got[i] = pick()
 		}
-		want := append([]kissCpx(nil), got...)
-		for i := 0; i < 4*n; i += 4 {
-			a0, a1, a2, a3 := want[i], want[i+1], want[i+2], want[i+3]
-			s0r, s0i := a0.r-a2.r, a0.i-a2.i
-			f0r, f0i := a0.r+a2.r, a0.i+a2.i
-			s1r, s1i := a1.r+a3.r, a1.i+a3.i
+		want := append([]float32(nil), got...)
+		for i := 0; i < 8*n; i += 8 {
+			a0r, a0i := want[i], want[i+1]
+			a1r, a1i := want[i+2], want[i+3]
+			a2r, a2i := want[i+4], want[i+5]
+			a3r, a3i := want[i+6], want[i+7]
+			s0r, s0i := a0r-a2r, a0i-a2i
+			f0r, f0i := a0r+a2r, a0i+a2i
+			s1r, s1i := a1r+a3r, a1i+a3i
 			f2r, f2i := f0r-s1r, f0i-s1i
 			f0r += s1r
 			f0i += s1i
-			s1r, s1i = a1.r-a3.r, a1.i-a3.i
-			want[i] = kissCpx{f0r, f0i}
-			want[i+1] = kissCpx{s0r + s1i, s0i - s1r}
-			want[i+2] = kissCpx{f2r, f2i}
-			want[i+3] = kissCpx{s0r - s1i, s0i + s1r}
+			s1r, s1i = a1r-a3r, a1i-a3i
+			want[i], want[i+1] = f0r, f0i
+			want[i+2], want[i+3] = s0r+s1i, s0i-s1r
+			want[i+4], want[i+5] = f2r, f2i
+			want[i+6], want[i+7] = s0r-s1i, s0i+s1r
 		}
 		kfBfly4M1CoreScalar(got, n)
 		for i := range got {
-			if math.Float32bits(got[i].r) != math.Float32bits(want[i].r) || math.Float32bits(got[i].i) != math.Float32bits(want[i].i) {
+			if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
 				t.Fatalf("n=%d: out[%d]=%v want %v", n, i, got[i], want[i])
 			}
 		}
 	}
-	fout := make([]kissCpx, 4*120)
+	fout := make([]float32, 8*120)
 	if allocs := testing.AllocsPerRun(100, func() { kfBfly4M1CoreScalar(fout, 120) }); allocs != 0 {
 		t.Fatalf("steady-state allocations = %g, want 0", allocs)
 	}
@@ -236,35 +232,35 @@ func TestKfBfly4M1CoreScalarMatchesReference(t *testing.T) {
 
 // kfBfly2M4Reference is the kf_bfly2 m == 4 loop of celt/kiss_fft.c written
 // with indexed Fout/Fout2 accesses and the target's output helpers.
-func kfBfly2M4Reference(fout []kissCpx, n int) {
+func kfBfly2M4Reference(fout []float32, n int) {
 	tw := kfBfly2M4Twiddle
 	for g := range n {
-		f := fout[8*g : 8*g+8]
-		f2 := f[4:]
-		t := f2[0]
-		f2[0].r = f[0].r - t.r
-		f2[0].i = f[0].i - t.i
-		f[0].r += t.r
-		f[0].i += t.i
+		f := fout[16*g : 16*g+16]
+		f2 := f[8:]
+		tr, ti := f2[0], f2[1]
+		f2[0] = f[0] - tr
+		f2[1] = f[1] - ti
+		f[0] += tr
+		f[1] += ti
 
-		b1 := f2[1]
-		loR, hiR := kissBfly2M4Outputs(f[1].r, kissAdd(b1.r, b1.i), tw)
-		loI, hiI := kissBfly2M4Outputs(f[1].i, kissSub(b1.i, b1.r), tw)
-		f2[1] = kissCpx{loR, loI}
-		f[1] = kissCpx{hiR, hiI}
+		b1r, b1i := f2[2], f2[3]
+		loR, hiR := kissBfly2M4Outputs(f[2], kissAdd(b1r, b1i), tw)
+		loI, hiI := kissBfly2M4Outputs(f[3], kissSub(b1i, b1r), tw)
+		f2[2], f2[3] = loR, loI
+		f[2], f[3] = hiR, hiI
 
-		t.r = f2[2].i
-		t.i = -f2[2].r
-		f2[2].r = kissSub(f[2].r, t.r)
-		f2[2].i = kissSub(f[2].i, t.i)
-		f[2].r = kissAdd(f[2].r, t.r)
-		f[2].i = kissAdd(f[2].i, t.i)
+		tr = f2[5]
+		ti = -f2[4]
+		f2[4] = kissSub(f[4], tr)
+		f2[5] = kissSub(f[5], ti)
+		f[4] = kissAdd(f[4], tr)
+		f[5] = kissAdd(f[5], ti)
 
-		b3 := f2[3]
-		loR, hiR = kissBfly2M4Outputs(f[3].r, kissSub(b3.i, b3.r), tw)
-		loI, hiI = kissBfly2M4Outputs(f[3].i, -kissAdd(b3.i, b3.r), tw)
-		f2[3] = kissCpx{loR, loI}
-		f[3] = kissCpx{hiR, hiI}
+		b3r, b3i := f2[6], f2[7]
+		loR, hiR = kissBfly2M4Outputs(f[6], kissSub(b3i, b3r), tw)
+		loI, hiI = kissBfly2M4Outputs(f[7], -kissAdd(b3i, b3r), tw)
+		f2[6], f2[7] = loR, loI
+		f[6], f[7] = hiR, hiI
 	}
 }
 
@@ -283,20 +279,20 @@ func TestKfBfly2M4ScalarMatchesReference(t *testing.T) {
 		}
 	}
 	for _, n := range []int{1, 2, 3, 15, 30, 60, 120} {
-		got := make([]kissCpx, 8*n)
+		got := make([]float32, 16*n)
 		for i := range got {
-			got[i] = kissCpx{pick(), pick()}
+			got[i] = pick()
 		}
-		want := append([]kissCpx(nil), got...)
+		want := append([]float32(nil), got...)
 		kfBfly2M4Reference(want, n)
 		kfBfly2M4Scalar(got, n)
 		for i := range got {
-			if math.Float32bits(got[i].r) != math.Float32bits(want[i].r) || math.Float32bits(got[i].i) != math.Float32bits(want[i].i) {
+			if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
 				t.Fatalf("n=%d: out[%d]=%v want %v", n, i, got[i], want[i])
 			}
 		}
 	}
-	fout := make([]kissCpx, 8*60)
+	fout := make([]float32, 16*60)
 	if allocs := testing.AllocsPerRun(100, func() { kfBfly2M4Scalar(fout, 60) }); allocs != 0 {
 		t.Fatalf("steady-state allocations = %g, want 0", allocs)
 	}

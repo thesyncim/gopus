@@ -281,8 +281,9 @@ func runAnalysisNonzeroHistoryAvgModTrace(t *testing.T, class string, fs, channe
 	if state.Count != 3 {
 		t.Fatalf("%s frame-%d post-analysis Count=%d want 3", class, targetFrame, state.Count)
 	}
-	compareAnalysisComplexBits(t, "target-frame FFT output", trace.fftOutput, state.scratchFFTOut[:])
-	compareAnalysisPhaseInputs(t, phaseTrace, state.scratchFFTOut[:])
+	fftOut := analysisFFTOutAsComplex(state.scratchFFTOut[:])
+	compareAnalysisComplexBits(t, "target-frame FFT output", trace.fftOutput, fftOut)
+	compareAnalysisPhaseInputs(t, phaseTrace, fftOut)
 	compareAnalysisPhaseState(t, phaseTrace, state.Angle, state.DAngle, state.D2Angle)
 	compareAnalysisPerBinMetrics(t, phaseTrace, metrics[:])
 }
@@ -312,7 +313,7 @@ func snapshotAnalysisNonzeroHistoryGoFrame(state *TonalityAnalysisState) analysi
 	var frame analysisNonzeroHistoryGoFrame
 	copy(frame.inmem[:], state.InMem[240:720])
 	frame.fftInput = append([]complex64(nil), state.scratchFFTIn[:]...)
-	frame.fftOutput = append([]complex64(nil), state.scratchFFTOut[:]...)
+	frame.fftOutput = analysisFFTOutAsComplex(state.scratchFFTOut[:])
 	frame.angle = state.Angle
 	frame.dAngle = state.DAngle
 	frame.d2Angle = state.D2Angle

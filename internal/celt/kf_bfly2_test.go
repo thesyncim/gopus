@@ -7,14 +7,14 @@ import (
 )
 
 // kfBfly2M1Reference is the pure Go reference implementation.
-func kfBfly2M1Reference(fout []kissCpx, n int) {
+func kfBfly2M1Reference(fout []float32, n int) {
 	for range n {
-		fout2 := fout[1]
-		fout[1].r = fout[0].r - fout2.r
-		fout[1].i = fout[0].i - fout2.i
-		fout[0].r += fout2.r
-		fout[0].i += fout2.i
-		fout = fout[2:]
+		r2, i2 := fout[2], fout[3]
+		fout[2] = fout[0] - r2
+		fout[3] = fout[1] - i2
+		fout[0] += r2
+		fout[1] += i2
+		fout = fout[4:]
 	}
 }
 
@@ -62,27 +62,24 @@ func TestKfBfly2M1Correctness(t *testing.T) {
 		t.Run("", func(t *testing.T) {
 			// Generate random input
 			rng := rand.New(rand.NewSource(42))
-			input := make([]kissCpx, n*2)
+			input := make([]float32, n*4)
 			for i := range input {
-				input[i] = kissCpx{
-					r: float32(rng.Float64()*2 - 1),
-					i: float32(rng.Float64()*2 - 1),
-				}
+				input[i] = float32(rng.Float64()*2 - 1)
 			}
 
 			// Reference output
-			refOut := make([]kissCpx, len(input))
+			refOut := make([]float32, len(input))
 			copy(refOut, input)
 			kfBfly2M1Reference(refOut, n)
 
 			// Optimized output
-			optOut := make([]kissCpx, len(input))
+			optOut := make([]float32, len(input))
 			copy(optOut, input)
 			// Verify copy worked
 			for i := range input {
 				if input[i] != optOut[i] {
-					t.Fatalf("Copy mismatch at %d: input={%.6f,%.6f} optOut={%.6f,%.6f}",
-						i, input[i].r, input[i].i, optOut[i].r, optOut[i].i)
+					t.Fatalf("Copy mismatch at %d: input=%.6f optOut=%.6f",
+						i, input[i], optOut[i])
 				}
 			}
 			kfBfly2M1(optOut, n)
@@ -91,22 +88,16 @@ func TestKfBfly2M1Correctness(t *testing.T) {
 			var maxDiff float64
 			var maxDiffIdx int
 			for i := range refOut {
-				dr := math.Abs(float64(refOut[i].r - optOut[i].r))
-				di := math.Abs(float64(refOut[i].i - optOut[i].i))
-				if dr > maxDiff {
-					maxDiff = dr
-					maxDiffIdx = i
-				}
-				if di > maxDiff {
-					maxDiff = di
+				d := math.Abs(float64(refOut[i] - optOut[i]))
+				if d > maxDiff {
+					maxDiff = d
 					maxDiffIdx = i
 				}
 			}
 			if maxDiff > 1e-6 {
-				t.Errorf("n=%d: max diff = %.2e at index %d (ref: {%.6f, %.6f}, got: {%.6f, %.6f})",
+				t.Errorf("n=%d: max diff = %.2e at index %d (ref: %.6f, got: %.6f)",
 					n, maxDiff, maxDiffIdx,
-					refOut[maxDiffIdx].r, refOut[maxDiffIdx].i,
-					optOut[maxDiffIdx].r, optOut[maxDiffIdx].i)
+					refOut[maxDiffIdx], optOut[maxDiffIdx])
 			}
 		})
 	}
@@ -116,14 +107,14 @@ func TestKfBfly2M1Correctness(t *testing.T) {
 func BenchmarkKfBfly2M1Portable(b *testing.B) {
 	sizes := []int{60, 120, 240, 480}
 	for _, n := range sizes {
-		input := make([]kissCpx, n*2)
+		input := make([]float32, n*4)
 		rng := rand.New(rand.NewSource(42))
 		for i := range input {
-			input[i] = kissCpx{r: float32(rng.Float64()), i: float32(rng.Float64())}
+			input[i] = float32(rng.Float64())
 		}
 
 		b.Run("Reference/n="+itoaPortable(n), func(b *testing.B) {
-			data := make([]kissCpx, len(input))
+			data := make([]float32, len(input))
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				copy(data, input)
@@ -132,7 +123,7 @@ func BenchmarkKfBfly2M1Portable(b *testing.B) {
 		})
 
 		b.Run("Optimized/n="+itoaPortable(n), func(b *testing.B) {
-			data := make([]kissCpx, len(input))
+			data := make([]float32, len(input))
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				copy(data, input)
@@ -146,14 +137,14 @@ func BenchmarkKfBfly2M1Portable(b *testing.B) {
 func BenchmarkKfBfly2M1PortableNoCopy(b *testing.B) {
 	sizes := []int{60, 120, 240, 480}
 	for _, n := range sizes {
-		input := make([]kissCpx, n*2)
+		input := make([]float32, n*4)
 		rng := rand.New(rand.NewSource(42))
 		for i := range input {
-			input[i] = kissCpx{r: float32(rng.Float64()), i: float32(rng.Float64())}
+			input[i] = float32(rng.Float64())
 		}
 
 		b.Run("Reference/n="+itoaPortable(n), func(b *testing.B) {
-			data := make([]kissCpx, len(input))
+			data := make([]float32, len(input))
 			copy(data, input)
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
@@ -162,7 +153,7 @@ func BenchmarkKfBfly2M1PortableNoCopy(b *testing.B) {
 		})
 
 		b.Run("Optimized/n="+itoaPortable(n), func(b *testing.B) {
-			data := make([]kissCpx, len(input))
+			data := make([]float32, len(input))
 			copy(data, input)
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {

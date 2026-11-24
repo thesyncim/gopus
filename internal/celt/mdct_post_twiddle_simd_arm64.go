@@ -2,7 +2,7 @@
 
 package celt
 
-import "unsafe"
+import "simd/archsimd"
 
 // mdctUsePostTwiddleNeon enables the archsimd forward-MDCT post-twiddle.
 const mdctUsePostTwiddleNeon = true
@@ -20,69 +20,62 @@ const mdctUsePostTwiddleNeon = true
 // clt_mdct_forward_c(), matching mdctMulSubMixEncode/mdctMulAddMixEncode and
 // the scalar loop bit-for-bit. The caller does the n4%8
 // middle scalarly, so this runs exactly pairBlocks blocks.
-func mdctPostTwiddleNeon(coeffs []float32, fftStage []kissCpx, trig []float32, n2, n4, pairBlocks int) {
+func mdctPostTwiddleNeon(coeffs []float32, fftStage []float32, trig []float32, n2, n4, pairBlocks int) {
 	if pairBlocks <= 0 {
 		return
 	}
 	if 8*pairBlocks > n4 {
 		panic("celt: mdctPostTwiddleNeon pairBlocks out of range")
 	}
-	_ = coeffs[n2-1]
-	_ = trig[n2-1]
-	_ = fftStage[n4-1]
-	cp := unsafe.Pointer(unsafe.SliceData(coeffs))
-	ffp := unsafe.Pointer(unsafe.SliceData(fftStage))
-	tp := unsafe.Pointer(unsafe.SliceData(trig))
-	forwardFFT := ffp
-	// The final decrement remains within fftStage for pairBlocks <= n4/8,
-	// which is the production contract for the SIMD region.
-	mirrorFFT := unsafe.Add(ffp, (n4-4)*8)
-	forwardT0 := tp
-	forwardT1 := unsafe.Add(tp, n4*4)
-	mirrorT0 := unsafe.Add(tp, (n4-4)*4)
-	mirrorT1 := unsafe.Add(tp, (2*n4-4)*4)
-	low := cp
-	high := unsafe.Add(cp, (n2-8)*4)
+	coeffs = coeffs[:n2]
+	trig = trig[:n2]
+	ff := fftStage[:2*n4]
+	fwdFFT := 0
+	mirFFT := 2 * (n4 - 4)
+	fwdT0 := 0
+	fwdT1 := n4
+	mirT0 := n4 - 4
+	mirT1 := 2*n4 - 4
+	low := 0
+	high := n2 - 8
 	for b := 0; b < pairBlocks; b++ {
 		// Forward fftStage[i..i+3]: re=even(.r), im=odd(.i).
-		f0 := loadF32x4(forwardFFT)
-		f1 := loadF32x4(unsafe.Add(forwardFFT, 16))
-		re := f0.ToBits().ConcatEven(f1.ToBits()).BitsToFloat32()
-		im := f0.ToBits().ConcatOdd(f1.ToBits()).BitsToFloat32()
-		t0 := loadF32x4(forwardT0)
-		t1 := loadF32x4(forwardT1)
+		f0 := archsimd.LoadFloat32x4Array((*[4]float32)(ff[fwdFFT:])).ToBits()
+		f1 := archsimd.LoadFloat32x4Array((*[4]float32)(ff[fwdFFT+4:])).ToBits()
+		re := f0.ConcatEven(f1).BitsToFloat32()
+		im := f0.ConcatOdd(f1).BitsToFloat32()
+		t0 := archsimd.LoadFloat32x4Array((*[4]float32)(trig[fwdT0:]))
+		t1 := archsimd.LoadFloat32x4Array((*[4]float32)(trig[fwdT1:]))
 		yrF := im.MulAdd(t1, re.Mul(t0).Neg())
 		yiF := re.MulAdd(t1, im.Mul(t0))
 
 		// Mirror fftStage[n4-4-i..n4-1-i], ascending j.
-		g0 := loadF32x4(mirrorFFT)
-		g1 := loadF32x4(unsafe.Add(mirrorFFT, 16))
-		reM := g0.ToBits().ConcatEven(g1.ToBits()).BitsToFloat32()
-		imM := g0.ToBits().ConcatOdd(g1.ToBits()).BitsToFloat32()
-		t0M := loadF32x4(mirrorT0)
-		t1M := loadF32x4(mirrorT1)
+		g0 := archsimd.LoadFloat32x4Array((*[4]float32)(ff[mirFFT:])).ToBits()
+		g1 := archsimd.LoadFloat32x4Array((*[4]float32)(ff[mirFFT+4:])).ToBits()
+		reM := g0.ConcatEven(g1).BitsToFloat32()
+		imM := g0.ConcatOdd(g1).BitsToFloat32()
+		t0M := archsimd.LoadFloat32x4Array((*[4]float32)(trig[mirT0:]))
+		t1M := archsimd.LoadFloat32x4Array((*[4]float32)(trig[mirT1:]))
 		yrM := imM.MulAdd(t1M, reM.Mul(t0M).Neg())
 		yiM := reM.MulAdd(t1M, imM.Mul(t0M))
 
 		// Low region coeffs[2i..2i+7] = zip(yrF, reverse4(yiM)).
 		rYiM := reverse4(yiM)
-		storeF32x4(low, yrF.ToBits().InterleaveLo(rYiM.ToBits()).BitsToFloat32())
-		storeF32x4(unsafe.Add(low, 16), yrF.ToBits().InterleaveHi(rYiM.ToBits()).BitsToFloat32())
+		yrF.ToBits().InterleaveLo(rYiM.ToBits()).BitsToFloat32().StoreArray((*[4]float32)(coeffs[low:]))
+		yrF.ToBits().InterleaveHi(rYiM.ToBits()).BitsToFloat32().StoreArray((*[4]float32)(coeffs[low+4:]))
 
 		// High region coeffs[n2-8-2i..n2-1-2i] = zip(yrM, reverse4(yiF)).
 		rYiF := reverse4(yiF)
-		storeF32x4(high, yrM.ToBits().InterleaveLo(rYiF.ToBits()).BitsToFloat32())
-		storeF32x4(unsafe.Add(high, 16), yrM.ToBits().InterleaveHi(rYiF.ToBits()).BitsToFloat32())
+		yrM.ToBits().InterleaveLo(rYiF.ToBits()).BitsToFloat32().StoreArray((*[4]float32)(coeffs[high:]))
+		yrM.ToBits().InterleaveHi(rYiF.ToBits()).BitsToFloat32().StoreArray((*[4]float32)(coeffs[high+4:]))
 
-		if b+1 < pairBlocks {
-			forwardFFT = unsafe.Add(forwardFFT, 32)
-			mirrorFFT = unsafe.Add(mirrorFFT, -32)
-			forwardT0 = unsafe.Add(forwardT0, 16)
-			forwardT1 = unsafe.Add(forwardT1, 16)
-			mirrorT0 = unsafe.Add(mirrorT0, -16)
-			mirrorT1 = unsafe.Add(mirrorT1, -16)
-			low = unsafe.Add(low, 32)
-			high = unsafe.Add(high, -32)
-		}
+		fwdFFT += 8
+		mirFFT -= 8
+		fwdT0 += 4
+		fwdT1 += 4
+		mirT0 -= 4
+		mirT1 -= 4
+		low += 8
+		high -= 8
 	}
 }

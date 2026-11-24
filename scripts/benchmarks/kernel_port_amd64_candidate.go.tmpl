@@ -56,13 +56,17 @@ func BenchmarkPortAMD64CeltInnerProdSSEStyle(b *testing.B) {
 	}
 }
 
-func benchmarkPortAMD64KfBflyInner(b *testing.B, radix int, fn func([]kissCpx, []kissCpx, int, int, int, int)) {
+func benchmarkPortAMD64KfBflyInner[T float32 | kissCpx](b *testing.B, radix int, fn func([]T, []kissCpx, int, int, int, int)) {
 	const m, n, fstride = 8, 4, 8
 	mm := radix * m
 	size := n * mm
-	work := make([][]kissCpx, kernelPortBenchAMD64Batch)
+	var zero T
+	if _, ok := any(zero).(float32); ok {
+		size *= 2
+	}
+	work := make([][]T, kernelPortBenchAMD64Batch)
 	for i := range work {
-		work[i] = make([]kissCpx, size)
+		work[i] = make([]T, size)
 	}
 	w := kernelPortBenchAMD64Complex((radix*m-1)*fstride + 1)
 	b.ReportAllocs()
@@ -73,8 +77,13 @@ func benchmarkPortAMD64KfBflyInner(b *testing.B, radix int, fn func([]kissCpx, [
 	}
 	var result kissCpx
 	for i := range work {
-		result.r += work[i][i%size].r
-		result.i += work[i][i%size].i
+		switch v := any(work[i][i%size]).(type) {
+		case float32:
+			result.r += v
+		case kissCpx:
+			result.r += v.r
+			result.i += v.i
+		}
 	}
 	kernelPortBenchAMD64Cpx = result
 }

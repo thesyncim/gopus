@@ -32,18 +32,21 @@ func analysisBinsEdgeValue(rng *rand.Rand) float32 {
 func TestAnalysisBinsMatchesScalar(t *testing.T) {
 	rng := rand.New(rand.NewSource(0x5eed7a5))
 	for trial := range 400 {
-		var out [480]complex64
-		for i := range out {
+		var out [960]float32
+		for i := range 480 {
 			if trial%3 == 0 {
-				out[i] = complex(analysisBinsEdgeValue(rng), analysisBinsEdgeValue(rng))
+				out[2*i] = analysisBinsEdgeValue(rng)
+				out[2*i+1] = analysisBinsEdgeValue(rng)
 			} else {
-				out[i] = complex(float32(rng.NormFloat64())*1000, float32(rng.NormFloat64())*1000)
+				out[2*i] = float32(rng.NormFloat64()) * 1000
+				out[2*i+1] = float32(rng.NormFloat64()) * 1000
 			}
 		}
 		if trial%7 == 0 {
 			// Mirror pairs with equal and opposite magnitudes.
 			for i := 1; i < 240; i += 5 {
-				out[480-i] = complex(real(out[i]), -imag(out[i]))
+				out[2*(480-i)] = out[2*i]
+				out[2*(480-i)+1] = -out[2*i+1]
 			}
 		}
 		var want, got TonalityAnalysisState
@@ -79,9 +82,10 @@ func TestAnalysisBinsMatchesScalar(t *testing.T) {
 
 func TestAnalysisBinsZeroAllocs(t *testing.T) {
 	var s TonalityAnalysisState
-	var out [480]complex64
-	for i := range out {
-		out[i] = complex(float32(i%17)-8, float32(i%11)-5)
+	var out [960]float32
+	for i := range 480 {
+		out[2*i] = float32(i%17) - 8
+		out[2*i+1] = float32(i%11) - 5
 	}
 	var tn, tn2, noise [240]float32
 	run := func() { s.analysisBins(&out, tn[:], tn2[:], noise[:]) }

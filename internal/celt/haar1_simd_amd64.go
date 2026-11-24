@@ -2,11 +2,7 @@
 
 package celt
 
-import (
-	"unsafe"
-
-	"simd/archsimd"
-)
+import "simd/archsimd"
 
 // haar1Scale is haar1's QCONST32(.70710678f,31) in the float build.
 const haar1Scale = float32(0.7071067811865476)
@@ -27,21 +23,20 @@ func haar1Stride1AVX(x []float32, n0 int) {
 	if n0 <= 0 {
 		return
 	}
-	_ = x[2*n0-1]
-	p := unsafe.Pointer(unsafe.SliceData(x))
+	x = x[:2*n0]
 	scale := broadcastF32x4Arch(haar1Scale)
 	i := 0
 	for ; i+4 <= n0; i += 4 {
-		off := unsafe.Add(p, i*8)
-		a := loadF32x4(off)
-		b := loadF32x4(unsafe.Add(off, 16))
+		p := x[2*i : 2*i+8 : 2*i+8]
+		a := archsimd.LoadFloat32x4Array((*[4]float32)(p[0:4]))
+		b := archsimd.LoadFloat32x4Array((*[4]float32)(p[4:8]))
 		even := a.ConcatPermuteScalars(0, 2, 4, 6, b)
 		odd := a.ConcatPermuteScalars(1, 3, 5, 7, b)
 		sum, diff := haar1ScaledPairVectors(even, odd, scale)
 		sumBits := sum.ToBits()
 		diffBits := diff.ToBits()
-		storeF32x4(off, sumBits.InterleaveLo(diffBits).BitsToFloat32())
-		storeF32x4(unsafe.Add(off, 16), sumBits.InterleaveHi(diffBits).BitsToFloat32())
+		sumBits.InterleaveLo(diffBits).BitsToFloat32().StoreArray((*[4]float32)(p[0:4]))
+		sumBits.InterleaveHi(diffBits).BitsToFloat32().StoreArray((*[4]float32)(p[4:8]))
 	}
 	for ; i < n0; i++ {
 		haar1PairNorm(x, 2*i, 2*i+1, haar1Scale)
@@ -63,19 +58,18 @@ func haar1Stride2AVX(x []float32, n0 int) {
 	if n0 <= 0 {
 		return
 	}
-	_ = x[4*n0-1]
-	p := unsafe.Pointer(unsafe.SliceData(x))
+	x = x[:4*n0]
 	scale := broadcastF32x4Arch(haar1Scale)
 	i := 0
 	for ; i+2 <= n0; i += 2 {
-		off := unsafe.Add(p, i*16)
-		a := loadF32x4(off)
-		b := loadF32x4(unsafe.Add(off, 16))
+		p := x[4*i : 4*i+8 : 4*i+8]
+		a := archsimd.LoadFloat32x4Array((*[4]float32)(p[0:4]))
+		b := archsimd.LoadFloat32x4Array((*[4]float32)(p[4:8]))
 		lo := a.ConcatPermuteScalars(0, 1, 4, 5, b)
 		hi := a.ConcatPermuteScalars(2, 3, 6, 7, b)
 		sum, diff := haar1ScaledPairVectors(lo, hi, scale)
-		storeF32x4(off, sum.ConcatPermuteScalars(0, 1, 4, 5, diff))
-		storeF32x4(unsafe.Add(off, 16), sum.ConcatPermuteScalars(2, 3, 6, 7, diff))
+		sum.ConcatPermuteScalars(0, 1, 4, 5, diff).StoreArray((*[4]float32)(p[0:4]))
+		sum.ConcatPermuteScalars(2, 3, 6, 7, diff).StoreArray((*[4]float32)(p[4:8]))
 	}
 	for ; i < n0; i++ {
 		off := 4 * i
@@ -99,16 +93,15 @@ func haar1Stride4AVX(x []float32, n0 int) {
 	if n0 <= 0 {
 		return
 	}
-	_ = x[8*n0-1]
-	p := unsafe.Pointer(unsafe.SliceData(x))
+	x = x[:8*n0]
 	scale := broadcastF32x4Arch(haar1Scale)
 	for i := range n0 {
-		off := unsafe.Add(p, i*32)
-		lo := loadF32x4(off)
-		hi := loadF32x4(unsafe.Add(off, 16))
+		p := x[8*i : 8*i+8 : 8*i+8]
+		lo := archsimd.LoadFloat32x4Array((*[4]float32)(p[0:4]))
+		hi := archsimd.LoadFloat32x4Array((*[4]float32)(p[4:8]))
 		sum, diff := haar1ScaledPairVectors(lo, hi, scale)
-		storeF32x4(off, sum)
-		storeF32x4(unsafe.Add(off, 16), diff)
+		sum.StoreArray((*[4]float32)(p[0:4]))
+		diff.StoreArray((*[4]float32)(p[4:8]))
 	}
 }
 

@@ -110,6 +110,12 @@ func quantCoarseEnergyImpl(
 	if nbEBands <= 0 {
 		nbEBands = MaxBands
 	}
+	if start < end && channels > 0 {
+		maxIdx := (channels-1)*nbEBands + end - 1
+		_ = eBands[maxIdx]
+		_ = oldEBands[maxIdx]
+		_ = error[maxIdx]
+	}
 
 	for i := start; i < end; i++ {
 		for c := range channels {
@@ -119,8 +125,9 @@ func quantCoarseEnergyImpl(
 			x := eBands[idx]
 
 			// Previous frame energy for prediction (clamped to minimum)
-			oldE := oldEBands[idx]
-			minEnergy := float32(-9.0)
+			oldEBandVal := oldEBands[idx]
+			oldE := oldEBandVal
+			const minEnergy = float32(-9.0)
 			if oldE < minEnergy {
 				oldE = minEnergy
 			}
@@ -134,9 +141,8 @@ func quantCoarseEnergyImpl(
 
 			// Compute decay bound to prevent energy from dropping too quickly
 			// decay_bound = max(-28, oldEBands[i]) - max_decay
-			oldEBandVal := oldEBands[idx]
 			decayBound := oldEBandVal
-			minDecay := float32(-28.0)
+			const minDecay = float32(-28.0)
 			if decayBound < minDecay {
 				decayBound = minDecay
 			}
@@ -236,35 +242,39 @@ func quantCoarseEnergyImpl(
 // encodeLaplaceEnergy encodes a Laplace-distributed value for coarse energy.
 // This matches libopus ec_laplace_encode().
 func encodeLaplaceEnergy(re *rangecoding.Encoder, val int, fs int, decay int) int {
-	fl := 0
-	if val != 0 {
-		s := 0
-		if val < 0 {
-			s = -1
+	if val == 0 {
+		if fs > laplaceFS {
+			fs = laplaceFS
 		}
-		absVal := (val + s) ^ s
-		fl = fs
-		fs = ec_laplace_get_freq1(fs, decay)
-		i := 1
-		for fs > 0 && i < absVal {
-			fs *= 2
-			fl += fs + 2*laplaceMinP
-			fs = (fs * decay) >> 15
-			i++
-		}
-		if fs == 0 {
-			ndiMax := (laplaceFS - fl + laplaceMinP - 1) >> laplaceLogMinP
-			ndiMax = (ndiMax - s) >> 1
-			di := min(absVal-i, ndiMax-1)
-			fl += (2*di + 1 + s) * laplaceMinP
-			fs = min(laplaceFS-fl, laplaceMinP)
-			absVal = i + di
-			val = (absVal + s) ^ s
-		} else {
-			fs += laplaceMinP
-			if s == 0 {
-				fl += fs
-			}
+		re.EncodeBin(0, uint32(fs), laplaceFTBits)
+		return 0
+	}
+	s := 0
+	if val < 0 {
+		s = -1
+	}
+	absVal := (val + s) ^ s
+	fl := fs
+	fs = ec_laplace_get_freq1(fs, decay)
+	i := 1
+	for fs > 0 && i < absVal {
+		fs *= 2
+		fl += fs + 2*laplaceMinP
+		fs = (fs * decay) >> 15
+		i++
+	}
+	if fs == 0 {
+		ndiMax := (laplaceFS - fl + laplaceMinP - 1) >> laplaceLogMinP
+		ndiMax = (ndiMax - s) >> 1
+		di := min(absVal-i, ndiMax-1)
+		fl += (2*di + 1 + s) * laplaceMinP
+		fs = min(laplaceFS-fl, laplaceMinP)
+		absVal = i + di
+		val = (absVal + s) ^ s
+	} else {
+		fs += laplaceMinP
+		if s == 0 {
+			fl += fs
 		}
 	}
 	if fl+fs > laplaceFS {

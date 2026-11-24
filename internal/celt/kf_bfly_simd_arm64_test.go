@@ -21,10 +21,10 @@ func TestKfBflySIMDSteadyStateAllocs(t *testing.T) {
 
 	// Keep the work buffers outside the measured closures so the measurement
 	// covers only the butterfly kernels.
-	foutM1 := kernelPortBenchComplex(128 * 4)
-	fout3 := kernelPortBenchComplex(n * 3 * m)
-	fout4 := kernelPortBenchComplex(n * 4 * m)
-	fout5 := kernelPortBenchComplex(n * 5 * m)
+	foutM1 := kernelPortBenchInterleaved(128 * 4)
+	fout3 := kernelPortBenchInterleaved(n * 3 * m)
+	fout4 := kernelPortBenchInterleaved(n * 4 * m)
+	fout5 := kernelPortBenchInterleaved(n * 5 * m)
 	checkNoAllocs("radix4-m1", func() { kfBfly4M1Core(foutM1, 128) })
 	checkNoAllocs("radix3-inner", func() { kfBfly3Inner(fout3, w, m, n, 3*m, fstride) })
 	checkNoAllocs("radix4-inner", func() { kfBfly4Inner(fout4, w, m, n, 4*m, fstride) })

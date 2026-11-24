@@ -24,7 +24,7 @@ type analysisScratch struct {
 	spectrum    [analysisFreqSize]complex64
 	fftIn       [analysisWindowSize]complex64
 	fftOut      [analysisWindowSize]complex64
-	fftScratch  [analysisWindowSize]celt.KissCpx
+	fftScratch  [2 * analysisWindowSize]float32
 	bandEnergy  [NumBands]float32
 	logBands    [NumBands]float32
 	pitchXCorr  [pitchXcorrFeatures]float32

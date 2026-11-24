@@ -2,26 +2,11 @@
 
 package celt
 
-import (
-	"unsafe"
-
-	"simd/archsimd"
-)
+import "simd/archsimd"
 
 var useX86PVQSearchSSE2 = archsimd.X86.AVX()
 var pvqAllOnesI32x4 = [4]int32{-1, -1, -1, -1}
 var pvqFourI32x4 = [4]int32{4, 4, 4, 4}
-
-// pvqLoadInt4 and pvqStoreInt4 access four int32 lanes at p[j:j+4]. Callers
-// keep j+4 within the buffer's n+3 working length, as libopus's ALLOC(N+3)
-// does; loadF32x4/storeF32x4 cover the float32 buffers the same way.
-func pvqLoadInt4(p unsafe.Pointer, j int) archsimd.Int32x4 {
-	return archsimd.LoadInt32x4Array((*[4]int32)(unsafe.Add(p, 4*j)))
-}
-
-func pvqStoreInt4(p unsafe.Pointer, j int, v archsimd.Int32x4) {
-	v.StoreArray((*[4]int32)(unsafe.Add(p, 4*j)))
-}
 
 // pvqHorizontalAdd4 is op_pvq_search_sse2's two-shuffle reduction
 // sums + shuffle(1,0,3,2), then + shuffle(2,3,0,1), read from lane 0:
@@ -55,19 +40,22 @@ func x86MaxPS4(a, b archsimd.Float32x4) archsimd.Float32x4 {
 // shuffles, and the largest index among lanes equal to the reduced max wins.
 // It reproduces _mm_max_ps for any input, NaN included.
 func x86PVQSearchBestIDSSE2(absX, y []float32, xy, yy float32, n int) int {
-	return x86PVQSearchBestIDExact(unsafe.Pointer(unsafe.SliceData(absX)), unsafe.Pointer(unsafe.SliceData(y)), xy, yy, n)
+	return x86PVQSearchBestIDExact(absX, y, xy, yy, n)
 }
 
-func x86PVQSearchBestIDExact(xp, yp unsafe.Pointer, xy, yy float32, n int) int {
+func x86PVQSearchBestIDExact(absX, y []float32, xy, yy float32, n int) int {
+	vecN := (n + 3) &^ 3
+	absX = absX[:vecN]
+	y = y[:vecN]
 	xy4 := broadcastF32x4Arch(xy)
 	yy4 := broadcastF32x4Arch(yy)
 	laneMax := archsimd.Float32x4{}
 	pos := archsimd.Int32x4{}
 	count := archsimd.LoadInt32x4Array(&[4]int32{0, 1, 2, 3})
 	four := archsimd.LoadInt32x4Array(&pvqFourI32x4)
-	for j := 0; j < n; j += 4 {
-		x4 := loadF32x4(unsafe.Add(xp, 4*j)).Add(xy4)
-		y4 := loadF32x4(unsafe.Add(yp, 4*j)).Add(yy4).ReciprocalSqrt()
+	for j := 0; j < vecN; j += 4 {
+		x4 := archsimd.LoadFloat32x4Array((*[4]float32)(absX[j:])).Add(xy4)
+		y4 := archsimd.LoadFloat32x4Array((*[4]float32)(y[j:])).Add(yy4).ReciprocalSqrt()
 		r4 := x4.Mul(y4)
 		pos = pos.Max(count.And(r4.Greater(laneMax).ToInt32x4()))
 		laneMax = x86MaxPS4(laneMax, r4)
@@ -83,7 +71,11 @@ func x86PVQSearchBestIDExact(xp, yp unsafe.Pointer, xy, yy float32, n int) int {
 // x86PVQSearchBestIDExact would choose them. max_ps then only differs from a
 // commuted max in the sign of an equal zero, which no later comparison
 // observes. It returns the updated xy and yy.
-func x86PVQPulsesFinite(xp, yp, iyp unsafe.Pointer, xy, yy float32, n, pulses int) (float32, float32) {
+func x86PVQPulsesFinite(absX, y []float32, iy []int32, xy, yy float32, n, pulses int) (float32, float32) {
+	vecN := (n + 3) &^ 3
+	absX = absX[:vecN]
+	y = y[:vecN]
+	iy = iy[:vecN]
 	ids := archsimd.LoadInt32x4Array(&[4]int32{0, 1, 2, 3})
 	four := archsimd.LoadInt32x4Array(&pvqFourI32x4)
 	for range pulses {
@@ -93,9 +85,9 @@ func x86PVQPulsesFinite(xp, yp, iyp unsafe.Pointer, xy, yy float32, n, pulses in
 		laneMax := archsimd.Float32x4{}
 		pos := archsimd.Int32x4{}
 		count := ids
-		for j := 0; j < n; j += 4 {
-			x4 := loadF32x4(unsafe.Add(xp, 4*j)).Add(xy4)
-			y4 := loadF32x4(unsafe.Add(yp, 4*j)).Add(yy4).ReciprocalSqrt()
+		for j := 0; j < vecN; j += 4 {
+			x4 := archsimd.LoadFloat32x4Array((*[4]float32)(absX[j:])).Add(xy4)
+			y4 := archsimd.LoadFloat32x4Array((*[4]float32)(y[j:])).Add(yy4).ReciprocalSqrt()
 			r4 := x4.Mul(y4)
 			pos = pos.Max(count.And(r4.Greater(laneMax).ToInt32x4()))
 			laneMax = laneMax.Max(r4)
@@ -103,12 +95,11 @@ func x86PVQPulsesFinite(xp, yp, iyp unsafe.Pointer, xy, yy float32, n, pulses in
 		}
 		max2 := laneMax.Max(laneMax.ConcatPermuteScalars(2, 3, 4, 5, laneMax))
 		max2 = max2.Max(max2.ConcatPermuteScalars(1, 0, 7, 6, max2))
-		best := uintptr(pvqBestLane(pos.And(laneMax.Equal(max2).ToInt32x4())))
-		xy += *(*float32)(unsafe.Add(xp, 4*best))
-		yb := (*float32)(unsafe.Add(yp, 4*best))
-		yy += *yb
-		*yb += 2
-		*(*int32)(unsafe.Add(iyp, 4*best))++
+		best := int(pvqBestLane(pos.And(laneMax.Equal(max2).ToInt32x4())))
+		xy += absX[best]
+		yy += y[best]
+		y[best] += 2
+		iy[best]++
 	}
 	return xy, yy
 }
@@ -148,31 +139,33 @@ func opPVQSearchScratchNormX86SSE2(x []celtNorm, k int, iyBuf *[]int32, signxBuf
 	} else {
 		absX = make([]float32, workN)
 	}
-	xp := unsafe.Pointer(unsafe.SliceData(absX))
+	vecN := (n + 3) &^ 3
 	// The absolute-value pass reads x in whole vectors. A length that is not
 	// a multiple of four reads the zero padding of a copy, as libopus reads
 	// X[N..N+2] = 0 of its own.
-	src := unsafe.Pointer(unsafe.SliceData(x))
+	src := x
 	if n&3 != 0 {
 		copy(absX, x)
 		absX[n], absX[n+1], absX[n+2] = 0, 0, 0
-		src = xp
+		src = absX
 	}
-	yp := unsafe.Pointer(unsafe.SliceData(y))
-	iyp := unsafe.Pointer(unsafe.SliceData(iy))
+	srcV := src[:vecN]
+	absXV := absX[:vecN]
+	yV := y[:vecN]
+	iyV := iy[:vecN]
 	zero := archsimd.Float32x4{}
 	zeroInt := archsimd.Int32x4{}
 
 	sums := zero
 	bound := broadcastF32x4Arch(pvqFiniteBound)
 	finite := archsimd.LoadInt32x4Array(&pvqAllOnesI32x4)
-	for j := 0; j < n; j += 4 {
-		x4 := absF32x4AVX(loadF32x4(unsafe.Add(src, 4*j)))
+	for j := 0; j < vecN; j += 4 {
+		x4 := absF32x4AVX(archsimd.LoadFloat32x4Array((*[4]float32)(srcV[j:])))
 		finite = finite.And(x4.Less(bound).ToInt32x4())
 		sums = sums.Add(x4)
-		storeF32x4(unsafe.Add(yp, 4*j), zero)
-		pvqStoreInt4(iyp, j, zeroInt)
-		storeF32x4(unsafe.Add(xp, 4*j), x4)
+		zero.StoreArray((*[4]float32)(yV[j:]))
+		zeroInt.StoreArray((*[4]int32)(iyV[j:]))
+		x4.StoreArray((*[4]float32)(absXV[j:]))
 	}
 	sum := pvqHorizontalAdd4(sums)
 
@@ -188,15 +181,15 @@ func opPVQSearchScratchNormX86SSE2(x []celtNorm, k int, iyBuf *[]int32, signxBuf
 		rcp4 := broadcastF32x4Arch(float32(k) + 0.8).Mul(broadcastF32x4Arch(sum).Reciprocal())
 		xy4, yy4 := zero, zero
 		pulses := zeroInt
-		for j := 0; j < n; j += 4 {
-			x4 := loadF32x4(unsafe.Add(xp, 4*j))
+		for j := 0; j < vecN; j += 4 {
+			x4 := archsimd.LoadFloat32x4Array((*[4]float32)(absXV[j:]))
 			iy4 := x4.Mul(rcp4).ConvertToInt32()
 			pulses = pulses.Add(iy4)
-			pvqStoreInt4(iyp, j, iy4)
+			iy4.StoreArray((*[4]int32)(iyV[j:]))
 			y4 := iy4.ConvertToFloat32()
 			xy4 = xy4.Add(x4.Mul(y4))
 			yy4 = yy4.Add(y4.Mul(y4))
-			storeF32x4(unsafe.Add(yp, 4*j), y4.Add(y4))
+			y4.Add(y4).StoreArray((*[4]float32)(yV[j:]))
 		}
 		pulsesLeft -= int((pulses.GetElem(0) + pulses.GetElem(2)) + (pulses.GetElem(1) + pulses.GetElem(3)))
 		xy = pvqHorizontalAdd4(xy4)
@@ -214,11 +207,11 @@ func opPVQSearchScratchNormX86SSE2(x []celtNorm, k int, iyBuf *[]int32, signxBuf
 	}
 
 	if finite.GetElem(0)&finite.GetElem(1)&finite.GetElem(2)&finite.GetElem(3) != 0 {
-		xy, yy = x86PVQPulsesFinite(xp, yp, iyp, xy, yy, n, pulsesLeft)
+		xy, yy = x86PVQPulsesFinite(absX, y, iy, xy, yy, n, pulsesLeft)
 	} else {
 		for range pulsesLeft {
 			yy++
-			best := x86PVQSearchBestIDExact(xp, yp, xy, yy, n)
+			best := x86PVQSearchBestIDExact(absX, y, xy, yy, n)
 			xy += absX[best]
 			yy += y[best]
 			y[best] += 2
@@ -230,8 +223,8 @@ func opPVQSearchScratchNormX86SSE2(x []celtNorm, k int, iyBuf *[]int32, signxBuf
 	j := 0
 	for ; j+4 <= n; j += 4 {
 		s := archsimd.LoadFloat32x4Array((*[4]float32)(x[j : j+4])).Less(zero).ToInt32x4()
-		iy4 := pvqLoadInt4(iyp, j)
-		pvqStoreInt4(iyp, j, iy4.Xor(s).Sub(s))
+		iy4 := archsimd.LoadInt32x4Array((*[4]int32)(iy[j:]))
+		iy4.Xor(s).Sub(s).StoreArray((*[4]int32)(iy[j:]))
 	}
 	for ; j < n; j++ {
 		if x[j] < 0 {

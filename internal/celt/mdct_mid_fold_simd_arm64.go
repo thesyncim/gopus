@@ -2,10 +2,7 @@
 
 package celt
 
-import (
-	"simd/archsimd"
-	"unsafe"
-)
+import "simd/archsimd"
 
 // mdctUseNeonMidFold enables the archsimd middle-fold/store kernel.
 const mdctUseNeonMidFold = true
@@ -21,8 +18,7 @@ const mdctUseNeonMidFold = true
 // descending re reversed with reverse4, fused MulAdd, scaling Mul), matching
 // mdctStoreDirectStageFMALike bit-for-bit; the bit-reversed output placement
 // remains scalar.
-func mdctMidFoldStoreNeon(dst []kissCpx, bitrev []int, samples []float32, trig []float32, i0, n4, xp1, xp2, blocks int, preScale float32) {
-	const intBytes = int(unsafe.Sizeof(int(0)))
+func mdctMidFoldStoreNeon(dst []float32, bitrev []int, samples []float32, trig []float32, i0, n4, xp1, xp2, blocks int, preScale float32) {
 	if blocks == 0 {
 		return
 	}
@@ -32,40 +28,30 @@ func mdctMidFoldStoreNeon(dst []kissCpx, bitrev []int, samples []float32, trig [
 	_ = trig[n4+i0+4*blocks-1]
 	_ = bitrev[i0+4*blocks-1]
 	pv := archsimd.BroadcastFloat32x4(preScale)
-	sp := unsafe.Pointer(unsafe.SliceData(samples))
-	tp := unsafe.Pointer(unsafe.SliceData(trig))
-	// Cursors cover only blocks that remain, so the descending real-sample
-	// cursor stays inside samples and the other cursors stay inside their slices.
-	imBase := unsafe.Add(sp, xp1*4)
-	reBase := unsafe.Add(sp, (xp2-6)*4)
-	t0p := unsafe.Add(tp, i0*4)
-	t1p := unsafe.Add(tp, (n4+i0)*4)
-	bitrevp := unsafe.Pointer(&bitrev[i0])
+	imOff := xp1
+	reOff := xp2 - 6
+	t0Off := i0
+	t1Off := n4 + i0
 	for b := 0; b < blocks; b++ {
-		im := loadF32x4(imBase).ToBits().
-			ConcatEven(loadF32x4(unsafe.Add(imBase, 16)).ToBits()).BitsToFloat32()
-		re := reverse4(loadF32x4(reBase).ToBits().
-			ConcatEven(loadF32x4(unsafe.Add(reBase, 16)).ToBits()).BitsToFloat32())
-		t0 := loadF32x4(t0p)
-		t1 := loadF32x4(t1p)
+		imSlice := samples[imOff:]
+		reSlice := samples[reOff:]
+		im := archsimd.LoadFloat32x4Array((*[4]float32)(imSlice)).ToBits().
+			ConcatEven(archsimd.LoadFloat32x4Array((*[4]float32)(imSlice[4:])).ToBits()).BitsToFloat32()
+		re := reverse4(archsimd.LoadFloat32x4Array((*[4]float32)(reSlice)).ToBits().
+			ConcatEven(archsimd.LoadFloat32x4Array((*[4]float32)(reSlice[4:])).ToBits()).BitsToFloat32())
+		t0 := archsimd.LoadFloat32x4Array((*[4]float32)(trig[t0Off:]))
+		t1 := archsimd.LoadFloat32x4Array((*[4]float32)(trig[t1Off:]))
 		yr := re.MulAdd(t0, im.Mul(t1).Neg()).Mul(pv)
 		yi := im.MulAdd(t0, re.Mul(t1)).Mul(pv)
-		pairLo := yr.ToBits().InterleaveLo(yi.ToBits()).ReshapeToUint64s()
-		pairHi := yr.ToBits().InterleaveHi(yi.ToBits()).ReshapeToUint64s()
-		rev0 := *(*int)(bitrevp)
-		rev1 := *(*int)(unsafe.Add(bitrevp, intBytes))
-		rev2 := *(*int)(unsafe.Add(bitrevp, 2*intBytes))
-		rev3 := *(*int)(unsafe.Add(bitrevp, 3*intBytes))
-		*(*uint64)(unsafe.Pointer(&dst[rev0])) = pairLo.GetElem(0)
-		*(*uint64)(unsafe.Pointer(&dst[rev1])) = pairLo.GetElem(1)
-		*(*uint64)(unsafe.Pointer(&dst[rev2])) = pairHi.GetElem(0)
-		*(*uint64)(unsafe.Pointer(&dst[rev3])) = pairHi.GetElem(1)
-		if b+1 < blocks {
-			imBase = unsafe.Add(imBase, 32)
-			reBase = unsafe.Add(reBase, -32)
-			t0p = unsafe.Add(t0p, 16)
-			t1p = unsafe.Add(t1p, 16)
-			bitrevp = unsafe.Add(bitrevp, 4*intBytes)
-		}
+		br := bitrev[t0Off : t0Off+4]
+		b0, b1, b2, b3 := 2*br[0], 2*br[1], 2*br[2], 2*br[3]
+		dst[b0], dst[b0+1] = yr.GetElem(0), yi.GetElem(0)
+		dst[b1], dst[b1+1] = yr.GetElem(1), yi.GetElem(1)
+		dst[b2], dst[b2+1] = yr.GetElem(2), yi.GetElem(2)
+		dst[b3], dst[b3+1] = yr.GetElem(3), yi.GetElem(3)
+		imOff += 8
+		reOff -= 8
+		t0Off += 4
+		t1Off += 4
 	}
 }

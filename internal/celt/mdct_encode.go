@@ -32,18 +32,20 @@ func mdctMulSubMix(a, b, c, d float32) float32 {
 	return mdctMul(a, c) - mdctMul(b, d)
 }
 
-func mdctStoreDirectStage(dst []kissCpx, idx int, scale, re, im, t0, t1 float32) {
+func mdctStoreDirectStage(dst []float32, idx int, scale, re, im, t0, t1 float32) {
 	yr := mdctMul(re, t0) - mdctMul(im, t1)
 	yi := mdctMul(im, t0) + mdctMul(re, t1)
-	dst[idx].r = yr * scale
-	dst[idx].i = yi * scale
+	p := 2 * idx
+	dst[p] = yr * scale
+	dst[p+1] = yi * scale
 }
 
-func mdctStoreDirectStageFMALike(dst []kissCpx, idx int, scale, re, im, t0, t1 float32) {
+func mdctStoreDirectStageFMALike(dst []float32, idx int, scale, re, im, t0, t1 float32) {
 	yr := mdctForwardPreRotateReal(re, im, t0, t1)
 	yi := mdctForwardPreRotateImag(re, im, t0, t1)
-	dst[idx].r = yr * scale
-	dst[idx].i = yi * scale
+	p := 2 * idx
+	dst[p] = yr * scale
+	dst[p+1] = yi * scale
 }
 
 // mdctForwardPreRotateReal and mdctForwardPreRotateImag follow the selected
@@ -248,7 +250,7 @@ func mdctForwardOverlapF32(samples []float32, overlap int) []float32 {
 }
 
 // mdctForwardOverlapF32Scratch is the scratch-aware version that avoids allocations.
-func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float32, f []float32, fftIn []complex64, fftOut []complex64, fftTmp []kissCpx, tables *mdctTransformLookup) {
+func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float32, f []float32, fftIn []complex64, fftOut []complex64, fftTmp []float32, tables *mdctTransformLookup) {
 	if len(samples) == 0 {
 		return
 	}
@@ -300,8 +302,8 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 			fftOut = make([]complex64, n4)
 		}
 	}
-	if fftTmp == nil || len(fftTmp) < n4 {
-		fftTmp = make([]kissCpx, n4)
+	if fftTmp == nil || len(fftTmp) < 2*n4 {
+		fftTmp = make([]float32, 2*n4)
 	}
 	if coeffs == nil || len(coeffs) < n2 {
 		coeffs = make([]float32, n2)
@@ -324,15 +326,15 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 		preScale = 1.0
 		postScale = scale
 	}
-	var fftStage []kissCpx
+	var fftStage []float32
 	if useDirectKissCpx {
-		fftStage = fftTmp[:n4]
+		fftStage = fftTmp[:2*n4]
 	}
 
 	if fuseDirectStage {
 		bitrev := st.bitrev
 		_ = bitrev[n4-1]
-		_ = fftStage[n4-1]
+		_ = fftStage[2*n4-1]
 		if mdctUseFMALikeMixEnabled {
 			// Leading windowed fold: whole 4-wide blocks go to the NEON
 			// kernel (bit-identical per element); the scalar loop finishes
@@ -374,11 +376,11 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 				yi0 := mdctForwardPreRotateImag(re0, im0, t00, t10)
 				yr1 := mdctForwardPreRotateReal(re1, im1, t01, t11)
 				yi1 := mdctForwardPreRotateImag(re1, im1, t01, t11)
-				b0, b1 := bitrev[i], bitrev[i+1]
-				fftStage[b0].r = yr0 * preScale
-				fftStage[b0].i = yi0 * preScale
-				fftStage[b1].r = yr1 * preScale
-				fftStage[b1].i = yi1 * preScale
+				b0, b1 := 2*bitrev[i], 2*bitrev[i+1]
+				fftStage[b0] = yr0 * preScale
+				fftStage[b0+1] = yi0 * preScale
+				fftStage[b1] = yr1 * preScale
+				fftStage[b1+1] = yi1 * preScale
 				xp1 += 4
 				xp2 -= 4
 				wp1 += 4
@@ -390,9 +392,9 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 				t0, t1 := trig[i], trig[n4+i]
 				yr := mdctForwardPreRotateReal(re, im, t0, t1)
 				yi := mdctForwardPreRotateImag(re, im, t0, t1)
-				b := bitrev[i]
-				fftStage[b].r = yr * preScale
-				fftStage[b].i = yi * preScale
+				b := 2 * bitrev[i]
+				fftStage[b] = yr * preScale
+				fftStage[b+1] = yi * preScale
 				xp1 += 2
 				xp2 -= 2
 				wp1 += 2
@@ -442,11 +444,11 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 				yi0 := mdctForwardPreRotateImag(re0, im0, t00, t10)
 				yr1 := mdctForwardPreRotateReal(re1, im1, t01, t11)
 				yi1 := mdctForwardPreRotateImag(re1, im1, t01, t11)
-				b0, b1 := bitrev[i], bitrev[i+1]
-				fftStage[b0].r = yr0 * preScale
-				fftStage[b0].i = yi0 * preScale
-				fftStage[b1].r = yr1 * preScale
-				fftStage[b1].i = yi1 * preScale
+				b0, b1 := 2*bitrev[i], 2*bitrev[i+1]
+				fftStage[b0] = yr0 * preScale
+				fftStage[b0+1] = yi0 * preScale
+				fftStage[b1] = yr1 * preScale
+				fftStage[b1+1] = yi1 * preScale
 				xp1 += 4
 				xp2 -= 4
 			}
@@ -496,11 +498,11 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 				yi0 := mdctForwardPreRotateImag(re0, im0, t00, t10)
 				yr1 := mdctForwardPreRotateReal(re1, im1, t01, t11)
 				yi1 := mdctForwardPreRotateImag(re1, im1, t01, t11)
-				b0, b1 := bitrev[i], bitrev[i+1]
-				fftStage[b0].r = yr0 * preScale
-				fftStage[b0].i = yi0 * preScale
-				fftStage[b1].r = yr1 * preScale
-				fftStage[b1].i = yi1 * preScale
+				b0, b1 := 2*bitrev[i], 2*bitrev[i+1]
+				fftStage[b0] = yr0 * preScale
+				fftStage[b0+1] = yi0 * preScale
+				fftStage[b1] = yr1 * preScale
+				fftStage[b1+1] = yi1 * preScale
 				xp1 += 4
 				xp2 -= 4
 				wp1 += 4
@@ -512,9 +514,9 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 				t0, t1 := trig[i], trig[n4+i]
 				yr := mdctForwardPreRotateReal(re, im, t0, t1)
 				yi := mdctForwardPreRotateImag(re, im, t0, t1)
-				b := bitrev[i]
-				fftStage[b].r = yr * preScale
-				fftStage[b].i = yi * preScale
+				b := 2 * bitrev[i]
+				fftStage[b] = yr * preScale
+				fftStage[b+1] = yi * preScale
 				xp1 += 2
 				xp2 -= 2
 				wp1 += 2
@@ -637,8 +639,8 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 		// scratch and run in-place FFT, avoiding intermediate complex64 materialization.
 		bitrev := st.bitrev
 		if !fuseDirectStage {
-			_ = bitrev[n4-1]   // BCE hint
-			_ = fftStage[n4-1] // BCE hint
+			_ = bitrev[n4-1]     // BCE hint
+			_ = fftStage[2*n4-1] // BCE hint
 			if mdctUseFMALikeMixEnabled {
 				for i = range n4 {
 					re := f[2*i]
@@ -677,7 +679,7 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 	_ = coeffs[n2-1] // BCE hint
 	trigHi := trig[n4:]
 	if useDirectKissCpx {
-		_ = fftStage[n4-1] // BCE hint
+		_ = fftStage[2*n4-1] // BCE hint
 		_ = trigHi[n4-1]
 		lo := 0
 		hi := n2 - 1
@@ -704,10 +706,11 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 			// 2x unroll: 8 independent FMULs per pair of iterations hide
 			// 2-cycle FMUL latency and saturate the 4-wide FP dispatch.
 			for ; i+1 < top; i += 2 {
-				re0 := fftStage[i].r
-				im0 := fftStage[i].i
-				re1 := fftStage[i+1].r
-				im1 := fftStage[i+1].i
+				p := 2 * i
+				re0 := fftStage[p]
+				im0 := fftStage[p+1]
+				re1 := fftStage[p+2]
+				im1 := fftStage[p+3]
 				t00 := trig[i]
 				t10 := trigHi[i]
 				t01 := trig[i+1]
@@ -725,8 +728,8 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 			}
 		}
 		for ; i < top; i++ {
-			re := fftStage[i].r
-			im := fftStage[i].i
+			re := fftStage[2*i]
+			im := fftStage[2*i+1]
 			t0 := trig[i]
 			t1 := trigHi[i]
 			if mdctQEXTScalePlacement {

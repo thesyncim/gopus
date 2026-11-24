@@ -8,61 +8,57 @@ import (
 	"math/rand"
 	"simd/archsimd"
 	"testing"
-	"unsafe"
 
 	"github.com/thesyncim/gopus/internal/opusmath"
 )
 
 // xcorrKernelAVX4 and xcorrKernelAVX4Tail run four correlations per pass,
 // the split form the one-pass kernel is checked against.
-func xcorrKernelAVX4(x, y *float32, sum *[4]float32, length int) {
-	tail := newXcorrTail8(unsafe.Pointer(x), length)
+func xcorrKernelAVX4(x, y []float32, sum *[4]float32, length int) {
+	tail := newXcorrTail8(x, length)
 	xcorrKernelAVX4Tail(x, y, sum, length, &tail)
 }
 
-func xcorrKernelAVX4Tail(x, y *float32, sum *[4]float32, length int, tail *xcorrTail8) {
+func xcorrKernelAVX4Tail(x, y []float32, sum *[4]float32, length int, tail *xcorrTail8) {
 	var acc0, acc1, acc2, acc3 archsimd.Float32x8
-	xBase, yp := unsafe.Pointer(x), unsafe.Pointer(y)
+	x = x[:length]
+	y = y[:length+3]
 	i := 0
 	for ; i+16 <= length; i += 16 {
-		xp := unsafe.Add(xBase, i*4)
-		xv := archsimd.LoadFloat32x8Array((*[8]float32)(xp))
-		acc0 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(yp)), acc0)
-		acc1 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 4))), acc1)
-		acc2 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 8))), acc2)
-		acc3 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 12))), acc3)
-		xp1 := unsafe.Add(xp, 32)
-		yp1 := unsafe.Add(yp, 32)
-		xv = archsimd.LoadFloat32x8Array((*[8]float32)(xp1))
-		acc0 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(yp1)), acc0)
-		acc1 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp1, 4))), acc1)
-		acc2 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp1, 8))), acc2)
-		acc3 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp1, 12))), acc3)
-		yp = unsafe.Add(yp, 64)
+		xv := archsimd.LoadFloat32x8Array((*[8]float32)(x[i:]))
+		yb := y[i : i+19]
+		acc0 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(yb[0:])), acc0)
+		acc1 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(yb[1:])), acc1)
+		acc2 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(yb[2:])), acc2)
+		acc3 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(yb[3:])), acc3)
+		xv = archsimd.LoadFloat32x8Array((*[8]float32)(x[i+8:]))
+		acc0 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(yb[8:])), acc0)
+		acc1 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(yb[9:])), acc1)
+		acc2 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(yb[10:])), acc2)
+		acc3 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(yb[11:])), acc3)
 	}
 	for ; i+8 <= length; i += 8 {
-		xp := unsafe.Add(xBase, i*4)
-		xv := archsimd.LoadFloat32x8Array((*[8]float32)(xp))
-		acc0 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(yp)), acc0)
-		acc1 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 4))), acc1)
-		acc2 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 8))), acc2)
-		acc3 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(yp, 12))), acc3)
-		yp = unsafe.Add(yp, 32)
+		xv := archsimd.LoadFloat32x8Array((*[8]float32)(x[i:]))
+		yb := y[i : i+11]
+		acc0 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(yb[0:])), acc0)
+		acc1 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(yb[1:])), acc1)
+		acc2 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(yb[2:])), acc2)
+		acc3 = xv.MulAdd(archsimd.LoadFloat32x8Array((*[8]float32)(yb[3:])), acc3)
 	}
 	if i < length {
 		xTail := tail.x
-		acc0 = xTail.MulAdd(loadXcorrTail8(yp, tail.rem), acc0)
-		acc1 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 4), tail.rem), acc1)
-		acc2 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 8), tail.rem), acc2)
-		acc3 = xTail.MulAdd(loadXcorrTail8(unsafe.Add(yp, 12), tail.rem), acc3)
+		yb := y[i:]
+		acc0 = xTail.MulAdd(loadXcorrTail8(yb[0:], tail.rem), acc0)
+		acc1 = xTail.MulAdd(loadXcorrTail8(yb[1:], tail.rem), acc1)
+		acc2 = xTail.MulAdd(loadXcorrTail8(yb[2:], tail.rem), acc2)
+		acc3 = xTail.MulAdd(loadXcorrTail8(yb[3:], tail.rem), acc3)
 	}
 	reduceXcorrAVX8Four(acc0, acc1, acc2, acc3).StoreArray(sum)
 	// Clear before the legacy-SSE NaN checks; the outer wrapper clears after this block.
 	archsimd.ClearAVXUpperBits()
 	for corr := range sum {
 		if sum[corr] != sum[corr] {
-			sum[corr] = opusmath.PitchXcorrAVX2NaNReplay(
-				unsafe.Slice(x, length), unsafe.Slice(y, length+3)[corr:], length)
+			sum[corr] = opusmath.PitchXcorrAVX2NaNReplay(x, y[corr:], length)
 		}
 	}
 }
@@ -86,9 +82,9 @@ func reduceXcorrAVX8Four(v0, v1, v2, v3 archsimd.Float32x8) archsimd.Float32x4 {
 	return p01.ConcatPermuteScalarsGrouped(0, 2, 4, 6, p23).GetLo()
 }
 
-func xcorrKernelAVX8SplitForTest(x, y *float32, sum *[8]float32, length int) {
-	xcorrKernelAVX4(x, y, (*[4]float32)(unsafe.Pointer(&sum[0])), length)
-	xcorrKernelAVX4(x, (*float32)(unsafe.Add(unsafe.Pointer(y), 16)), (*[4]float32)(unsafe.Pointer(&sum[4])), length)
+func xcorrKernelAVX8SplitForTest(x, y []float32, sum *[8]float32, length int) {
+	xcorrKernelAVX4(x, y, (*[4]float32)(sum[:4]), length)
+	xcorrKernelAVX4(x, y[4:], (*[4]float32)(sum[4:]), length)
 }
 
 func TestXcorrKernelAVX8OnePassBitExact(t *testing.T) {
@@ -108,8 +104,8 @@ func TestXcorrKernelAVX8OnePassBitExact(t *testing.T) {
 			}
 			want := xcorrKernelAVX8Scalar(x, y, length)
 			var split, onePass [8]float32
-			xcorrKernelAVX8SplitForTest(&x[0], &y[0], &split, length)
-			xcorrKernelAVX8OnePass(&x[0], &y[0], &onePass, length)
+			xcorrKernelAVX8SplitForTest(x, y, &split, length)
+			xcorrKernelAVX8OnePass(x, y, &onePass, length)
 			for corr := range 8 {
 				if got, expected := math.Float32bits(onePass[corr]), math.Float32bits(want[corr]); got != expected {
 					t.Fatalf("length=%d trial=%d corr=%d: one-pass=%08x scalar=%08x", length, trial, corr, got, expected)
@@ -141,8 +137,8 @@ func TestXcorrKernelAVX8OnePassExceptionalParityAndZeroAlloc(t *testing.T) {
 			y[i] = values[(i*7+3)%len(values)]
 		}
 		var split, onePass [8]float32
-		xcorrKernelAVX8SplitForTest(&x[0], &y[0], &split, length)
-		xcorrKernelAVX8OnePass(&x[0], &y[0], &onePass, length)
+		xcorrKernelAVX8SplitForTest(x, y, &split, length)
+		xcorrKernelAVX8OnePass(x, y, &onePass, length)
 		for corr := range 8 {
 			if got, expected := math.Float32bits(onePass[corr]), math.Float32bits(split[corr]); got != expected {
 				t.Fatalf("length=%d corr=%d: one-pass=%08x split=%08x", length, corr, got, expected)
@@ -160,9 +156,9 @@ func TestXcorrKernelAVX8OnePassExceptionalParityAndZeroAlloc(t *testing.T) {
 		y[i] = float32(i%17-8) * 0.0625
 	}
 	var sum [8]float32
-	xcorrKernelAVX8OnePass(&x[0], &y[0], &sum, length)
+	xcorrKernelAVX8OnePass(x, y, &sum, length)
 	if allocs := testing.AllocsPerRun(100, func() {
-		xcorrKernelAVX8OnePass(&x[0], &y[0], &sum, length)
+		xcorrKernelAVX8OnePass(x, y, &sum, length)
 	}); allocs != 0 {
 		t.Fatalf("one-pass xcorr allocated %v times", allocs)
 	}
@@ -182,7 +178,7 @@ func BenchmarkXcorrKernelAVX8Passes(b *testing.B) {
 			var sum [8]float32
 			b.ReportAllocs()
 			for b.Loop() {
-				xcorrKernelAVX8SplitForTest(&x[0], &y[0], &sum, length)
+				xcorrKernelAVX8SplitForTest(x, y, &sum, length)
 				xcorrKernelAVX8BenchmarkSink = sum
 			}
 		})
@@ -190,7 +186,7 @@ func BenchmarkXcorrKernelAVX8Passes(b *testing.B) {
 			var sum [8]float32
 			b.ReportAllocs()
 			for b.Loop() {
-				xcorrKernelAVX8OnePass(&x[0], &y[0], &sum, length)
+				xcorrKernelAVX8OnePass(x, y, &sum, length)
 				xcorrKernelAVX8BenchmarkSink = sum
 			}
 		})

@@ -47,7 +47,7 @@ func TestXcorrKernelAVX8PageEndTails(t *testing.T) {
 
 		want := xcorrKernelAVX8Scalar(x, y, length)
 		var got [8]float32
-		xcorrKernelAVX8(&x[0], &y[0], &got, length)
+		xcorrKernelAVX8(x, y, &got, length)
 		for corr := range 8 {
 			if math.Float32bits(got[corr]) != math.Float32bits(want[corr]) {
 				t.Fatalf("length=%d corr=%d: got %08x want %08x", length, corr, math.Float32bits(got[corr]), math.Float32bits(want[corr]))
@@ -68,7 +68,7 @@ func TestXcorrKernelAVX8PageEndTails(t *testing.T) {
 		}
 
 		var want [8]float32
-		xcorrKernelAVX8(&x[0], &y[0], &want, length)
+		xcorrKernelAVX8(x, y, &want, length)
 		got := make([]float32, maxPitch)
 		pitchXCorrFloat32AVX2FMAOrderTiny(x, y, got, length, maxPitch)
 		for pitch := range got {

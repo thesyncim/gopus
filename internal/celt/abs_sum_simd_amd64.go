@@ -2,10 +2,7 @@
 
 package celt
 
-import (
-	"simd/archsimd"
-	"unsafe"
-)
+import "simd/archsimd"
 
 // absSumMask clears the float32 sign bit, as fabsf does.
 var absSumMask = [4]uint32{0x7fffffff, 0x7fffffff, 0x7fffffff, 0x7fffffff}
@@ -30,17 +27,12 @@ func absSumQuadAVX(a, b, c, d []float32) (float32, float32, float32, float32) {
 	var s0, s1, s2, s3 float32
 	if blocks > 0 {
 		mask := archsimd.LoadUint32x4Array(&absSumMask)
-		pa := unsafe.Pointer(unsafe.SliceData(a))
-		pb := unsafe.Pointer(unsafe.SliceData(b))
-		pc := unsafe.Pointer(unsafe.SliceData(c))
-		pd := unsafe.Pointer(unsafe.SliceData(d))
 		var acc archsimd.Float32x4
-		for j := 0; j < blocks; j += 4 {
-			off := uintptr(j) * 4
-			va := loadF32x4(unsafe.Add(pa, off)).ToBits().And(mask)
-			vb := loadF32x4(unsafe.Add(pb, off)).ToBits().And(mask)
-			vc := loadF32x4(unsafe.Add(pc, off)).ToBits().And(mask)
-			vd := loadF32x4(unsafe.Add(pd, off)).ToBits().And(mask)
+		for j := 0; j+4 <= blocks; j += 4 {
+			va := archsimd.LoadFloat32x4Array((*[4]float32)(a[j:])).ToBits().And(mask)
+			vb := archsimd.LoadFloat32x4Array((*[4]float32)(b[j:])).ToBits().And(mask)
+			vc := archsimd.LoadFloat32x4Array((*[4]float32)(c[j:])).ToBits().And(mask)
+			vd := archsimd.LoadFloat32x4Array((*[4]float32)(d[j:])).ToBits().And(mask)
 			ab01 := va.InterleaveLo(vb).BitsToFloat32() // a0 b0 a1 b1
 			cd01 := vc.InterleaveLo(vd).BitsToFloat32() // c0 d0 c1 d1
 			ab23 := va.InterleaveHi(vb).BitsToFloat32() // a2 b2 a3 b3
@@ -78,13 +70,10 @@ func absSumPairAVX(a, b []float32) (float32, float32) {
 	var s0, s1 float32
 	if blocks > 0 {
 		mask := archsimd.LoadUint32x4Array(&absSumMask)
-		pa := unsafe.Pointer(unsafe.SliceData(a))
-		pb := unsafe.Pointer(unsafe.SliceData(b))
 		var acc archsimd.Float32x4
-		for j := 0; j < blocks; j += 4 {
-			off := uintptr(j) * 4
-			va := loadF32x4(unsafe.Add(pa, off)).ToBits().And(mask)
-			vb := loadF32x4(unsafe.Add(pb, off)).ToBits().And(mask)
+		for j := 0; j+4 <= blocks; j += 4 {
+			va := archsimd.LoadFloat32x4Array((*[4]float32)(a[j:])).ToBits().And(mask)
+			vb := archsimd.LoadFloat32x4Array((*[4]float32)(b[j:])).ToBits().And(mask)
 			ab01 := va.InterleaveLo(vb).BitsToFloat32() // a0 b0 a1 b1
 			ab23 := va.InterleaveHi(vb).BitsToFloat32() // a2 b2 a3 b3
 			acc = acc.Add(ab01)

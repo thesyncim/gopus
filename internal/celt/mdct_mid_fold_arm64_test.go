@@ -58,8 +58,8 @@ func TestMDCTMidFoldStoreNeonBitExact(t *testing.T) {
 		copy(bitrev, perm)
 		preScale := float32(1.0) / float32(s.n4)
 
-		got := make([]kissCpx, s.n4)
-		want := make([]kissCpx, s.n4)
+		got := make([]float32, 2*s.n4)
+		want := make([]float32, 2*s.n4)
 		for j := range done {
 			re := samples[s.xp2-2*j]
 			im := samples[s.xp1+2*j]
@@ -68,12 +68,10 @@ func TestMDCTMidFoldStoreNeonBitExact(t *testing.T) {
 		mdctMidFoldStoreNeon(got, bitrev, samples, trig, s.i0, s.n4, s.xp1, s.xp2, s.blocks, preScale)
 
 		for k := range want {
-			if math.Float32bits(got[k].r) != math.Float32bits(want[k].r) ||
-				math.Float32bits(got[k].i) != math.Float32bits(want[k].i) {
-				t.Fatalf("shape %d (%+v): dst[%d] = (%08x,%08x), want (%08x,%08x)",
+			if math.Float32bits(got[k]) != math.Float32bits(want[k]) {
+				t.Fatalf("shape %d (%+v): dst[%d] = %08x, want %08x",
 					si, s, k,
-					math.Float32bits(got[k].r), math.Float32bits(got[k].i),
-					math.Float32bits(want[k].r), math.Float32bits(want[k].i))
+					math.Float32bits(got[k]), math.Float32bits(want[k]))
 			}
 		}
 	}
@@ -81,7 +79,7 @@ func TestMDCTMidFoldStoreNeonBitExact(t *testing.T) {
 
 func TestMDCTMidFoldStoreNeonNoAllocs(t *testing.T) {
 	const n4, blocks = 64, 8
-	dst := make([]kissCpx, n4)
+	dst := make([]float32, 2*n4)
 	bitrev := make([]int, n4)
 	for i := range bitrev {
 		bitrev[i] = i

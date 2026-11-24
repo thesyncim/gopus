@@ -128,8 +128,8 @@ func silkResamplerDown2HPMono(s []float32, out []float32, pcm []float32) float32
 	if len2 <= 0 {
 		return 0
 	}
-	_ = pcm[2*len2-1]
-	_ = out[len2-1]
+	pcm = pcm[: 2*len2 : 2*len2]
+	out = out[:len2:len2]
 	s0, s1, s2 := s[0], s[1], s[2]
 	var hpEner, hp, sample float32
 	for k := range len2 {
@@ -151,8 +151,8 @@ func silkResamplerDown2HPStereo(s []float32, out []float32, pcm []float32) float
 	if len2 <= 0 {
 		return 0
 	}
-	_ = pcm[4*len2-1]
-	_ = out[len2-1]
+	pcm = pcm[: 4*len2 : 4*len2]
+	out = out[:len2:len2]
 	s0, s1, s2 := s[0], s[1], s[2]
 	var hpEner, hp, sample float32
 	for k := range len2 {
@@ -165,14 +165,6 @@ func silkResamplerDown2HPStereo(s []float32, out []float32, pcm []float32) float
 	}
 	s[0], s[1], s[2] = s0, s1, s2
 	return hpEner
-}
-
-// analysisBinEnergy is the energy of the bin pair i and 480-i of the analysis
-// FFT, out[i].r² + out[N-i].r² + out[i].i² + out[N-i].i² in analysis.c's order.
-func analysisBinEnergy(out []complex64, i int) float32 {
-	a, b := real(out[i]), real(out[480-i])
-	c, d := imag(out[i]), imag(out[480-i])
-	return fma32(a, a, round32(b*b)) + c*c + d*d
 }
 
 // analysisIsDigitalSilence32 is is_digital_silence32 (src/analysis.c) in the
@@ -193,16 +185,16 @@ func analysisIsDigitalSilence32(pcm []float32, lsbDepth int) bool {
 // downmixCap is downmix_float's +6 dBFS cap (src/opus_encoder.c): it clamps the
 // SIG-scale sample to ±65536 and zeroes NaN.
 func downmixCap(v float32) float32 {
+	if v >= -65536 && v <= 65536 {
+		return v
+	}
 	if v < -65536 {
-		v = -65536
+		return -65536
 	}
 	if v > 65536 {
-		v = 65536
+		return 65536
 	}
-	if v != v {
-		v = 0
-	}
-	return v
+	return 0
 }
 
 // downmixAndResample is downmix_and_resample (src/analysis.c) driven by
@@ -287,19 +279,24 @@ func analysisFloat2Int(x float32) int32 {
 }
 
 // analysisBins runs tonality_analysis's per-bin loop over bins 1..239 of the
-// FFT output: the two phase-acceleration estimates, the noisiness and the
-// per-bin tonality, updating the phase history.
-func (s *TonalityAnalysisState) analysisBins(out *[480]complex64, tonality, tonality2, noisiness []float32) {
+// interleaved FFT output: the two phase-acceleration estimates, the noisiness
+// and the per-bin tonality, updating the phase history.
+func (s *TonalityAnalysisState) analysisBins(out *[960]float32, tonality, tonality2, noisiness []float32) {
 	s.analysisBinsScalar(out, s.analysisBinsSIMD(out, tonality, tonality2, noisiness), tonality, tonality2, noisiness)
 }
 
 // analysisBinsScalar is analysisBins for bins from..239.
-func (s *TonalityAnalysisState) analysisBinsScalar(out *[480]complex64, from int, tonality, tonality2, noisiness []float32) {
+func (s *TonalityAnalysisState) analysisBinsScalar(out *[960]float32, from int, tonality, tonality2, noisiness []float32) {
 	for i := from; i < 240; i++ {
-		x1r := real(out[i]) + real(out[480-i])
-		x1i := imag(out[i]) - imag(out[480-i])
-		x2r := imag(out[i]) + imag(out[480-i])
-		x2i := real(out[480-i]) - real(out[i])
+		a, c := out[2*i], out[2*i+1]
+		m := 2 * (480 - i)
+		b, d := out[m], out[m+1]
+		s.scratchBinE[i] = fma32(a, a, round32(b*b)) + c*c + d*d
+
+		x1r := a + b
+		x1i := c - d
+		x2r := c + d
+		x2i := b - a
 
 		angle := round32(analysisAtanScale * analysisAtan2(x1i, x1r))
 		dAngle := angle - s.Angle[i]
@@ -412,6 +409,11 @@ type AnalysisInfo struct {
 // src/analysis.c; unexported scratch fields are Go-only reuse buffers and carry
 // no analyzer state across Reset.
 type TonalityAnalysisState struct {
+	// Pointer-bearing scratch slices sit at offset 0 so the large fixed-size
+	// analyzer arrays below live in Go's GC noscan tail.
+	scratchMono       []float32
+	scratchResample3x []float32
+
 	// Fs is the analyzer input sample rate in Hz (libopus "Fs").
 	Fs int32
 	// LSBDepth is the input bit depth (8..24) used to set the noise floor
@@ -505,16 +507,13 @@ type TonalityAnalysisState struct {
 	// digital silence, for which the Info ring repeats the previous entry.
 	silentWindow bool
 
-	// Scratch buffers for zero-allocation analysis
-	scratchMono       []float32
-	scratchResample3x []float32
-	scratchFFTKiss     []celt.KissCpx
-	scratchBinE        []float32 // precomputed bin energies for band loop
-	scratchFFTIn       [480]complex64
-	scratchFFTOut      [480]complex64
-	scratchTonality    [240]float32
-	scratchTonality2   [240]float32
-	scratchNoisiness   [240]float32
+	// Fixed-size scratch buffers (pointer-free, no per-stream heap allocs).
+	scratchBinE      [240]float32 // precomputed bin energies for bins 1..239
+	scratchFFTIn     [480]complex64
+	scratchFFTOut    [960]float32 // interleaved [re0, im0, ...] FFT output
+	scratchTonality  [240]float32
+	scratchTonality2 [240]float32
+	scratchNoisiness [240]float32
 }
 
 // NewTonalityAnalysisState allocates and initializes a tonality analyzer for the
@@ -522,12 +521,17 @@ type TonalityAnalysisState struct {
 // followed by tonality_analysis_reset(): LSBDepth defaults to 24 and all
 // reset-scoped state is cleared.
 func NewTonalityAnalysisState(fs int) *TonalityAnalysisState {
-	s := &TonalityAnalysisState{
-		Fs:       int32(fs),
-		LSBDepth: 24,
-	}
-	s.Reset()
+	s := &TonalityAnalysisState{}
+	s.Init(fs)
 	return s
+}
+
+// Init initializes s in place for sample rate fs so callers can embed
+// TonalityAnalysisState inline without a separate heap allocation.
+func (s *TonalityAnalysisState) Init(fs int) {
+	s.Fs = int32(fs)
+	s.LSBDepth = 24
+	s.Reset()
 }
 
 // Reset clears all reset-scoped analyzer state (the libopus
@@ -541,16 +545,12 @@ func (s *TonalityAnalysisState) Reset() {
 	lsbDepth := s.LSBDepth
 	scratchMono := s.scratchMono[:0]
 	scratchResample3x := s.scratchResample3x[:0]
-	scratchFFTKiss := s.scratchFFTKiss
-	scratchBinE := s.scratchBinE[:0]
 
 	*s = TonalityAnalysisState{
-		Fs:                fs,
-		LSBDepth:          lsbDepth,
 		scratchMono:       scratchMono,
 		scratchResample3x: scratchResample3x,
-		scratchFFTKiss:    scratchFFTKiss,
-		scratchBinE:       scratchBinE,
+		Fs:                fs,
+		LSBDepth:          lsbDepth,
 	}
 }
 
@@ -575,9 +575,10 @@ func (s *TonalityAnalysisState) SetLSBDepth(depth int) {
 const analysisFFTScale = float32(1.0 / 480.0)
 
 // fft480 computes a 480-point complex forward FFT using the shared CELT KISS
-// FFT, applying libopus' 1/nfft output normalisation exactly as opus_fft().
-func fft480(out, in *[480]complex64, scratch []celt.KissCpx) {
-	celt.KissFFT32ToScaledWithScratch(out[:], in[:], analysisFFTScale, scratch)
+// FFT, applying libopus' 1/nfft output normalisation directly into interleaved
+// [re, im] pairs in out.
+func fft480(out *[960]float32, in *[480]complex64) {
+	celt.KissFFT32ToScaledInterleaved(out[:], in[:], analysisFFTScale)
 }
 
 func analysisSpecVariability(logE *[NbFrames][NbTBands]float32) float32 {
@@ -714,7 +715,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 
 	s.analysisRunFFT()
 	outBuf := s.scratchFFTOut[:]
-	if math.Float32bits(real(outBuf[0]))&0x7fffffff > 0x7f800000 {
+	if math.Float32bits(outBuf[0])&0x7fffffff > 0x7f800000 {
 		s.Info[infoPos].Valid = false
 		s.WritePos = int32(nextWritePos)
 		return
@@ -740,10 +741,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	tonality2 := s.scratchTonality2[:]
 	noisiness := s.scratchNoisiness[:]
 	s.analysisBins(&s.scratchFFTOut, tonality, tonality2, noisiness)
-	for i := 2; i < 239; i++ {
-		tt := minf(tonality2[i], maxf(tonality2[i-1], tonality2[i+1]))
-		tonality[i] = 0.9 * maxf(tonality[i], tt-0.1)
-	}
+	smoothAnalysisTonality(tonality, tonality2)
 
 	frameNoisiness := float32(0)
 	frameStationarity := float32(0)
@@ -773,30 +771,20 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 
 	// Match libopus special handling for the first band (DC/Nyquist bins).
 	{
-		x1r := 2 * real(outBuf[0])
-		x2r := 2 * imag(outBuf[0])
+		x1r := 2 * outBuf[0]
+		x2r := 2 * outBuf[1]
 		E := fma32(x1r, x1r, round32(x2r*x2r))
-		for i := 1; i < 4; i++ {
-			E += analysisBinEnergy(outBuf, i)
-		}
+		E += s.scratchBinE[1]
+		E += s.scratchBinE[2]
+		E += s.scratchBinE[3]
 		E *= s.analysisEnergyScale()
 		bandLog2[0] = log2Scale * opusmath.LogF32(E+1e-10)
 	}
 
-	// Precompute bin energies for all analysis bins to improve memory access patterns.
-	// Range: tbands[0]=4 to tbands[NbTBands]=240, so bins 4..239 = 236 entries.
+	// Bin energies for bins 1..239 were precomputed during analysisBins while
+	// out[i] and out[480-i] were already loaded in registers.
 	const binStart = 4 // tbands[0]
-	const binEnd = 240 // tbands[NbTBands]
-	const numBins = binEnd - binStart
-	if cap(s.scratchBinE) < numBins {
-		s.scratchBinE = make([]float32, numBins)
-	}
-	binEArr := s.scratchBinE[:numBins]
-	{
-		for i := binStart; i < binEnd; i++ {
-			binEArr[i-binStart] = analysisBinEnergy(outBuf, i)
-		}
-	}
+	binEArr := s.scratchBinE[binStart:240]
 	analysisBinScale := s.analysisEnergyScale()
 
 	// Band energies and tonal metrics using precomputed bin energies.

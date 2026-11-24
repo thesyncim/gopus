@@ -3,9 +3,9 @@
 package dnnmath
 
 import (
+	"encoding/binary"
 	"math"
 	"simd/archsimd"
-	"unsafe"
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
 )
@@ -206,11 +206,8 @@ func Conv2D3x3X86(out []float32, weights dnnblob.Float32View, inChannels, outCha
 		o := out[i*hstride : i*hstride+height]
 		for m := range inChannels {
 			wBase := (i*inChannels + m) * 9
-			// Conv2D broadcasts each four-byte float directly from the retained
-			// payload. x86 permits unaligned scalar reads, and this slice bounds
-			// the read to one float.
 			for k := range w {
-				w[k] = archsimd.BroadcastFloat32x8(*(*float32)(unsafe.Pointer((*[4]byte)(raw[4*(wBase+k):]))))
+				w[k] = archsimd.BroadcastFloat32x8(math.Float32frombits(binary.LittleEndian.Uint32(raw[4*(wBase+k):])))
 			}
 			r0 := in[m*inStride:]
 			r1 := in[(inChannels+m)*inStride:]

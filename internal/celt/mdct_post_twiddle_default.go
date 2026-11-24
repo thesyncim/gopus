@@ -10,12 +10,12 @@ const mdctUsePostTwiddleNeon = false
 // mdctPostTwiddleNeon is never called off arm64 (guarded by
 // mdctUsePostTwiddleNeon); the stub keeps the package building on all
 // targets.
-func mdctPostTwiddleNeon(coeffs []float32, fftStage []kissCpx, trig []float32, n2, n4, pairBlocks int) {
+func mdctPostTwiddleNeon(coeffs []float32, fftStage []float32, trig []float32, n2, n4, pairBlocks int) {
 	for i := 0; i < 4*pairBlocks; i++ {
 		j := n4 - 1 - i
-		coeffs[2*i] = mdctMulSubMixEncode(fftStage[i].i, fftStage[i].r, trig[n4+i], trig[i])
-		coeffs[n2-1-2*i] = mdctMulAddMixEncode(fftStage[i].r, fftStage[i].i, trig[n4+i], trig[i])
-		coeffs[2*j] = mdctMulSubMixEncode(fftStage[j].i, fftStage[j].r, trig[n4+j], trig[j])
-		coeffs[n2-1-2*j] = mdctMulAddMixEncode(fftStage[j].r, fftStage[j].i, trig[n4+j], trig[j])
+		coeffs[2*i] = mdctMulSubMixEncode(fftStage[2*i+1], fftStage[2*i], trig[n4+i], trig[i])
+		coeffs[n2-1-2*i] = mdctMulAddMixEncode(fftStage[2*i], fftStage[2*i+1], trig[n4+i], trig[i])
+		coeffs[2*j] = mdctMulSubMixEncode(fftStage[2*j+1], fftStage[2*j], trig[n4+j], trig[j])
+		coeffs[n2-1-2*j] = mdctMulAddMixEncode(fftStage[2*j], fftStage[2*j+1], trig[n4+j], trig[j])
 	}
 }

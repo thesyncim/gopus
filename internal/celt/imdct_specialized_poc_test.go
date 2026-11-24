@@ -31,7 +31,7 @@ func pocFFTInput240() []complex64 {
 // constraints; GOEXPERIMENT=simd enables eligible Go SIMD kernels.
 func BenchmarkPOCFFT240(b *testing.B) {
 	in := pocFFTInput240()
-	scratch := make([]kissCpx, len(in))
+	scratch := make([]float32, 2*len(in))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = kissFFT32ToScratch(in, scratch, nil)

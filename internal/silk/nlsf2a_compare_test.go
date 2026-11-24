@@ -98,7 +98,6 @@ func TestDecodeParametersLPCOutput(t *testing.T) {
 	st.subfrLength = 40
 	st.lpcOrder = 10
 	st.ltpMemLength = 200
-	st.nlsfCB = &silk_NLSF_CB_NB_MB
 	st.firstFrameAfterReset = true
 
 	// Manually set indices for frame 0 (from libopus decode)

@@ -2,10 +2,7 @@
 
 package silk
 
-import (
-	"simd/archsimd"
-	"unsafe"
-)
+import "simd/archsimd"
 
 var silkWarpedAutocorrUsesAVX2 = archsimd.X86.AVX2()
 
@@ -44,16 +41,12 @@ func warpedAutocorrelationSectionsAVX2(st, corr *warpedAutocorrState, in []float
 	for k := range startMask {
 		startMask[k] = lanes.Greater(archsimd.BroadcastInt64x4(int64(k) - 1))
 	}
-	// Row i of a state array starts at the element before C double i, so
-	// its second element is C double i.
-	st1 := unsafe.Pointer(&st[0])
-	corr1 := unsafe.Pointer(&corr[0])
 	n := 0
 	for ; n+8 <= len(in); n += 8 {
 		// The inputs are also the state[0] factors of each lane's
 		// correlation terms.
-		xLo := archsimd.LoadFloat32x4Array((*[4]float32)(unsafe.Pointer(&in[n]))).ConvertToFloat64()
-		xHi := archsimd.LoadFloat32x4Array((*[4]float32)(unsafe.Pointer(&in[n+4]))).ConvertToFloat64()
+		xLo := archsimd.LoadFloat32x4Array((*[4]float32)(in[n:])).ConvertToFloat64()
+		xHi := archsimd.LoadFloat32x4Array((*[4]float32)(in[n+4:])).ConvertToFloat64()
 		// t1 is each lane's tmp1 entering its pair; prevT1 and t2 are the
 		// previous step's tmp1 input and tmp2 result.
 		var t1Lo, prevT1Lo, t2Lo, ceLo, coLo archsimd.Float64x4
@@ -67,9 +60,9 @@ func warpedAutocorrelationSectionsAVX2(st, corr *warpedAutocorrState, in []float
 			// Lane 0 reads the state and correlations sample n-1 left in
 			// memory; lane j>0 takes the values lane j-1 produced for its
 			// sample.
-			aLo := warpedShiftIn(prevT1Lo, st1, 2*q)
-			bLo := warpedShiftIn(t2Lo, st1, 2*q+1)
-			cLo := warpedShiftIn(t1Lo, st1, 2*q+2)
+			aLo := warpedShiftIn(prevT1Lo, st, 2*q)
+			bLo := warpedShiftIn(t2Lo, st, 2*q+1)
+			cLo := warpedShiftIn(t1Lo, st, 2*q+2)
 			aHi := warpedShiftAcross(prevT1Lo, prevT1Hi)
 			bHi := warpedShiftAcross(t2Lo, t2Hi)
 			cHi := warpedShiftAcross(t1Lo, t1Hi)
@@ -82,8 +75,8 @@ func warpedAutocorrelationSectionsAVX2(st, corr *warpedAutocorrState, in []float
 			// C[i] += state[0]*tmp1; C[i+1] += state[0]*tmp2
 			ceHi = warpedShiftAcross(ceLo, ceHi).Add(xHi.Mul(t1Hi))
 			coHi = warpedShiftAcross(coLo, coHi).Add(xHi.Mul(t2nHi))
-			ceLo = warpedShiftIn(ceLo, corr1, 2*q).Add(xLo.Mul(t1Lo))
-			coLo = warpedShiftIn(coLo, corr1, 2*q+1).Add(xLo.Mul(t2nLo))
+			ceLo = warpedShiftIn(ceLo, corr, 2*q).Add(xLo.Mul(t1Lo))
+			coLo = warpedShiftIn(coLo, corr, 2*q+1).Add(xLo.Mul(t2nLo))
 
 			// Lane 7 holds the last sample of the group: its pair p = q-7
 			// leaves the final state and correlations for the next group.
@@ -106,10 +99,10 @@ func warpedAutocorrelationSectionsAVX2(st, corr *warpedAutocorrState, in []float
 // warpedShiftIn returns {c[i], x[0], x[1], x[2]}: every lane takes the value
 // of the lane below it, and lane 0 takes C double i of the warpedAutocorrState
 // that starts at v.
-func warpedShiftIn(x archsimd.Float64x4, v unsafe.Pointer, i int) archsimd.Float64x4 {
-	row := archsimd.LoadFloat64x4Array((*[4]silkCReal)(unsafe.Add(v, 8*i))) // {c[i-1], c[i], ...}
-	u := row.ConcatPermute128Scalars(0, 2, x)                               // {c[i-1], c[i], x0, x1}
-	return u.ConcatPermuteScalarsGrouped(1, 2, x)                           // {c[i], x0, x1, x2}
+func warpedShiftIn(x archsimd.Float64x4, v *warpedAutocorrState, i int) archsimd.Float64x4 {
+	row := archsimd.LoadFloat64x4Array((*[4]silkCReal)(v[i:])) // {c[i-1], c[i], ...}
+	u := row.ConcatPermute128Scalars(0, 2, x)                  // {c[i-1], c[i], x0, x1}
+	return u.ConcatPermuteScalarsGrouped(1, 2, x)              // {c[i], x0, x1, x2}
 }
 
 // warpedShiftAcross returns {lo[3], hi[0], hi[1], hi[2]}: lane 4 of the

@@ -2,10 +2,7 @@
 
 package silk
 
-import (
-	"simd/archsimd"
-	"unsafe"
-)
+import "simd/archsimd"
 
 var silkLPCAnalysisF32UsesAVX2 = archsimd.X86.AVX2()
 
@@ -37,29 +34,27 @@ func lpcAnalysisFilterF32AVX2(rLPC, predCoef, s []float32, length, order int) {
 
 	ix := order
 	for ; ix+8 <= length; ix += 8 {
-		// history points at s[ix-1]; tap k reads s[ix-1-k].
-		history := unsafe.Pointer(&s[ix-1])
 		var pred archsimd.Float32x8
 		if lpcAnalysisUsesV3FMA {
 			// The v3 libopus path rounds tap 1 first, then accumulates tap 0
 			// and taps 2 onward with fused multiply-adds.
-			tap1 := archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(history, -4)))
+			tap1 := archsimd.LoadFloat32x8Array((*[8]float32)(s[ix-2:]))
 			pred = tap1.Mul(archsimd.BroadcastFloat32x8(predCoef[1]))
-			tap0 := archsimd.LoadFloat32x8Array((*[8]float32)(history))
+			tap0 := archsimd.LoadFloat32x8Array((*[8]float32)(s[ix-1:]))
 			pred = tap0.MulAdd(archsimd.BroadcastFloat32x8(predCoef[0]), pred)
 			for k := 2; k < order; k++ {
-				tap := archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(history, -4*k)))
+				tap := archsimd.LoadFloat32x8Array((*[8]float32)(s[ix-1-k:]))
 				pred = tap.MulAdd(archsimd.BroadcastFloat32x8(predCoef[k]), pred)
 			}
 		} else {
-			pred = archsimd.LoadFloat32x8Array((*[8]float32)(history)).Mul(archsimd.BroadcastFloat32x8(predCoef[0]))
+			pred = archsimd.LoadFloat32x8Array((*[8]float32)(s[ix-1:])).Mul(archsimd.BroadcastFloat32x8(predCoef[0]))
 			for k := 1; k < order; k++ {
-				tap := archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Add(history, -4*k)))
+				tap := archsimd.LoadFloat32x8Array((*[8]float32)(s[ix-1-k:]))
 				pred = pred.Add(tap.Mul(archsimd.BroadcastFloat32x8(predCoef[k])))
 			}
 		}
-		in := archsimd.LoadFloat32x8Array((*[8]float32)(unsafe.Pointer(&s[ix])))
-		in.Sub(pred).StoreArray((*[8]float32)(unsafe.Pointer(&rLPC[ix])))
+		in := archsimd.LoadFloat32x8Array((*[8]float32)(s[ix:]))
+		in.Sub(pred).StoreArray((*[8]float32)(rLPC[ix:]))
 	}
 	// The 256-bit lanes leave the upper register halves dirty; clear them
 	// before the scalar SSE tail and the caller's code.

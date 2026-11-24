@@ -6,7 +6,7 @@ type MDCTForwardScratch struct {
 	f      []float32
 	fftIn  []complex64
 	fftOut []complex64
-	fftTmp []kissCpx
+	fftTmp []float32
 }
 
 // ForwardWithOverlapFloat32Into writes the same coefficients as
@@ -24,6 +24,6 @@ func (s *MDCTForwardScratch) ForwardWithOverlapFloat32Into(samples []float32, ov
 	f := ensureFloat32Slice(&s.f, frameSize)
 	fftIn := ensureComplex64Slice(&s.fftIn, n4)
 	fftOut := ensureComplex64Slice(&s.fftOut, n4)
-	fftTmp := ensureKissCpxSlice(&s.fftTmp, n4)
+	fftTmp := ensureFloat32Slice(&s.fftTmp, 2*n4)
 	mdctForwardOverlapF32Scratch(samples, overlap, coeffs[:frameSize], f, fftIn, fftOut, fftTmp, nil)
 }

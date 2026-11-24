@@ -8,7 +8,7 @@ import (
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
-func probeLibopusCELTFFT(t *testing.T, nfft int, input []complex64) []kissCpx {
+func probeLibopusCELTFFT(t *testing.T, nfft int, input []complex64) []float32 {
 	t.Helper()
 	payload := libopustest.NewOraclePayload("GCII", libopusCELTIMDCTModeFFT, uint32(nfft), 0, 0)
 	for _, v := range input {
@@ -28,11 +28,11 @@ func probeLibopusCELTFFT(t *testing.T, nfft int, input []complex64) []kissCpx {
 		t.Fatalf("helper mode=%d want %d", gotMode, libopusCELTIMDCTModeFFT)
 	}
 	count := int(reader.U32())
-	out := make([]kissCpx, count)
+	out := make([]float32, 2*count)
 	reader.ExpectRemaining(count * 8)
-	for i := range out {
-		out[i].r = reader.Float32()
-		out[i].i = reader.Float32()
+	for i := range count {
+		out[2*i] = reader.Float32()
+		out[2*i+1] = reader.Float32()
 	}
 	if err := reader.ExpectConsumed(); err != nil {
 		t.Fatal(err)
@@ -53,28 +53,28 @@ func TestKissFFT32ToScratchMatchesLibopusC(t *testing.T) {
 					input[i] = complex(r, im)
 				}
 
-				got := kissFFT32ToScratch(input, make([]kissCpx, nfft), nil)
+				got := kissFFT32ToScratch(input, make([]float32, 2*nfft), nil)
 				want := probeLibopusCELTFFT(t, nfft, input)
-				assertKissCpxBits(t, "fft", got, want)
+				assertKissInterleavedBits(t, "fft", got, want)
 			})
 		}
 	}
 }
 
-func assertKissCpxBits(t *testing.T, label string, got, want []kissCpx) {
+func assertKissInterleavedBits(t *testing.T, label string, got, want []float32) {
 	t.Helper()
 	if len(got) != len(want) {
 		t.Fatalf("%s len=%d want %d", label, len(got), len(want))
 	}
-	for i := range want {
-		if math.Float32bits(got[i].r) != math.Float32bits(want[i].r) ||
-			math.Float32bits(got[i].i) != math.Float32bits(want[i].i) {
+	for i := 0; i < len(want); i += 2 {
+		if math.Float32bits(got[i]) != math.Float32bits(want[i]) ||
+			math.Float32bits(got[i+1]) != math.Float32bits(want[i+1]) {
 			t.Fatalf("%s[%d]=(%08x %.9g,%08x %.9g) want (%08x %.9g,%08x %.9g)",
-				label, i,
-				math.Float32bits(got[i].r), got[i].r,
-				math.Float32bits(got[i].i), got[i].i,
-				math.Float32bits(want[i].r), want[i].r,
-				math.Float32bits(want[i].i), want[i].i)
+				label, i/2,
+				math.Float32bits(got[i]), got[i],
+				math.Float32bits(got[i+1]), got[i+1],
+				math.Float32bits(want[i]), want[i],
+				math.Float32bits(want[i+1]), want[i+1])
 		}
 	}
 }

@@ -5,16 +5,23 @@ import "io"
 // Reader reads Opus packets from an Ogg stream. It retains parsing state and is
 // not safe for concurrent use.
 type Reader struct {
-	r             io.Reader
-	rs            io.ReadSeeker
-	Header        *OpusHead // Parsed ID header (set after NewReader)
-	Tags          *OpusTags // Parsed comment header (set after NewReader)
-	granulePos    uint64    // Granule position of the last consumed packet
-	eos           bool      // End-of-stream page consumed
-	headerEOS     bool      // The selected stream ends on the OpusTags page
-	serial        uint32    // Stream serial number
-	audioOffset   int64     // Stream offset of the first audio page for seekable inputs
-	audioSequence uint32    // Sequence number of the first audio page
+	// Pointer-bearing fields are grouped first to minimize GC ptrdata.
+	r          io.Reader
+	rs         io.ReadSeeker
+	Header     *OpusHead // Parsed ID header (set after NewReader)
+	Tags       *OpusTags // Parsed comment header (set after NewReader)
+	pageBuffer []byte    // Read buffer; parsed pages alias it
+	pendingErr error     // Error returned with buffered bytes, deferred until they are parsed
+	pktScratch []byte    // Reused assembly buffer backing ReadPacket
+	pushback   []byte    // One-packet pushback set by SeekGranule
+	page       Page      // Current page, parsed zero-copy over pageBuffer
+
+	granulePos    uint64 // Granule position of the last consumed packet
+	eos           bool   // End-of-stream page consumed
+	headerEOS     bool   // The selected stream ends on the OpusTags page
+	serial        uint32 // Stream serial number
+	audioOffset   int64  // Stream offset of the first audio page for seekable inputs
+	audioSequence uint32 // Sequence number of the first audio page
 
 	lastAudioPageGranule uint64 // Granule position of the last completed audio page
 	haveAudioPageGranule bool   // lastAudioPageGranule is known
@@ -25,13 +32,9 @@ type Reader struct {
 	pageDurationKnown    bool   // pageAudioDuration includes every completed packet
 	pageHasAudioPacket   bool   // page has a consumed nonempty packet
 
-	pageBuffer   []byte // Read buffer; parsed pages alias it
-	bufferOffset int    // Start of unconsumed bytes in pageBuffer
-	bufferLen    int    // End of valid bytes in pageBuffer
-	pendingErr   error  // Error returned with buffered bytes, deferred until they are parsed
-
-	page     Page // Current page, parsed zero-copy over pageBuffer
-	havePage bool // page holds a loaded page of this stream
+	bufferOffset     int    // Start of unconsumed bytes in pageBuffer
+	bufferLen        int    // End of valid bytes in pageBuffer
+	havePage         bool   // page holds a loaded page of this stream
 	segIdx           int    // Next unread lacing segment in page.Segments
 	payOff           int    // Next unread byte in page.Payload
 	pageTrailCount   int    // Completed packets remaining after segIdx on current page
@@ -39,10 +42,8 @@ type Reader struct {
 	pageTrailUnknown int    // Remaining completed packets with unknown duration
 	pageTrailReady   bool   // Whether pageTrail* is populated for the current page
 
-	pktScratch []byte // Reused assembly buffer backing ReadPacket
-	pushback   []byte // One-packet pushback set by SeekGranule
-	pushbackG  uint64 // Granule of the pushed-back packet
-	hasPush    bool   // pushback holds a packet
+	pushbackG uint64 // Granule of the pushed-back packet
+	hasPush   bool   // pushback holds a packet
 }
 
 // readerBufferSize is the size of the internal read buffer.

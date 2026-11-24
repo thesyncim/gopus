@@ -58,7 +58,13 @@ type EncControl struct {
 // end and the packet-level rate control that Encode (silk_Encode,
 // silk/enc_API.c) drives.
 type PacketEncoder struct {
-	state                    [2]*Encoder    // state_Fxx
+	// Pointer-bearing fields sit first so stereoEncState and scalars live in
+	// Go's GC noscan tail.
+	state         [2]*Encoder // state_Fxx
+	buf           []int16     // API-rate int16 input block (buf in silk_Encode)
+	stereoScratch stereoLRToMSScratch
+
+	// --- Pointer-free (noscan) tail ---
 	stereo                   stereoEncState // sStereo
 	nBitsUsedLBRR            int32
 	nBitsExceeded            int32
@@ -68,11 +74,7 @@ type PacketEncoder struct {
 	timeSinceSwitchAllowedMs int32
 	allowBandwidthSwitch     bool
 	prevDecodeOnlyMiddle     bool
-
-	channels int // channel states silk_InitEncoder set up
-
-	buf           []int16 // API-rate int16 input block (buf in silk_Encode)
-	stereoScratch stereoLRToMSScratch
+	channels                 int // channel states silk_InitEncoder set up
 }
 
 // NewPacketEncoder creates the SILK encoder for a stream of channels (1 or 2)

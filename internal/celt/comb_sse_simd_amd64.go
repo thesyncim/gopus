@@ -2,11 +2,7 @@
 
 package celt
 
-import (
-	"unsafe"
-
-	"simd/archsimd"
-)
+import "simd/archsimd"
 
 const combUsesSSE = true
 
@@ -19,9 +15,9 @@ func combFilterConstSSE(dst, src, delay []celtSig, from, to int, g10, g11, g12 f
 	if to <= from {
 		return
 	}
-	_ = dst[to-1]
-	_ = src[to-1]
-	_ = delay[to+3]
+	dst = dst[:to]
+	src = src[:to]
+	delay = delay[:to+4]
 	if !archsimd.X86.AVX() {
 		for i := from; i < to; i++ {
 			dst[i] = combFilterConstSSEValue(src[i], g10, g11, g12, delay[i+2], delay[i+3], delay[i+1], delay[i+4], delay[i])
@@ -36,19 +32,16 @@ func combFilterConstSSEAVX(dst, src, delay []celtSig, from, to int, g10, g11, g1
 	g10v := broadcastF32x4Arch(g10)
 	g11v := broadcastF32x4Arch(g11)
 	g12v := broadcastF32x4Arch(g12)
-	dp := unsafe.Pointer(unsafe.SliceData(dst))
-	sp := unsafe.Pointer(unsafe.SliceData(src))
-	xp := unsafe.Pointer(unsafe.SliceData(delay))
 	// As in the C kernel, only x[i-T+2..i-T+5] is loaded per step; the other
 	// taps are shuffled from it and the previous step's load, which keeps the
 	// in-place loads that hit recent stores to one per step.
-	x0 := loadF32x4(unsafe.Add(xp, 4*from))
-	for i := from; i < to; i += 4 {
-		x4 := loadF32x4(unsafe.Add(xp, 4*(i+4)))
+	x0 := archsimd.LoadFloat32x4Array((*[4]float32)(delay[from:]))
+	for i := from; i+4 <= to; i += 4 {
+		x4 := archsimd.LoadFloat32x4Array((*[4]float32)(delay[i+4:]))
 		x2 := x0.ConcatPermuteScalars(2, 3, 4, 5, x4)
 		x1 := x0.ConcatPermuteScalars(1, 2, 5, 6, x2)
 		x3 := x2.ConcatPermuteScalars(1, 2, 5, 6, x4)
-		base := loadF32x4(unsafe.Add(sp, 4*i))
+		base := archsimd.LoadFloat32x4Array((*[4]float32)(src[i:]))
 		var yi, yi2 archsimd.Float32x4
 		if combTargetV3FMA {
 			// GCC 13.3 contracts celt/x86/pitch_sse.c's intrinsic chain for
@@ -60,7 +53,7 @@ func combFilterConstSSEAVX(dst, src, delay []celtSig, from, to int, g10, g11, g1
 			yi = base.Add(g10v.Mul(x2))
 			yi2 = g11v.Mul(x3.Add(x1)).Add(g12v.Mul(x4.Add(x0)))
 		}
-		storeF32x4(unsafe.Add(dp, 4*i), yi.Add(yi2))
+		yi.Add(yi2).StoreArray((*[4]float32)(dst[i:]))
 		x0 = x4
 	}
 }
@@ -92,31 +85,27 @@ func combFilterOverlap(dst, d0, d1, wsq []float32, g00, g01, g02, g10, g11, g12 
 //go:noinline
 func combFilterOverlapAVX(dst, d0, d1, wsq []float32, g00, g01, g02, g10, g11, g12 float32) {
 	n := len(dst)
-	_ = d0[n+3]
-	_ = d1[n+3]
-	_ = wsq[n-1]
+	d0 = d0[:n+4]
+	d1 = d1[:n+4]
+	wsq = wsq[:n]
 	one := broadcastF32x4Arch(1)
 	vg00, vg01, vg02 := broadcastF32x4Arch(g00), broadcastF32x4Arch(g01), broadcastF32x4Arch(g02)
 	vg10, vg11, vg12 := broadcastF32x4Arch(g10), broadcastF32x4Arch(g11), broadcastF32x4Arch(g12)
-	dp := unsafe.Pointer(unsafe.SliceData(dst))
-	ap := unsafe.Pointer(unsafe.SliceData(d0))
-	bp := unsafe.Pointer(unsafe.SliceData(d1))
-	wp := unsafe.Pointer(unsafe.SliceData(wsq))
 	i := 0
 	for ; i+4 <= n; i += 4 {
-		f := loadF32x4(unsafe.Add(wp, 4*i))
-		a := unsafe.Add(ap, 4*i)
-		b := unsafe.Add(bp, 4*i)
+		f := archsimd.LoadFloat32x4Array((*[4]float32)(wsq[i:]))
+		a := d0[i : i+8 : i+8]
+		b := d1[i : i+8 : i+8]
 		oneMinus := one.Sub(f)
 		c00, c01, c02 := oneMinus.Mul(vg00), oneMinus.Mul(vg01), oneMinus.Mul(vg02)
 		c10, c11, c12 := f.Mul(vg10), f.Mul(vg11), f.Mul(vg12)
-		d0c := loadF32x4(unsafe.Add(a, 8))
-		d01 := loadF32x4(unsafe.Add(a, 12)).Add(loadF32x4(unsafe.Add(a, 4)))
-		d02 := loadF32x4(unsafe.Add(a, 16)).Add(loadF32x4(a))
-		d1c := loadF32x4(unsafe.Add(b, 8))
-		d11 := loadF32x4(unsafe.Add(b, 12)).Add(loadF32x4(unsafe.Add(b, 4)))
-		d12 := loadF32x4(unsafe.Add(b, 16)).Add(loadF32x4(b))
-		sum := loadF32x4(unsafe.Add(dp, 4*i))
+		d0c := archsimd.LoadFloat32x4Array((*[4]float32)(a[2:6]))
+		d01 := archsimd.LoadFloat32x4Array((*[4]float32)(a[3:7])).Add(archsimd.LoadFloat32x4Array((*[4]float32)(a[1:5])))
+		d02 := archsimd.LoadFloat32x4Array((*[4]float32)(a[4:8])).Add(archsimd.LoadFloat32x4Array((*[4]float32)(a[0:4])))
+		d1c := archsimd.LoadFloat32x4Array((*[4]float32)(b[2:6]))
+		d11 := archsimd.LoadFloat32x4Array((*[4]float32)(b[3:7])).Add(archsimd.LoadFloat32x4Array((*[4]float32)(b[1:5])))
+		d12 := archsimd.LoadFloat32x4Array((*[4]float32)(b[4:8])).Add(archsimd.LoadFloat32x4Array((*[4]float32)(b[0:4])))
+		sum := archsimd.LoadFloat32x4Array((*[4]float32)(dst[i:]))
 		if combTargetV3FMA {
 			// The x86-64-v3 C overlap path contracts each tap product into its
 			// running sum while keeping tap gains and tap-pair sums rounded.
@@ -134,7 +123,7 @@ func combFilterOverlapAVX(dst, d0, d1, wsq []float32, g00, g01, g02, g10, g11, g
 				Add(c11.Mul(d11)).
 				Add(c12.Mul(d12))
 		}
-		storeF32x4(unsafe.Add(dp, 4*i), sum)
+		sum.StoreArray((*[4]float32)(dst[i:]))
 	}
 	if i < n {
 		combFilterOverlapScalar(dst[i:], d0[i:], d1[i:], wsq[i:], g00, g01, g02, g10, g11, g12)

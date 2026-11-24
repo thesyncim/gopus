@@ -2,10 +2,7 @@
 
 package celt
 
-import (
-	"simd/archsimd"
-	"unsafe"
-)
+import "simd/archsimd"
 
 // spreadCountThresholds counts how many coefficients x[0..n-1] satisfy
 // x[j]*x[j]*nf < threshold for three thresholds (0.25, 0.0625, 0.015625).
@@ -30,9 +27,9 @@ func spreadCountThresholdsAVX(x []celtNorm, n int, nf float32) (t0, t1, t2 int) 
 		c1 := broadcastF32x4Arch(spreadThresholds[1])
 		c2 := broadcastF32x4Arch(spreadThresholds[2])
 		var n0, n1, n2 archsimd.Int32x4
-		p := unsafe.Pointer(unsafe.SliceData(x))
-		for j := 0; j < blocks; j += 4 {
-			v := loadF32x4(unsafe.Add(p, 4*j))
+		xb := x[:blocks]
+		for j := 0; j < len(xb); j += 4 {
+			v := archsimd.LoadFloat32x4Array((*[4]float32)(xb[j:]))
 			x2N := v.Mul(v).Mul(nf4)
 			n0 = n0.Sub(x2N.Less(c0).ToInt32x4())
 			n1 = n1.Sub(x2N.Less(c1).ToInt32x4())

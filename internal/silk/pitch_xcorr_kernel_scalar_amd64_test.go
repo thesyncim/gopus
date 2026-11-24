@@ -25,7 +25,7 @@ func TestSilkPitchXcorrAVX2TinyFirstLaneEdgeValues(t *testing.T) {
 		}
 		want := xcorrKernelAVX8Reference(x, y, length)
 		var got [8]float32
-		xcorrKernelAVX8(&x[0], &y[0], &got, length)
+		xcorrKernelAVX8(x, y, &got, length)
 		for corr := range 8 {
 			if math.Float32bits(got[corr]) != math.Float32bits(want[corr]) {
 				t.Fatalf("length=%d corr=%d: got %08x want %08x", length, corr, math.Float32bits(got[corr]), math.Float32bits(want[corr]))
@@ -36,9 +36,9 @@ func TestSilkPitchXcorrAVX2TinyFirstLaneEdgeValues(t *testing.T) {
 	x := []float32{1, 2, 3, 4, 5}
 	y := []float32{5, 4, 3, 2, 1, 0, -1, -2, -3, -4, -5, -6}
 	var sum [8]float32
-	xcorrKernelAVX8(&x[0], &y[0], &sum, len(x))
+	xcorrKernelAVX8(x, y, &sum, len(x))
 	if allocs := testing.AllocsPerRun(100, func() {
-		xcorrKernelAVX8(&x[0], &y[0], &sum, len(x))
+		xcorrKernelAVX8(x, y, &sum, len(x))
 	}); allocs != 0 {
 		t.Fatalf("tiny SILK xcorr kernel allocated %v times", allocs)
 	}

@@ -139,26 +139,7 @@ func opPVQSearchScratchNormWithInputMutation(x []celtNorm, k int, iyBuf *[]int32
 		// IEEE-754 results, so reproduce the reciprocal-then-multiply exactly.
 		// Reference: libopus vq.c lines 266-270, mathops.h celt_rcp.
 		rcp := (float32(k) + 0.8) * (1.0 / sum)
-		for j := range n {
-			// It's important to round towards zero here (floor for positive values)
-			// Reference: libopus vq.c line 274
-			iy[j] = int32(rcp * absX[j]) // rcp >= 0, absX >= 0: truncation == floor
-			y[j] = float32(iy[j])
-			// The selected NEON vq.c projection rounds products in 16- and
-			// 4-term vector blocks, then adds them in element order. Only
-			// the final n%4 terms use scalar fused multiply-adds.
-			if celtFusedFloat && j < n&^3 {
-				yy += round32(y[j] * y[j])
-				xy += round32(absX[j] * y[j])
-			} else {
-				yy += y[j] * y[j]
-				xy += absX[j] * y[j]
-			}
-			// We multiply y[j] by 2 so we don't have to do it in the main loop
-			// Reference: libopus vq.c line 279
-			y[j] *= 2
-			pulsesLeft -= int(iy[j])
-		}
+		xy, yy, pulsesLeft = pvqProjectHighPulse(absX, y, iy, rcp, n, pulsesLeft)
 	}
 
 	// Safety check: if pulsesLeft is way too large, dump them in first bin.
@@ -184,16 +165,12 @@ func opPVQSearchScratchNormWithInputMutation(x []celtNorm, k int, iyBuf *[]int32
 
 	// Put the original signs back
 	// Reference: libopus vq.c lines 364-371
-	// The XOR trick: (iy[j]^-signx[j]) + signx[j] negates iy[j] if signx[j]=1
-	for j := range n {
-		mask := -int32(signx[j])
-		iy[j] = (iy[j] ^ mask) - mask
-	}
+	pvqRestoreSigns(iy, signx, n)
 
 	return iy, opusVal16(yy)
 }
 
-func pvqExtractAbsSignOnlySum(x []celtNorm, absX []float32, signx []byte, n int) float32 {
+func pvqExtractAbsSignOnlySumScalar(x []celtNorm, absX []float32, signx []byte, n int) float32 {
 	_ = x[n-1]
 	_ = absX[n-1]
 	_ = signx[n-1]
@@ -214,7 +191,45 @@ func pvqExtractAbsSignOnlySum(x []celtNorm, absX []float32, signx []byte, n int)
 	return sum
 }
 
-func pvqExtractAbsSignNorm(x []celtNorm, absX []float32, y []float32, signx []byte, iy []int32, n int) {
+func pvqProjectHighPulseScalar(absX, y []float32, iy []int32, rcp float32, n, pulsesLeft int) (xy, yy float32, remPulses int) {
+	_ = absX[n-1]
+	_ = y[n-1]
+	_ = iy[n-1]
+	remPulses = pulsesLeft
+	for j := range n {
+		// It's important to round towards zero here (floor for positive values)
+		// Reference: libopus vq.c line 274
+		iy[j] = int32(rcp * absX[j]) // rcp >= 0, absX >= 0: truncation == floor
+		y[j] = float32(iy[j])
+		// The selected NEON vq.c projection rounds products in 16- and
+		// 4-term vector blocks, then adds them in element order. Only
+		// the final n%4 terms use scalar fused multiply-adds.
+		if celtFusedFloat && j < n&^3 {
+			yy += round32(y[j] * y[j])
+			xy += round32(absX[j] * y[j])
+		} else {
+			yy += y[j] * y[j]
+			xy += absX[j] * y[j]
+		}
+		// We multiply y[j] by 2 so we don't have to do it in the main loop
+		// Reference: libopus vq.c line 279
+		y[j] *= 2
+		remPulses -= int(iy[j])
+	}
+	return xy, yy, remPulses
+}
+
+func pvqRestoreSignsScalar(iy []int32, signx []byte, n int) {
+	_ = iy[n-1]
+	_ = signx[n-1]
+	// The XOR trick: (iy[j]^-signx[j]) + signx[j] negates iy[j] if signx[j]=1.
+	for j := range n {
+		mask := -int32(signx[j])
+		iy[j] = (iy[j] ^ mask) - mask
+	}
+}
+
+func pvqExtractAbsSignNormScalar(x []celtNorm, absX []float32, y []float32, signx []byte, iy []int32, n int) {
 	_ = x[n-1]
 	_ = absX[n-1]
 	_ = y[n-1]

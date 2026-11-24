@@ -2,7 +2,7 @@
 
 package celt
 
-import "unsafe"
+import "simd/archsimd"
 
 // expRotation1Pass4 runs blocks 4-wide spreading-rotation steps starting at
 // index first, advancing 4 indices per iteration in direction dir (+1
@@ -25,14 +25,14 @@ func expRotation1Pass4(x []float32, first, stride, blocks, dir int, c, s float32
 	cv := broadcastF32x4Arch(c)
 	sv := broadcastF32x4Arch(s)
 	msv := broadcastF32x4Arch(-s)
-	base := unsafe.Pointer(unsafe.SliceData(x))
 	for b := range blocks {
-		p1 := unsafe.Add(base, (first+b*dir*4)*4)
-		p2 := unsafe.Add(p1, stride*4)
-		x1 := loadF32x4(p1)
-		x2 := loadF32x4(p2)
+		i := first + b*dir*4
+		p1 := (*[4]float32)(x[i:])
+		p2 := (*[4]float32)(x[i+stride:])
+		x1 := archsimd.LoadFloat32x4Array(p1)
+		x2 := archsimd.LoadFloat32x4Array(p2)
 		x2p, x1p := expRotation1VectorPair(x1, x2, cv, sv, msv)
-		storeF32x4(p2, x2p)
-		storeF32x4(p1, x1p)
+		x2p.StoreArray(p2)
+		x1p.StoreArray(p1)
 	}
 }

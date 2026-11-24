@@ -108,18 +108,19 @@ type EncoderConfig struct {
 // stream. Encode, EncodeInt16, and EncodeInt24 write packets into caller-provided
 // buffers; the Slice methods return owned packet slices.
 type Encoder struct {
-	enc                 *encoder.Encoder
+	// Pointer-bearing fields are grouped first to minimize GC ptrdata.
+	enc          *encoder.Encoder
+	dnnBlob      *dnnblob.Blob
+	scratchPCM32 []float32 // int16 to float32 conversion buffer
+	encoderHD96kFields
+	encVal encoder.Encoder
+
 	sampleRate          int32
 	channels            int32
 	frameSize           int32
 	expertFrameDuration ExpertFrameDuration
 	application         Application
 	modeSet             bool
-
-	// Scratch buffers for zero-allocation encoding
-	scratchPCM32 []float32 // int16 to float32 conversion buffer
-	dnnBlob      *dnnblob.Blob
-	encoderHD96kFields
 }
 
 // NewEncoder returns an initialized Encoder for cfg. Its configured frame size
@@ -154,7 +155,6 @@ func NewEncoder(cfg EncoderConfig) (*Encoder, error) {
 	}
 
 	enc := &Encoder{
-		enc:                 encoder.NewEncoder(cfg.SampleRate, cfg.Channels),
 		sampleRate:          int32(cfg.SampleRate),
 		channels:            int32(cfg.Channels),
 		frameSize:           int32(internalRate / 50), // Default 20ms at the internal rate
@@ -162,6 +162,8 @@ func NewEncoder(cfg EncoderConfig) (*Encoder, error) {
 		application:         cfg.Application,
 		scratchPCM32:        make([]float32, maxSamples),
 	}
+	enc.encVal.Init(cfg.SampleRate, cfg.Channels)
+	enc.enc = &enc.encVal
 
 	// Apply application hint
 	if err := enc.applyApplication(cfg.Application); err != nil {

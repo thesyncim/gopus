@@ -2,11 +2,7 @@
 
 package celt
 
-import (
-	"unsafe"
-
-	"simd/archsimd"
-)
+import "simd/archsimd"
 
 var celtFIR5UsesAVX = archsimd.X86.AVX()
 
@@ -25,7 +21,6 @@ func celtFIR5F32(x []float32, num [5]float32) {
 
 //go:noinline
 func celtFIR5AVX(x []float32, num [5]float32) {
-	p := unsafe.Pointer(unsafe.SliceData(x))
 	n0 := broadcastF32x4Arch(num[0])
 	n1 := broadcastF32x4Arch(num[1])
 	n2 := broadcastF32x4Arch(num[2])
@@ -34,14 +29,14 @@ func celtFIR5AVX(x []float32, num [5]float32) {
 	// Vector i covers outputs [i, i+4) and reads x[i-5 : i+4], so i >= 5.
 	i := len(x) - 4
 	for ; i >= 5; i -= 4 {
-		off := unsafe.Add(p, i*4)
-		s := loadF32x4(off)
-		s = celtFIR5Accumulate(s, n0, loadF32x4(unsafe.Add(off, -4)))
-		s = celtFIR5Accumulate(s, n1, loadF32x4(unsafe.Add(off, -8)))
-		s = celtFIR5Accumulate(s, n2, loadF32x4(unsafe.Add(off, -12)))
-		s = celtFIR5Accumulate(s, n3, loadF32x4(unsafe.Add(off, -16)))
-		s = celtFIR5Accumulate(s, n4, loadF32x4(unsafe.Add(off, -20)))
-		storeF32x4(off, s)
+		w := x[i-5 : i+4 : i+4]
+		s := archsimd.LoadFloat32x4Array((*[4]float32)(w[5:9]))
+		s = celtFIR5Accumulate(s, n0, archsimd.LoadFloat32x4Array((*[4]float32)(w[4:8])))
+		s = celtFIR5Accumulate(s, n1, archsimd.LoadFloat32x4Array((*[4]float32)(w[3:7])))
+		s = celtFIR5Accumulate(s, n2, archsimd.LoadFloat32x4Array((*[4]float32)(w[2:6])))
+		s = celtFIR5Accumulate(s, n3, archsimd.LoadFloat32x4Array((*[4]float32)(w[1:5])))
+		s = celtFIR5Accumulate(s, n4, archsimd.LoadFloat32x4Array((*[4]float32)(w[0:4])))
+		s.StoreArray((*[4]float32)(w[5:9]))
 	}
 	celtFIR5Head(x[:i+4], num)
 }
@@ -68,16 +63,15 @@ func pitchDownsample2(dst, x0, x1 []float32) {
 //go:noinline
 func pitchDownsample2AVX(dst, x0, x1 []float32) int {
 	n := len(dst)
-	_ = x0[2*n-1]
+	x0 = x0[:2*n]
 	q := broadcastF32x4Arch(0.25)
 	h := broadcastF32x4Arch(0.5)
-	pd := unsafe.Pointer(unsafe.SliceData(dst))
-	p0 := unsafe.Pointer(unsafe.SliceData(x0))
-	decimate := func(off unsafe.Pointer) archsimd.Float32x4 {
-		a := loadF32x4(off)
-		b := loadF32x4(unsafe.Add(off, 16))
-		ar := loadF32x4(unsafe.Add(off, 8))
-		br := loadF32x4(unsafe.Add(off, 24))
+	decimate := func(w []float32) archsimd.Float32x4 {
+		w = w[:10:10]
+		a := archsimd.LoadFloat32x4Array((*[4]float32)(w[0:4]))
+		b := archsimd.LoadFloat32x4Array((*[4]float32)(w[4:8]))
+		ar := archsimd.LoadFloat32x4Array((*[4]float32)(w[2:6]))
+		br := archsimd.LoadFloat32x4Array((*[4]float32)(w[6:10]))
 		left := a.ConcatPermuteScalars(0, 2, 4, 6, b)
 		center := a.ConcatPermuteScalars(1, 3, 5, 7, b)
 		right := ar.ConcatPermuteScalars(0, 2, 4, 6, br)
@@ -86,16 +80,15 @@ func pitchDownsample2AVX(dst, x0, x1 []float32) int {
 	i := 1
 	if x1 == nil {
 		for ; i+4 < n; i += 4 {
-			storeF32x4(unsafe.Add(pd, i*4), decimate(unsafe.Add(p0, (2*i-1)*4)))
+			decimate(x0[2*i-1:]).StoreArray((*[4]float32)(dst[i:]))
 		}
 		return i
 	}
-	_ = x1[2*n-1]
-	p1 := unsafe.Pointer(unsafe.SliceData(x1))
+	x1 = x1[:2*n]
 	for ; i+4 < n; i += 4 {
-		v0 := decimate(unsafe.Add(p0, (2*i-1)*4))
-		v1 := decimate(unsafe.Add(p1, (2*i-1)*4))
-		storeF32x4(unsafe.Add(pd, i*4), v0.Add(v1))
+		v0 := decimate(x0[2*i-1:])
+		v1 := decimate(x1[2*i-1:])
+		v0.Add(v1).StoreArray((*[4]float32)(dst[i:]))
 	}
 	return i
 }

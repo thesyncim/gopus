@@ -4,11 +4,7 @@ package silk
 // (the side, LP_mid, HP_mid, LP_side and HP_side stack arrays of
 // silk_stereo_LR_to_MS).
 type stereoLRToMSScratch struct {
-	side   []int16
-	lpMid  []int16
-	hpMid  []int16
-	lpSide []int16
-	hpSide []int16
+	slab []int16 // Backing slab for side (frameLength+2) and lp/hp mid/side (4*frameLength)
 }
 
 // silkStereoLRToMS is silk_stereo_LR_to_MS (silk/stereo_LR_to_MS.c), the
@@ -33,7 +29,13 @@ func silkStereoLRToMS(
 ) (ix [2][3]int8, midOnlyFlag int8, midSideRatesBps [2]int32) {
 	mid := buf0[:frameLength+2]
 	x2 := buf1[:frameLength+2]
-	side := ensureInt16Slice(&scratch.side, frameLength+2)
+	sideLen := frameLength + 2
+	slab := ensureInt16Slice(&scratch.slab, sideLen+4*frameLength)
+	side := slab[:sideLen:sideLen]
+	lpMid := slab[sideLen : sideLen+frameLength : sideLen+frameLength]
+	hpMid := slab[sideLen+frameLength : sideLen+2*frameLength : sideLen+2*frameLength]
+	lpSide := slab[sideLen+2*frameLength : sideLen+3*frameLength : sideLen+3*frameLength]
+	hpSide := slab[sideLen+3*frameLength : sideLen+4*frameLength : sideLen+4*frameLength]
 
 	// Convert to basic mid/side signals. mid[n] aliases x1[n-2]; the first two
 	// entries are replaced by the history below, so the loop starts at n = 2.
@@ -51,11 +53,7 @@ func silkStereoLRToMS(
 	state.sSide[0], state.sSide[1] = side[frameLength], side[frameLength+1]
 
 	// LP and HP filter the mid and side signals.
-	lpMid := ensureInt16Slice(&scratch.lpMid, frameLength)
-	hpMid := ensureInt16Slice(&scratch.hpMid, frameLength)
 	stereoLPFilterInto(mid, lpMid, hpMid, frameLength)
-	lpSide := ensureInt16Slice(&scratch.lpSide, frameLength)
-	hpSide := ensureInt16Slice(&scratch.hpSide, frameLength)
 	stereoLPFilterInto(side, lpSide, hpSide, frameLength)
 
 	// Find energies and predictors.

@@ -277,8 +277,8 @@ func TestTonalityAnalysisResetClearsState(t *testing.T) {
 	if s.Info[0].Valid {
 		t.Fatal("reset should clear queued analysis info")
 	}
-	if !fixedPointBuild && cap(s.scratchFFTKiss) < 480 {
-		t.Fatalf("reset should preserve reusable FFT scratch capacity: got %d", cap(s.scratchFFTKiss))
+	if !fixedPointBuild && cap(s.scratchFFTOut) < 960 {
+		t.Fatalf("reset should preserve reusable FFT scratch capacity: got %d", cap(s.scratchFFTOut))
 	}
 }
 

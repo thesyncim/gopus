@@ -35,14 +35,14 @@ func TestIMDCTPreRotateFFTStridedMatchesGather(t *testing.T) {
 			for _, stride := range []int{1, 2, 4, 8} {
 				coeffs := randSpectrum(rng, n2*stride)
 				for first := range stride {
-					got := imdctPreRotateFFTStrided(make([]complex64, n4), make([]kissCpx, n4), coeffs, first, stride, trig, n2, n4, st, make([]float32, n2))
+					got := imdctPreRotateFFTStrided(make([]float32, 2*n4), make([]float32, 2*n4), coeffs, first, stride, trig, n2, n4, st, make([]float32, n2))
 					block := make([]float32, n2)
 					for i := range block {
 						block[i] = coeffs[first+i*stride]
 					}
-					want := imdctPreRotateFFT(make([]complex64, n4), make([]kissCpx, n4), block, trig, n2, n4, getKissFFTState(n4))
+					want := imdctPreRotateFFT(make([]float32, 2*n4), make([]float32, 2*n4), block, trig, n2, n4, getKissFFTState(n4))
 					for i := range want {
-						if math.Float32bits(got[i].r) != math.Float32bits(want[i].r) || math.Float32bits(got[i].i) != math.Float32bits(want[i].i) {
+						if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
 							t.Fatalf("n=%d stride=%d first=%d st=%v: out[%d]=%v want %v", n, stride, first, st != nil, i, got[i], want[i])
 						}
 					}

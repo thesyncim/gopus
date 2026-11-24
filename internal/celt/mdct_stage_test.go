@@ -102,16 +102,16 @@ func mdctForwardOverlapLegacyStagedReference(samples []float32, overlap int) []f
 	}
 
 	f := make([]float32, n2)
-	fftTmp := make([]kissCpx, n4)
+	fftTmp := make([]float32, 2*n4)
 	coeffs := make([]float32, n2)
 
 	st := getKissFFTState(n4)
 	useDirectKissCpx := st != nil && len(st.bitrev) >= n4
-	var fftStage []kissCpx
+	var fftStage []float32
 	var fftIn []complex64
 	var fftOut []complex64
 	if useDirectKissCpx {
-		fftStage = fftTmp[:n4]
+		fftStage = fftTmp[:2*n4]
 	} else {
 		fftIn = make([]complex64, n4)
 		fftOut = make([]complex64, n4)
@@ -200,8 +200,8 @@ func mdctForwardOverlapLegacyStagedReference(samples []float32, overlap int) []f
 	if useDirectKissCpx {
 		if mdctUseFMALikeMixEnabled {
 			for i = range n4 {
-				re := fftStage[i].r
-				im := fftStage[i].i
+				re := fftStage[2*i]
+				im := fftStage[2*i+1]
 				t0 := trig[i]
 				t1 := trig[n4+i]
 				yr := float32(float64(im)*float64(t1) - float64(mdctMul(re, t0)))
@@ -211,8 +211,8 @@ func mdctForwardOverlapLegacyStagedReference(samples []float32, overlap int) []f
 			}
 		} else {
 			for i = range n4 {
-				re := fftStage[i].r
-				im := fftStage[i].i
+				re := fftStage[2*i]
+				im := fftStage[2*i+1]
 				t0 := trig[i]
 				t1 := trig[n4+i]
 				yr := mdctMul(im, t1) - mdctMul(re, t0)

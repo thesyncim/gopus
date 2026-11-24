@@ -2,46 +2,56 @@ package silk
 
 import "github.com/thesyncim/gopus/internal/rangecoding"
 
+// nlsfCodebook returns the NLSF codebook for st's active sample rate.
+func (st *decoderState) nlsfCodebook() *nlsfCB {
+	if st.fsKHz == 8 || st.fsKHz == 12 {
+		return &silk_NLSF_CB_NB_MB
+	}
+	return &silk_NLSF_CB_WB
+}
+
+// pitchLagLowBitsICDF returns the pitch-lag low-bits iCDF table for st's rate.
+func (st *decoderState) pitchLagLowBitsICDF() []uint8 {
+	switch st.fsKHz {
+	case 16:
+		return silk_uniform8_iCDF
+	case 12:
+		return silk_uniform6_iCDF
+	default:
+		return silk_uniform4_iCDF
+	}
+}
+
+// pitchContourICDF returns the pitch-contour iCDF table for st's rate and
+// subframe count.
+func (st *decoderState) pitchContourICDF() []uint8 {
+	if st.fsKHz == 8 {
+		if st.nbSubfr == maxNbSubfr {
+			return silk_pitch_contour_NB_iCDF
+		}
+		return silk_pitch_contour_10_ms_NB_iCDF
+	}
+	if st.nbSubfr == maxNbSubfr {
+		return silk_pitch_contour_iCDF
+	}
+	return silk_pitch_contour_10_ms_iCDF
+}
+
 // silkDecoderSetFs configures the per-channel decoder state for an internal
-// SILK sample rate of fsKHz (8, 12 or 16). It selects the pitch-contour and
-// pitch-lag iCDF tables, the NLSF codebook and LPC order, and resets the
-// continuity buffers when the rate changes. Mirrors libopus
+// SILK sample rate of fsKHz (8, 12 or 16). It selects the LPC order and resets
+// the continuity buffers when the rate changes. Mirrors libopus
 // silk/decoder_set_fs.c silk_decoder_set_fs.
 func silkDecoderSetFs(st *decoderState, fsKHz int) {
 	st.subfrLength = int32(subFrameLengthMs * fsKHz)
 	frameLength := st.nbSubfr * st.subfrLength
 
 	if st.fsKHz != int32(fsKHz) || frameLength != st.frameLength {
-		if fsKHz == 8 {
-			if st.nbSubfr == maxNbSubfr {
-				st.pitchContourICDF = silk_pitch_contour_NB_iCDF
-			} else {
-				st.pitchContourICDF = silk_pitch_contour_10_ms_NB_iCDF
-			}
-		} else {
-			if st.nbSubfr == maxNbSubfr {
-				st.pitchContourICDF = silk_pitch_contour_iCDF
-			} else {
-				st.pitchContourICDF = silk_pitch_contour_10_ms_iCDF
-			}
-		}
-
 		if st.fsKHz != int32(fsKHz) {
 			st.ltpMemLength = int32(ltpMemLengthMs * fsKHz)
 			if fsKHz == 8 || fsKHz == 12 {
 				st.lpcOrder = minLPCOrder
-				st.nlsfCB = &silk_NLSF_CB_NB_MB
 			} else {
 				st.lpcOrder = maxLPCOrder
-				st.nlsfCB = &silk_NLSF_CB_WB
-			}
-			switch fsKHz {
-			case 16:
-				st.pitchLagLowBitsICDF = silk_uniform8_iCDF
-			case 12:
-				st.pitchLagLowBitsICDF = silk_uniform6_iCDF
-			case 8:
-				st.pitchLagLowBitsICDF = silk_uniform4_iCDF
 			}
 			st.firstFrameAfterReset = true
 			st.lagPrev = 100
@@ -90,26 +100,17 @@ func silkDecodeIndices(st *decoderState, rd *rangecoding.Decoder, vadFlag bool, 
 		st.indices.GainsIndices[i] = int8(rd.DecodeICDF8Linear(silk_delta_gain_iCDF))
 	}
 
-	cb := st.nlsfCB
+	cb := st.nlsfCodebook()
 	stypeBand := int(st.indices.signalType) >> 1
 	order := int(cb.order)
 	nVectors := int(cb.nVectors)
 	cb1Offset := stypeBand * nVectors
 	st.indices.NLSFIndices[0] = int8(rd.DecodeICDF8Linear(cb.cb1ICDF[cb1Offset:]))
 
-	// Use pre-allocated scratch buffers if available
-	var ecIx []int16
-	var predQ8 []uint8
-	if len(st.scratchEcIx) >= maxLPCOrder {
-		ecIx = st.scratchEcIx[:maxLPCOrder]
-	} else {
-		ecIx = make([]int16, maxLPCOrder)
-	}
-	if len(st.scratchPredQ8) >= maxLPCOrder {
-		predQ8 = st.scratchPredQ8[:maxLPCOrder]
-	} else {
-		predQ8 = make([]uint8, maxLPCOrder)
-	}
+	var ecIxBuf [maxLPCOrder]int16
+	var predQ8Buf [maxLPCOrder]uint8
+	ecIx := ecIxBuf[:]
+	predQ8 := predQ8Buf[:]
 	silkNLSFUnpack(ecIx, predQ8, cb, int(st.indices.NLSFIndices[0]))
 
 	for i := range order {
@@ -141,13 +142,14 @@ func silkDecodeIndices(st *decoderState, rd *rangecoding.Decoder, vadFlag bool, 
 		}
 		if decodeAbsolute {
 			st.indices.lagIndex = int16(int32(rd.DecodeICDF8Linear(silk_pitch_lag_iCDF)) * (st.fsKHz >> 1))
-			st.indices.lagIndex += int16(rd.DecodeICDF8Unchecked(st.pitchLagLowBitsICDF))
+			st.indices.lagIndex += int16(rd.DecodeICDF8Unchecked(st.pitchLagLowBitsICDF()))
 		}
 		st.ecPrevLagIndex = st.indices.lagIndex
-		if len(st.pitchContourICDF) > 8 {
-			st.indices.contourIndex = int8(rd.DecodeICDF8Linear(st.pitchContourICDF))
+		pitchContour := st.pitchContourICDF()
+		if len(pitchContour) > 8 {
+			st.indices.contourIndex = int8(rd.DecodeICDF8Linear(pitchContour))
 		} else {
-			st.indices.contourIndex = int8(rd.DecodeICDF8Unchecked(st.pitchContourICDF))
+			st.indices.contourIndex = int8(rd.DecodeICDF8Unchecked(pitchContour))
 		}
 
 		st.indices.PERIndex = int8(rd.DecodeICDF8Unchecked(silk_LTP_per_index_iCDF))
@@ -254,27 +256,20 @@ func silkDecodeSigns(rd *rangecoding.Decoder, pulses []int16, length int, signal
 // locations via the shell coder, the low-order amplitude bits and finally the
 // signs. Mirrors libopus silk/decode_pulses.c silk_decode_pulses.
 func silkDecodePulses(rd *rangecoding.Decoder, pulses []int16, signalType int, quantOffsetType int, frameLength int) {
-	silkDecodePulsesWithScratch(rd, pulses, signalType, quantOffsetType, frameLength, nil, nil)
-}
-
-// silkDecodePulsesWithScratch is like silkDecodePulses but uses pre-allocated scratch buffers.
-func silkDecodePulsesWithScratch(rd *rangecoding.Decoder, pulses []int16, signalType int, quantOffsetType int, frameLength int, scratchSumPulses, scratchNLshifts []int32) {
 	rateLevel := rd.DecodeICDF9_8Slice(silk_rate_levels_iCDF[signalType>>1])
 	iter := frameLength >> log2ShellCodecFrameLength
 	if iter*shellCodecFrameLength < frameLength {
 		iter++
 	}
 
-	// Use scratch buffers if provided, otherwise allocate
+	var sumPulsesBuf [21]int32
+	var nLshiftsBuf [21]int32
 	var sumPulses, nLshifts []int32
-	if scratchSumPulses != nil && len(scratchSumPulses) >= iter {
-		sumPulses = scratchSumPulses[:iter]
+	if iter <= len(sumPulsesBuf) {
+		sumPulses = sumPulsesBuf[:iter]
+		nLshifts = nLshiftsBuf[:iter]
 	} else {
 		sumPulses = make([]int32, iter)
-	}
-	if scratchNLshifts != nil && len(scratchNLshifts) >= iter {
-		nLshifts = scratchNLshifts[:iter]
-	} else {
 		nLshifts = make([]int32, iter)
 	}
 
@@ -386,7 +381,7 @@ func silkDecodeParameters(st *decoderState, ctrl *decoderControl, condCoding int
 	silkGainsDequant(&ctrl.GainsQ16, &st.indices.GainsIndices, &st.lastGainIndex, condCoding == codeConditionally, nbSubfr)
 
 	var nlsfQ15 [maxLPCOrder]int16
-	silkNLSFDecode(nlsfQ15[:], st.indices.NLSFIndices[:], st.nlsfCB)
+	silkNLSFDecode(nlsfQ15[:], st.indices.NLSFIndices[:], st.nlsfCodebook())
 
 	if !silkNLSF2A(ctrl.PredCoefQ12[1][:lpcOrder], nlsfQ15[:lpcOrder], lpcOrder) {
 		lpc1 := lsfToLPCDirect(nlsfQ15[:lpcOrder])
@@ -558,48 +553,6 @@ func silkLPCAnalysisFilterOrder10(out []int16, in []int16, B []int16, from, leng
 	}
 }
 
-// decodeCoreBuffers holds the pre-allocated or newly allocated buffers used in silkDecodeCore.
-type decodeCoreBuffers struct {
-	sLPC       []int32
-	sLTP       []int16
-	sLTP_Q15   []int32
-	sLTPBufIdx int
-}
-
-// initDecodeCoreBuffers initializes the scratch buffers for silkDecodeCore.
-// This eliminates hot-path allocations when called from the Decoder.
-func initDecodeCoreBuffers(st *decoderState) decodeCoreBuffers {
-	var bufs decodeCoreBuffers
-	subfrLength := int(st.subfrLength)
-	ltpMemLength := int(st.ltpMemLength)
-	frameLength := int(st.frameLength)
-
-	// sLPC buffer
-	if st.scratchSLPC != nil && len(st.scratchSLPC) >= subfrLength+maxLPCOrder {
-		bufs.sLPC = st.scratchSLPC[:subfrLength+maxLPCOrder]
-	} else {
-		bufs.sLPC = make([]int32, subfrLength+maxLPCOrder)
-	}
-	copy(bufs.sLPC, st.sLPCQ14Buf[:])
-
-	// sLTP buffer
-	if st.scratchSLTP != nil && len(st.scratchSLTP) >= ltpMemLength {
-		bufs.sLTP = st.scratchSLTP[:ltpMemLength]
-	} else {
-		bufs.sLTP = make([]int16, ltpMemLength)
-	}
-
-	// sLTP_Q15 buffer
-	if st.scratchSLTPQ15 != nil && len(st.scratchSLTPQ15) >= ltpMemLength+frameLength {
-		bufs.sLTP_Q15 = st.scratchSLTPQ15[:ltpMemLength+frameLength]
-	} else {
-		bufs.sLTP_Q15 = make([]int32, ltpMemLength+frameLength)
-	}
-
-	bufs.sLTPBufIdx = ltpMemLength
-	return bufs
-}
-
 // processLTPVoiced handles the LTP processing for voiced signals in the decoder core.
 // It computes sLTP_Q15 values from the LPC analysis filter or applies gain adjustment.
 // Parameters:
@@ -675,41 +628,7 @@ func lShiftSAT32By4(x int32) int32 {
 // wrapping int32 prediction sums the taps on older outputs first and adds the
 // tap on the newest output last.
 func synthesizeLPCOrder10(sLPC []int32, A_Q12 []int16, presQ14 []int32, pxq []int16, gainQ10 int32, subfrLength int) {
-	if subfrLength <= 0 {
-		return
-	}
-	_ = A_Q12[minLPCOrder-1]
-	c0 := int64(A_Q12[0])
-	c1 := int64(A_Q12[1])
-	c2 := int64(A_Q12[2])
-	c3 := int64(A_Q12[3])
-	c4 := int64(A_Q12[4])
-	c5 := int64(A_Q12[5])
-	c6 := int64(A_Q12[6])
-	c7 := int64(A_Q12[7])
-	c8 := int64(A_Q12[8])
-	c9 := int64(A_Q12[9])
-
-	presQ14 = presQ14[:subfrLength]
-	pxq = pxq[:subfrLength]
-	// The window starts at the oldest tap: h[9-j] is the output j+1 samples back.
-	win := sLPC[maxLPCOrder-minLPCOrder : maxLPCOrder+subfrLength]
-	prev := win[minLPCOrder-1]
-	for i := range presQ14 {
-		h := (*[minLPCOrder + 1]int32)(win)
-		win = win[1:]
-		a := int32((int64(h[0])*c9)>>16) + int32((int64(h[1])*c8)>>16)
-		b := int32((int64(h[2])*c7)>>16) + int32((int64(h[3])*c6)>>16)
-		c := int32((int64(h[4])*c5)>>16) + int32((int64(h[5])*c4)>>16)
-		d := int32((int64(h[6])*c3)>>16) + int32((int64(h[7])*c2)>>16)
-		older := (a + b) + (c + (d + int32((int64(h[8])*c1)>>16)))
-		lpcPredQ10 := older + int32(minLPCOrder>>1) + int32((int64(prev)*c0)>>16)
-
-		s := silkAddSat32(presQ14[i], lShiftSAT32By4(lpcPredQ10))
-		h[minLPCOrder] = s
-		pxq[i] = silkSAT16(silkRSHIFT_ROUND(silkSMULWW(s, gainQ10), 8))
-		prev = s
-	}
+	synthesizeLPCOrder10Core(sLPC, A_Q12, presQ14, pxq, gainQ10, subfrLength)
 }
 
 // synthesizeLPCOrder16 computes LPC synthesis for WB (order 16).
@@ -791,11 +710,18 @@ func silkDecodeCore(st *decoderState, ctrl *decoderControl, out []int16, pulses 
 
 	silkDecodeExcitation(st.excQ14[:frameLength], pulses, int32(st.indices.Seed), int32(offsetQ10)<<4)
 
-	bufs := initDecodeCoreBuffers(st)
-	sLPC := bufs.sLPC
-	sLTP := bufs.sLTP
-	sLTP_Q15 := bufs.sLTP_Q15
-	sLTPBufIdx := bufs.sLTPBufIdx
+	const maxLTPMemLen = ltpMemLengthMs * maxFsKHz
+	var sLPCBuf [maxSubFrameLength + maxLPCOrder]int32
+	var sLTPBuf [maxLTPMemLen]int16
+	var sLTPQ15Buf [maxLTPMemLen + maxFrameLength]int32
+	var presQ14Buf [maxSubFrameLength]int32
+
+	ltpMemLength := int(st.ltpMemLength)
+	sLPC := sLPCBuf[:subfrLength+maxLPCOrder]
+	copy(sLPC, st.sLPCQ14Buf[:])
+	sLTP := sLTPBuf[:ltpMemLength]
+	sLTP_Q15 := sLTPQ15Buf[:ltpMemLength+frameLength]
+	sLTPBufIdx := ltpMemLength
 	pexc := st.excQ14[:]
 	pxq := out
 
@@ -832,12 +758,7 @@ func silkDecodeCore(st *decoderState, ctrl *decoderControl, out []int16, pulses 
 
 		var presQ14 []int32
 		if signalType == typeVoiced {
-			// Use pre-allocated presQ14 buffer if available
-			if st.scratchPresQ14 != nil && len(st.scratchPresQ14) >= subfrLength {
-				presQ14 = st.scratchPresQ14[:subfrLength]
-			} else {
-				presQ14 = make([]int32, subfrLength)
-			}
+			presQ14 = presQ14Buf[:subfrLength]
 			silkLTPSynthesis(presQ14, pexc, sLTP_Q15, sLTPBufIdx, int(ctrl.pitchL[k]), (*[ltpOrder]int16)(B_Q14))
 			sLTPBufIdx += subfrLength
 		} else {

@@ -12,21 +12,19 @@ package celt
 // kernel runs on arm64 without SIMD (mdctUseFMALikeMixEnabled); the SIMD path
 // supplies the matching fused rotation. The libopus-oracle parity suite
 // and TestIMDCTPreRotateFMA32KissMatchesScalar gate the contraction.
-func imdctPreRotateFMA32Kiss(fftIn []complex64, spectrum []float32, trig []float32, n2, n4 int) {
+func imdctPreRotateFMA32Kiss(fftIn []float32, spectrum []float32, trig []float32, n2, n4 int) {
 	if n4 <= 0 {
 		return
 	}
 	_ = spectrum[n2-1]
 	_ = trig[n2-1]
-	_ = fftIn[n4-1]
+	_ = fftIn[2*n4-1]
 	for i := 0; i < n4; i++ {
 		x1 := spectrum[2*i]
 		x2 := spectrum[n2-1-2*i]
 		t0 := trig[i]
 		t1 := trig[n4+i]
-		fftIn[i] = complex(
-			fma32(x1, t0, -noFMA32Mul(x2, t1)),
-			fma32(x2, t0, noFMA32Mul(x1, t1)),
-		)
+		fftIn[2*i] = fma32(x1, t0, -noFMA32Mul(x2, t1))
+		fftIn[2*i+1] = fma32(x2, t0, noFMA32Mul(x1, t1))
 	}
 }

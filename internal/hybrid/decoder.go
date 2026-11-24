@@ -108,6 +108,15 @@ func NewDecoder(channels int) *Decoder {
 // for the same channel count and stream, then shares them across mode decoders
 // to preserve their histories.
 func NewDecoderWithSharedDecoders(channels int, silkDec *silk.Decoder, celtDec *celt.Decoder) *Decoder {
+	d := &Decoder{}
+	d.InitWithSharedDecoders(channels, silkDec, celtDec, nil)
+	return d
+}
+
+// InitWithSharedDecoders initializes an embedded Decoder in place using shared
+// SILK and CELT sub-decoders and an optional pre-allocated upsampled SILK
+// scratch slice.
+func (d *Decoder) InitWithSharedDecoders(channels int, silkDec *silk.Decoder, celtDec *celt.Decoder, scratchSilkUpsampled []float32) {
 	if channels < 1 {
 		channels = 1
 	}
@@ -118,6 +127,11 @@ func NewDecoderWithSharedDecoders(channels int, silkDec *silk.Decoder, celtDec *
 	// Initial scratch covers a 20 ms frame for the configured channel count
 	// at 48 kHz. QEXT 96 kHz output grows it on demand.
 	maxSamples := 960 * channels
+	if cap(scratchSilkUpsampled) < maxSamples {
+		scratchSilkUpsampled = make([]float32, maxSamples)
+	} else {
+		scratchSilkUpsampled = scratchSilkUpsampled[:maxSamples]
+	}
 
 	if silkDec == nil {
 		silkDec = silk.NewDecoder()
@@ -126,19 +140,15 @@ func NewDecoderWithSharedDecoders(channels int, silkDec *silk.Decoder, celtDec *
 		celtDec = celt.NewDecoder(channels)
 	}
 
-	d := &Decoder{
-		silkDecoder: silkDec,
-		celtDecoder: celtDec,
-
-		channels:      int32(channels),
-		apiSampleRate: 48000,
-
-		// Pre-allocate scratch buffers for zero-alloc decode path
-		scratchSilkUpsampled: make([]float32, maxSamples),
+	*d = Decoder{
+		silkDecoder:          silkDec,
+		celtDecoder:          celtDec,
+		channels:             int32(channels),
+		apiSampleRate:        48000,
+		scratchSilkUpsampled: scratchSilkUpsampled,
 	}
 	d.plcStateVal.Init()
 	d.plcState = &d.plcStateVal
-	return d
 }
 
 // SetAPISampleRate sets the output rate for Hybrid PCM. Rates of 8, 12, 16, 24,

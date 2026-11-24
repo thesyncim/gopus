@@ -268,16 +268,16 @@ func TestCELTAVX2XCorrFallbackMath(t *testing.T) {
 		y[i] = float32((i*19)%31-15) / 17
 	}
 	var got, want [8]float32
-	xcorrKernelAVX8(&x[0], &y[0], &got, len(x))
-	xcorrKernelAVX8ScalarGo(&x[0], &y[0], &want, len(x))
+	xcorrKernelAVX8(x, y, &got, len(x))
+	xcorrKernelAVX8ScalarGo(x, y, &want, len(x))
 	for i := range got {
 		if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
 			t.Fatalf("xcorr lane %d got %08x, want %08x", i, math.Float32bits(got[i]), math.Float32bits(want[i]))
 		}
 	}
 	got, want = [8]float32{}, [8]float32{}
-	xcorrKernelAVX8OnePass(&x[0], &y[0], &got, len(x))
-	xcorrKernelAVX8ScalarGo(&x[0], &y[0], &want, len(x))
+	xcorrKernelAVX8OnePass(x, y, &got, len(x))
+	xcorrKernelAVX8ScalarGo(x, y, &want, len(x))
 	for i := range got {
 		if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
 			t.Fatalf("one-pass xcorr lane %d got %08x, want %08x", i, math.Float32bits(got[i]), math.Float32bits(want[i]))

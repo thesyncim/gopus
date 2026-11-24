@@ -7,12 +7,11 @@ import (
 	"math"
 	"math/rand"
 	"testing"
-	"unsafe"
 )
 
-func xcorrKernelAVX8SplitForTest(x, y *float32, sum *[8]float32, length int) {
-	xcorrKernelAVX4(x, y, (*[4]float32)(unsafe.Pointer(&sum[0])), length)
-	xcorrKernelAVX4(x, (*float32)(unsafe.Add(unsafe.Pointer(y), 16)), (*[4]float32)(unsafe.Pointer(&sum[4])), length)
+func xcorrKernelAVX8SplitForTest(x, y []float32, sum *[8]float32, length int) {
+	xcorrKernelAVX4(x, y, (*[4]float32)(sum[:4]), length)
+	xcorrKernelAVX4(x, y[4:], (*[4]float32)(sum[4:]), length)
 }
 
 func TestSilkXcorrKernelAVX8OnePassBitExact(t *testing.T) {
@@ -32,8 +31,8 @@ func TestSilkXcorrKernelAVX8OnePassBitExact(t *testing.T) {
 			}
 			want := xcorrKernelAVX8Reference(x, y, length)
 			var split, onePass [8]float32
-			xcorrKernelAVX8SplitForTest(&x[0], &y[0], &split, length)
-			xcorrKernelAVX8OnePass(&x[0], &y[0], &onePass, length)
+			xcorrKernelAVX8SplitForTest(x, y, &split, length)
+			xcorrKernelAVX8OnePass(x, y, &onePass, length)
 			for corr := range 8 {
 				if got, expected := math.Float32bits(onePass[corr]), math.Float32bits(want[corr]); got != expected {
 					t.Fatalf("length=%d trial=%d corr=%d: one-pass=%08x scalar=%08x", length, trial, corr, got, expected)
@@ -65,8 +64,8 @@ func TestSilkXcorrKernelAVX8OnePassExceptionalParityAndZeroAlloc(t *testing.T) {
 			y[i] = values[(i*7+3)%len(values)]
 		}
 		var split, onePass [8]float32
-		xcorrKernelAVX8SplitForTest(&x[0], &y[0], &split, length)
-		xcorrKernelAVX8OnePass(&x[0], &y[0], &onePass, length)
+		xcorrKernelAVX8SplitForTest(x, y, &split, length)
+		xcorrKernelAVX8OnePass(x, y, &onePass, length)
 		for corr := range 8 {
 			if got, expected := math.Float32bits(onePass[corr]), math.Float32bits(split[corr]); got != expected {
 				t.Fatalf("length=%d corr=%d: one-pass=%08x split=%08x", length, corr, got, expected)
@@ -84,9 +83,9 @@ func TestSilkXcorrKernelAVX8OnePassExceptionalParityAndZeroAlloc(t *testing.T) {
 		y[i] = float32(i%17-8) * 0.0625
 	}
 	var sum [8]float32
-	xcorrKernelAVX8OnePass(&x[0], &y[0], &sum, length)
+	xcorrKernelAVX8OnePass(x, y, &sum, length)
 	if allocs := testing.AllocsPerRun(100, func() {
-		xcorrKernelAVX8OnePass(&x[0], &y[0], &sum, length)
+		xcorrKernelAVX8OnePass(x, y, &sum, length)
 	}); allocs != 0 {
 		t.Fatalf("one-pass xcorr allocated %v times", allocs)
 	}
@@ -106,7 +105,7 @@ func BenchmarkXcorrKernelAVX8Passes(b *testing.B) {
 			var sum [8]float32
 			b.ReportAllocs()
 			for b.Loop() {
-				xcorrKernelAVX8SplitForTest(&x[0], &y[0], &sum, length)
+				xcorrKernelAVX8SplitForTest(x, y, &sum, length)
 				xcorrKernelAVX8BenchmarkSink = sum
 			}
 		})
@@ -114,7 +113,7 @@ func BenchmarkXcorrKernelAVX8Passes(b *testing.B) {
 			var sum [8]float32
 			b.ReportAllocs()
 			for b.Loop() {
-				xcorrKernelAVX8OnePass(&x[0], &y[0], &sum, length)
+				xcorrKernelAVX8OnePass(x, y, &sum, length)
 				xcorrKernelAVX8BenchmarkSink = sum
 			}
 		})

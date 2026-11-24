@@ -3,9 +3,9 @@
 package silk
 
 import (
+	"encoding/binary"
 	"math/bits"
 	"simd/archsimd"
-	"unsafe"
 )
 
 // nsqDelDecAVX2State is NSQ_del_dec_struct of libopus
@@ -33,7 +33,7 @@ type nsqDelDecAVX2State struct {
 	// rows. Every map store covers a whole 32-byte block of eight rows, so
 	// later map loads always forward from a single store.
 	ring     nsqDelDecAVX2Ring
-	ringLane [decisionDelay][maxDelDecStates]uint8
+	ringLane [decisionDelay / 8][32]uint8
 
 	// Subframe coefficients broadcast as c<<16: the high half of the
 	// MulWidenEven product of x and c<<16 is silk_SMULWB(x, c).
@@ -54,6 +54,15 @@ type nsqDelDecAVX2Ring struct {
 // nsqDelDecAVX2LaneIdentity is a ringLane row that maps every state to its
 // own lane.
 var nsqDelDecAVX2LaneIdentity = [maxDelDecStates]uint8{0, 2, 4, 6}
+
+// nsqDelDecAVX2BlockIdentity maps every state to its own lane across an
+// eight-row 32-byte ringLane block.
+var nsqDelDecAVX2BlockIdentity = func() (b [32]uint8) {
+	for r := range 8 {
+		copy(b[4*r:], nsqDelDecAVX2LaneIdentity[:])
+	}
+	return b
+}()
 
 // nsqDelDecAVX2RowReset holds, for each row of an eight-row ringLane block,
 // the byte mask of that row and the identity map masked to it.
@@ -153,8 +162,8 @@ func noiseShapeQuantizeDelDecAVX2(nsq *NSQState, input []int16, params *NSQParam
 	nStates := f.nStates
 
 	st.ring = nsqDelDecAVX2Ring{}
-	for r := range st.ringLane {
-		st.ringLane[r] = nsqDelDecAVX2LaneIdentity
+	for b := range st.ringLane {
+		st.ringLane[b] = nsqDelDecAVX2BlockIdentity
 	}
 	if ltpMemLength-1 >= 0 && ltpMemLength-1 < len(nsq.sLTPShpQ14) {
 		st.ring.shapeQ14[0] = nsqDelDecAVX2Row(nsq.sLTPShpQ14[ltpMemLength-1])
@@ -277,7 +286,7 @@ func (st *nsqDelDecAVX2State) scale(gainAdjQ16 int32) {
 // stateRing copies state k's history from the ring rows into ring.
 func (st *nsqDelDecAVX2State) stateRing(k int, ring *nsqDelDecRing) {
 	for r := range decisionDelay {
-		lane := st.ringLane[r][k]
+		lane := st.ringLane[r>>3][4*(r&7)+k]
 		ring.randState[r] = st.ring.randState[r][lane]
 		ring.qQ10[r] = st.ring.qQ10[r][lane]
 		ring.xqQ14[r] = st.ring.xqQ14[r][lane]
@@ -363,8 +372,8 @@ func nsqPermuteRows(rows *[nsqLpcBufLength - 1][8]int32, perm archsimd.Uint32x8)
 
 // nsqResetRingLane maps every state of ringLane row r to its own lane,
 // rewriting the row's whole 32-byte block.
-func nsqResetRingLane(maps *[decisionDelay][maxDelDecStates]uint8, r int) {
-	block := (*[32]uint8)(unsafe.Pointer(&maps[r&^7]))
+func nsqResetRingLane(maps *[decisionDelay / 8][32]uint8, r int) {
+	block := &maps[r>>3]
 	reset := &nsqDelDecAVX2RowReset[r&7]
 	archsimd.LoadUint8x32Array(block).AndNot(archsimd.LoadUint8x32Array(&reset.mask)).
 		Or(archsimd.LoadUint8x32Array(&reset.identity)).StoreArray(block)
@@ -372,10 +381,9 @@ func nsqResetRingLane(maps *[decisionDelay][maxDelDecStates]uint8, r int) {
 
 // nsqRemapRing makes state dst take state src's history in every ringLane
 // row.
-func nsqRemapRing(maps *[decisionDelay][maxDelDecStates]uint8, perm archsimd.Int8x32) {
-	blocks := (*[decisionDelay / 8][32]uint8)(unsafe.Pointer(maps))
-	for i := range blocks {
-		archsimd.LoadUint8x32Array(&blocks[i]).PermuteOrZeroGrouped(perm).StoreArray(&blocks[i])
+func nsqRemapRing(maps *[decisionDelay / 8][32]uint8, perm archsimd.Int8x32) {
+	for i := range maps {
+		archsimd.LoadUint8x32Array(&maps[i]).PermuteOrZeroGrouped(perm).StoreArray(&maps[i])
 	}
 }
 
@@ -655,10 +663,10 @@ func (st *nsqDelDecAVX2State) quantizeSubframe(
 		winner := nsqFirstEqual(rdMasked, nsqHMin(rdMasked, swapHalves))
 
 		// Increase RD values of expired states
-		lastLanes := &st.ringLane[lastSmplIdx]
+		lastLanes := st.ringLane[lastSmplIdx>>3][4*(lastSmplIdx&7) : 4*(lastSmplIdx&7)+4]
 		// Each map byte widens to the low half of a 64-bit lane: the row
 		// index of the state's lane.
-		lastPerm := archsimd.BroadcastUint32x4(*(*uint32)(unsafe.Pointer(lastLanes))).AsUint8x16().ExtendLo4ToUint64().AsUint32x8()
+		lastPerm := archsimd.BroadcastUint32x4(binary.LittleEndian.Uint32(lastLanes)).AsUint8x16().ExtendLo4ToUint64().AsUint32x8()
 		rand := archsimd.LoadInt32x8Array(&st.ring.randState[lastSmplIdx]).Permute(lastPerm)
 		winnerLane := lastLanes[winner]
 		sameRand := rand.Equal(archsimd.BroadcastInt32x8(st.ring.randState[lastSmplIdx][winnerLane&7]))

@@ -176,7 +176,8 @@ func (s *TonalityAnalysisState) analysisShiftInput() {
 func (s *TonalityAnalysisState) analysisRunFFT() {
 	s.analysisRunFixedFFT()
 	for i, v := range s.fixed.fftOut {
-		s.scratchFFTOut[i] = complex(float32(v.R), float32(v.I))
+		s.scratchFFTOut[2*i] = float32(v.R)
+		s.scratchFFTOut[2*i+1] = float32(v.I)
 	}
 }
 

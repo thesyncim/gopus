@@ -34,7 +34,7 @@ func (d *Decoder) concealSILKFrame(channel int, st *decoderState, n int) []int16
 		clear(state.PrevLPCQ12[:])
 	}
 	out := d.plcConcealQ0For(channel, n)
-	plc.ConcealSILKWithLTPInto(d.plcDecoderView(channel), state, int(st.lossCnt), out, &d.plcKernelScratch[channel])
+	plc.ConcealSILKWithLTPInto(d.plcDecoderView(channel), state, int(st.lossCnt), out, &d.plcKernelScratch)
 	return out
 }
 

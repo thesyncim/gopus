@@ -2,10 +2,7 @@
 
 package silk
 
-import (
-	"simd/archsimd"
-	"unsafe"
-)
+import "simd/archsimd"
 
 var silkStereoUsesAVX2 = archsimd.X86.AVX2()
 
@@ -22,9 +19,11 @@ func stereoSMLAWB4(a, b, c, lowMask archsimd.Int32x4) archsimd.Int32x4 {
 	return a.Add(hi.Add(lo))
 }
 
-// stereoLoad4 loads four int16 samples starting at p as int32 lanes.
-func stereoLoad4(p unsafe.Pointer) archsimd.Int32x4 {
-	return archsimd.LoadInt64x2Array(&[2]int64{*(*int64)(p), 0}).AsInt16x8().ExtendLo4ToInt32()
+// stereoLoad4 loads four int16 samples starting at s as int32 lanes.
+func stereoLoad4(s []int16) archsimd.Int32x4 {
+	var tmp [8]int16
+	copy(tmp[:4], s[:4])
+	return archsimd.LoadInt16x8Array(&tmp).ExtendLo4ToInt32()
 }
 
 // stereoPredictSide adds the stereo prediction to side[n+1] for n in
@@ -51,11 +50,11 @@ func stereoPredictSideAVX2(mid, side []int16, from, to int, pred0, pred1, delta0
 	lowMask := archsimd.BroadcastInt32x4(0xFFFF)
 	one := archsimd.BroadcastInt32x4(1)
 	for ; n+4 <= to; n += 4 {
-		m := unsafe.Pointer(&mid[n])
-		m0 := stereoLoad4(m)
-		m1 := stereoLoad4(unsafe.Add(m, 2))
-		m2 := stereoLoad4(unsafe.Add(m, 4))
-		sp := unsafe.Pointer(&side[n+1])
+		m := mid[n : n+6]
+		m0 := stereoLoad4(m[0:])
+		m1 := stereoLoad4(m[1:])
+		m2 := stereoLoad4(m[2:])
+		sp := side[n+1 : n+5]
 		s1 := stereoLoad4(sp)
 		c0 := p0.ShiftAllLeft(16).ShiftAllRight(16)
 		c1 := p1.ShiftAllLeft(16).ShiftAllRight(16)
@@ -64,7 +63,9 @@ func stereoPredictSideAVX2(mid, side []int16, from, to int, pred0, pred1, delta0
 		sum = stereoSMLAWB4(sum, m1.ShiftAllLeft(11), c1, lowMask)
 		// silk_RSHIFT_ROUND(sum, 8), then silk_SAT16 in the pack.
 		res := sum.ShiftAllRight(7).Add(one).ShiftAllRight(1)
-		*(*int64)(sp) = res.SaturateToInt16Concat(res).AsInt64x2().GetElem(0)
+		var out [8]int16
+		res.SaturateToInt16Concat(res).StoreArray(&out)
+		copy(sp, out[:4])
 		p0 = p0.Add(step0)
 		p1 = p1.Add(step1)
 	}
@@ -89,8 +90,8 @@ func stereoMidSideToLR(mid, side []int16) {
 func stereoMidSideToLRAVX2(mid, side []int16) int {
 	n := 0
 	for ; n+8 <= len(mid); n += 8 {
-		mp := (*[8]int16)(unsafe.Pointer(&mid[n]))
-		sp := (*[8]int16)(unsafe.Pointer(&side[n]))
+		mp := (*[8]int16)(mid[n:])
+		sp := (*[8]int16)(side[n:])
 		m := archsimd.LoadInt16x8Array(mp)
 		s := archsimd.LoadInt16x8Array(sp)
 		m.AddSaturated(s).StoreArray(mp)

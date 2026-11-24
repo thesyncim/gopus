@@ -1,6 +1,6 @@
 module github.com/thesyncim/gopus/examples/webrtc-control
 
-go 1.27.3
+go 1.27.4
 
 require (
 	github.com/pion/interceptor v0.1.37

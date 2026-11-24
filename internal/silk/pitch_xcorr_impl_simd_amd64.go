@@ -4,7 +4,6 @@ package silk
 
 import (
 	"simd/archsimd"
-	"unsafe"
 
 	"github.com/thesyncim/gopus/internal/opusmath"
 )
@@ -23,7 +22,7 @@ func celtPitchXcorrFloatImpl(x, y []float32, out []float32, length, maxPitch int
 	i := 0
 	for ; i < maxPitch-7; i += 8 {
 		var sums [8]float32
-		xcorrKernelAVX8(&x[0], &y[i], &sums, length)
+		xcorrKernelAVX8(x, y[i:], &sums, length)
 		copy(out[i:i+8], sums[:])
 	}
 	// Clear the upper register halves the 256-bit kernel leaves dirty before
@@ -43,13 +42,11 @@ func celtPitchXcorrFloatImpl(x, y []float32, out []float32, length, maxPitch int
 func innerProductF32SSEOrder(x, y []float32, length int) float32 {
 	x = x[:length]
 	y = y[:length]
-	xp := unsafe.Pointer(unsafe.SliceData(x))
-	yp := unsafe.Pointer(unsafe.SliceData(y))
 	var acc archsimd.Float32x4
 	i := 0
 	for ; i+4 <= length; i += 4 {
-		ax := archsimd.LoadFloat32x4Array((*[4]float32)(unsafe.Add(xp, i*4)))
-		ay := archsimd.LoadFloat32x4Array((*[4]float32)(unsafe.Add(yp, i*4)))
+		ax := archsimd.LoadFloat32x4Array((*[4]float32)(x[i:]))
+		ay := archsimd.LoadFloat32x4Array((*[4]float32)(y[i:]))
 		acc = acc.Add(ax.Mul(ay))
 	}
 	sum := (acc.GetElem(0) + acc.GetElem(2)) + (acc.GetElem(1) + acc.GetElem(3))

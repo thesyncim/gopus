@@ -2,10 +2,7 @@
 
 package silk
 
-import (
-	"simd/archsimd"
-	"unsafe"
-)
+import "simd/archsimd"
 
 var silkRewhitenLTPUsesAVX2 = archsimd.X86.AVX2()
 
@@ -44,16 +41,15 @@ func rewhitenLTPAVX2(sLTP []int16, xq []int16, startIdx, offset int, aQ12 []int1
 	}
 	half := archsimd.BroadcastInt32x8(1)
 	for ; ix+8 <= length && base+ix+8 <= len(xq) && startIdx+ix+8 <= len(sLTP); ix += 8 {
-		in := unsafe.Pointer(&xq[base+ix])
 		var pred archsimd.Int32x8
 		for k := range order {
-			tap := archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(in, -2*(k+1)))).ExtendToInt32()
+			tap := archsimd.LoadInt16x8Array((*[8]int16)(xq[base+ix-1-k:])).ExtendToInt32()
 			pred = pred.Add(tap.Mul(coef[k]))
 		}
-		outQ12 := archsimd.LoadInt16x8Array((*[8]int16)(in)).ExtendToInt32().ShiftAllLeft(12).Sub(pred)
+		outQ12 := archsimd.LoadInt16x8Array((*[8]int16)(xq[base+ix:])).ExtendToInt32().ShiftAllLeft(12).Sub(pred)
 		// silk_RSHIFT_ROUND(outQ12, 12), then silk_SAT16 in the pack.
 		out := outQ12.ShiftAllRight(11).Add(half).ShiftAllRight(1)
-		out.GetLo().SaturateToInt16Concat(out.GetHi()).StoreArray((*[8]int16)(unsafe.Pointer(&sLTP[startIdx+ix])))
+		out.GetLo().SaturateToInt16Concat(out.GetHi()).StoreArray((*[8]int16)(sLTP[startIdx+ix:]))
 	}
 	archsimd.ClearAVXUpperBits()
 	rewhitenLTPScalar(sLTP, xq, startIdx, offset, aQ12, ix, length, order)

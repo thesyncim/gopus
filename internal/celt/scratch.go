@@ -65,18 +65,6 @@ func ensureUint32Slice(buf *[]uint32, n int) []uint32 {
 	return *buf
 }
 
-func ensureKissCpxSlice(buf *[]kissCpx, n int) []kissCpx {
-	if n < 0 {
-		n = 0
-	}
-	if cap(*buf) < n {
-		*buf = make([]kissCpx, n)
-	} else {
-		*buf = (*buf)[:n]
-	}
-	return *buf
-}
-
 type bandDecodeScratch struct {
 	// floatScratch backs the band-decode-local float-family scratch (left, right,
 	// norm, lowband, pvqNorm/foldResult, hadamardTmpNorm, quantWork) with
@@ -129,6 +117,8 @@ type bandEncodeScratch struct {
 	// unchanged; a request wider than the carved slot (custom modes) just makes a
 	// fresh slice in that slot, identical to before. See ensureFloatScratch.
 	floatScratch arena.Bump[celtNorm]
+	i32Scratch   arena.Bump[int32]
+	byteScratch  arena.Bump[byte]
 
 	// Theta RDO buffers (for stereo encoding): five per-band celtNorm slots,
 	// each bounded by maxBandWidth, all live simultaneously within one band's RDO.
@@ -191,7 +181,7 @@ func (s *bandEncodeScratch) ensureFloatScratch(channels int) {
 	normLen := 8 * EBands[MaxBands-1]
 	maxBand := 8 * (EBands[MaxBands] - EBands[MaxBands-1])
 	hadamardCap := max(maxBand, maxBandWidth)
-	total := channels*normLen + maxBand + hadamardCap + 3*maxPVQN + 5*maxBandWidth
+	total := channels*normLen + maxBand + 2*hadamardCap + 3*maxPVQN + 5*maxBandWidth
 	if s.floatScratch.Cap() >= total {
 		return
 	}
@@ -199,6 +189,7 @@ func (s *bandEncodeScratch) ensureFloatScratch(channels int) {
 	s.norm = s.floatScratch.Alloc(channels * normLen)
 	s.lowbandScratch = s.floatScratch.Alloc(maxBand)
 	s.hadamardTmpNorm = s.floatScratch.Alloc(hadamardCap)
+	s.quantWork = s.floatScratch.Alloc(hadamardCap)
 	s.pvqY = s.floatScratch.Alloc(maxPVQN)
 	s.pvqAbsX = s.floatScratch.Alloc(maxPVQN)
 	s.pvqX = s.floatScratch.Alloc(maxPVQN)
@@ -207,6 +198,15 @@ func (s *bandEncodeScratch) ensureFloatScratch(channels int) {
 	s.xResult0 = s.floatScratch.Alloc(maxBandWidth)
 	s.yResult0 = s.floatScratch.Alloc(maxBandWidth)
 	s.normResult0 = s.floatScratch.Alloc(maxBandWidth)
+
+	s.i32Scratch.Ensure(3 * maxPVQN)
+	s.pvqIy = s.i32Scratch.Alloc(maxPVQN)
+	s.pvqUpIy = s.i32Scratch.Alloc(maxPVQN)
+	s.pvqRefine = s.i32Scratch.Alloc(maxPVQN)
+
+	s.byteScratch.Ensure(MaxBands*2 + maxPVQN)
+	s.collapse = s.byteScratch.Alloc(MaxBands * 2)
+	s.pvqSignx = s.byteScratch.Alloc(maxPVQN)
 }
 
 // ensureXSave returns a pre-allocated buffer for saving X during theta RDO.
@@ -409,8 +409,8 @@ type imdctScratch = imdctScratchF32
 // imdctScratchF32 holds scratch buffers for float32 IMDCT to avoid per-call allocations.
 type imdctScratchF32 struct {
 	customMDCTState
-	fftIn  []complex64
-	fftTmp []kissCpx
+	fftIn  []float32
+	fftTmp []float32
 	buf    []float32
 	out    []float32
 }

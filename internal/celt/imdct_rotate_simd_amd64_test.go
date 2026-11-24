@@ -23,20 +23,19 @@ func TestIMDCTRotateAMD64MatchesScalar(t *testing.T) {
 		n4 := n2 / 2
 		trig := make([]float32, n2)
 		spectrum := make([]float32, n2)
-		fft := make([]kissCpx, n4)
+		fft := make([]float32, 2*n4)
 		for i := range trig {
 			trig[i], spectrum[i] = f(), f()
 		}
 		for i := range fft {
-			fft[i] = kissCpx{f(), f()}
+			fft[i] = f()
 		}
 
-		gotPre, wantPre := make([]complex64, n4), make([]complex64, n4)
+		gotPre, wantPre := make([]float32, 2*n4), make([]float32, 2*n4)
 		imdctPreRotateNoFMA(gotPre, spectrum, trig, n2, n4)
 		imdctPreRotateNoFMAScalar(wantPre, spectrum, trig, n2, n4)
 		for i := range wantPre {
-			if math.Float32bits(real(gotPre[i])) != math.Float32bits(real(wantPre[i])) ||
-				math.Float32bits(imag(gotPre[i])) != math.Float32bits(imag(wantPre[i])) {
+			if math.Float32bits(gotPre[i]) != math.Float32bits(wantPre[i]) {
 				t.Fatalf("pre n2=%d: fftIn[%d] = %v, want %v", n2, i, gotPre[i], wantPre[i])
 			}
 		}
@@ -52,9 +51,9 @@ func TestIMDCTRotateAMD64MatchesScalar(t *testing.T) {
 		}
 	}
 
-	fftIn := make([]complex64, 480)
+	fftIn := make([]float32, 960)
 	spectrum, trig, buf := make([]float32, 960), make([]float32, 960), make([]float32, 960)
-	fft := make([]kissCpx, 480)
+	fft := make([]float32, 960)
 	if allocs := testing.AllocsPerRun(100, func() {
 		imdctPreRotateNoFMA(fftIn, spectrum, trig, 960, 480)
 		imdctPostRotateF32FromKiss(buf, fft, trig, 960, 480)

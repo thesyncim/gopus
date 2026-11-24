@@ -48,13 +48,12 @@ func DefaultDecoderConfig(sampleRate, channels int) DecoderConfig {
 // not safe for concurrent use; use one Decoder per stream. Construct it with
 // [NewDecoder]; the zero value is not ready for use.
 type Decoder struct {
-	silkDecoder      *silk.Decoder   // SILK-only mode decoder
-	celtDecoder      *celt.Decoder   // CELT-only mode decoder
-	hybridDecoder    *hybrid.Decoder // Hybrid mode decoder
-	sampleRate       int32
-	channels         int32
-	maxPacketSamples int
-	maxPacketBytes   int
+	// Pointer-bearing fields are grouped first so Go's GC stops scanning at
+	// ptrdata, leaving scalar state in the noscan tail.
+	silkDecoder   *silk.Decoder   // SILK-only mode decoder
+	celtDecoder   *celt.Decoder   // CELT-only mode decoder
+	hybridDecoder *hybrid.Decoder // Hybrid mode decoder
+	dnnBlob       *dnnblob.Blob
 	// scratchF32 backs the four fixed float32 decode work buffers below with one
 	// contiguous allocation; see NewDecoder.
 	scratchF32        arena.Bump[float32]
@@ -62,6 +61,25 @@ type Decoder struct {
 	scratchTransition []float32
 	scratchRedundant  []float32
 	scratchSilkPLC    []float32 // 10 ms SILK PLC scratch for <10 ms concealment chunks
+	fecData           []byte    // Stored packet data containing LBRR for FEC recovery
+	// Scratch range decoder to avoid per-frame heap allocations
+	scratchRangeDecoder rangecoding.Decoder
+	decoderDREDFields
+	decoderOSCEFields
+	decoderHD96kFields
+	decoderFixedFields
+	fixedQEXT decoderFixedQEXTFields
+	// Embedded sub-decoders sit before the noscan tail so all scalar fields and
+	// fecBuf below remain excluded from GC scanning.
+	silkDecVal   silk.Decoder
+	celtDecVal   celt.Decoder
+	hybridDecVal hybrid.Decoder
+
+	// --- Pointer-free (noscan) tail ---
+	sampleRate         int32
+	channels           int32
+	maxPacketSamples   int
+	maxPacketBytes     int
 	lastFrameSize      int32
 	lastPacketDuration int32
 	prevMode           Mode // Track last mode for PLC
@@ -80,31 +98,22 @@ type Decoder struct {
 
 	// FEC (Forward Error Correction) state
 	// Stages the following packet's LBRR payload to recover the missing audio.
-	fecData       []byte    // Stored packet data containing LBRR for FEC recovery
 	fecMode       Mode      // Mode of the packet containing LBRR
 	fecBandwidth  Bandwidth // Bandwidth of the packet containing LBRR
 	fecStereo     bool      // Whether the packet was stereo
 	fecFrameSize  int       // Frame size of the packet containing LBRR
-	fecFrameCount int  // Number of frames in packet
-	hasFEC        bool // True if fecData contains valid LBRR data
-
-	// Scratch range decoder to avoid per-frame heap allocations
-	scratchRangeDecoder rangecoding.Decoder
+	fecFrameCount int       // Number of frames in packet
+	hasFEC        bool      // True if fecData contains valid LBRR data
 
 	// Soft clipping memory (float decode uses none; int16 decode uses this)
 	softClipMem [2]float32
-	dnnBlob     *dnnblob.Blob
-	decoderDREDFields
-	decoderOSCEFields
-	decoderHD96kFields
-	decoderFixedFields
-	fixedQEXT decoderFixedQEXTFields
 
 	// Decoder-side DNN readiness mirrors the validated model families retained
 	// by OPUS_SET_DNN_BLOB; optional paths require their corresponding models.
 	pitchDNNLoaded    bool
 	plcModelLoaded    bool
 	farganModelLoaded bool
+	fecBuf            [defaultMaxPacketBytes]byte
 }
 
 // NewDecoder returns a Decoder configured by cfg. It returns an error if the
@@ -142,30 +151,19 @@ func NewDecoder(cfg DecoderConfig) (*Decoder, error) {
 	}
 
 	// The contiguous float32 arena holds one packet-sized buffer, two
-	// transition buffers, and one 10 ms SILK PLC buffer. Bound its element
-	// count by the largest length whose byte size fits in int before
-	// multiplying or constructing decoder state.
+	// transition buffers, one 10 ms SILK PLC buffer, and the 20 ms hybrid SILK
+	// upsample scratch. Bound its element count by the largest length whose byte
+	// size fits in int before multiplying or constructing decoder state.
 	transitionSamples := max(48000, cfg.SampleRate) / 200 // 5 ms in the largest configured CELT geometry.
 	transLen := transitionSamples * cfg.Channels
 	silkPLCLen := (internalRate / 100) * cfg.Channels
+	hybridSilkLen := 960 * cfg.Channels
 	maxFloatElements := int(^uint(0)>>1) / 4
-	if maxPacketSamples > (maxFloatElements-2*transLen-silkPLCLen)/cfg.Channels {
+	if maxPacketSamples > (maxFloatElements-2*transLen-silkPLCLen-hybridSilkLen)/cfg.Channels {
 		return nil, ErrInvalidMaxPacketSamples
 	}
 
-	silkDec := silk.NewDecoder()
-	silkDec.SetAPISampleRate(internalRate)
-	celtDec := celt.NewDecoder(cfg.Channels)
-	if err := celtDec.SetAPISampleRate(internalRate); err != nil {
-		return nil, err
-	}
-	hybridDec := hybrid.NewDecoderWithSharedDecoders(cfg.Channels, silkDec, celtDec)
-	hybridDec.SetAPISampleRate(internalRate)
-
 	d := &Decoder{
-		silkDecoder:      silkDec,
-		celtDecoder:      celtDec,
-		hybridDecoder:    hybridDec,
 		sampleRate:       int32(internalRate),
 		channels:         int32(cfg.Channels),
 		maxPacketSamples: maxPacketSamples,
@@ -174,15 +172,31 @@ func NewDecoder(cfg DecoderConfig) (*Decoder, error) {
 		prevMode:         ModeHybrid,               // Default for PLC until first decode
 		lastPacketMode:   ModeHybrid,
 		lastBandwidth:    BandwidthFullband,
-		fecData:          make([]byte, maxPacketBytes),
 	}
-	// Back the four fixed float32 decode work buffers with one contiguous arena.
+	if maxPacketBytes <= len(d.fecBuf) {
+		d.fecData = d.fecBuf[:maxPacketBytes]
+	} else {
+		d.fecData = make([]byte, maxPacketBytes)
+	}
+	d.silkDecVal.Init()
+	d.silkDecVal.SetAPISampleRate(internalRate)
+	d.silkDecoder = &d.silkDecVal
+	d.celtDecVal.Init(cfg.Channels)
+	if err := d.celtDecVal.SetAPISampleRate(internalRate); err != nil {
+		return nil, err
+	}
+	d.celtDecoder = &d.celtDecVal
+	// Back the fixed float32 decode work buffers with one contiguous arena.
 	pcmLen := maxPacketSamples * cfg.Channels
-	d.scratchF32.Ensure(pcmLen + 2*transLen + silkPLCLen)
+	d.scratchF32.Ensure(pcmLen + 2*transLen + silkPLCLen + hybridSilkLen)
 	d.scratchPCM = d.scratchF32.AllocN(pcmLen)
 	d.scratchTransition = d.scratchF32.AllocN(transLen)
 	d.scratchRedundant = d.scratchF32.AllocN(transLen)
 	d.scratchSilkPLC = d.scratchF32.AllocN(silkPLCLen)
+	hybridSilkScratch := d.scratchF32.AllocN(hybridSilkLen)
+	d.hybridDecVal.InitWithSharedDecoders(cfg.Channels, d.silkDecoder, d.celtDecoder, hybridSilkScratch)
+	d.hybridDecVal.SetAPISampleRate(internalRate)
+	d.hybridDecoder = &d.hybridDecVal
 	if cfg.SampleRate == 96000 {
 		init96kDecoder(d)
 	}

@@ -23,9 +23,9 @@ func TestAMD64SIMDKernelsZeroAlloc(t *testing.T) {
 		t.Fatalf("inner product allocated %v times", allocs)
 	}
 
-	xcorrKernelAVX8(&x[0], &y[0], &simdAllocSink8, n)
+	xcorrKernelAVX8(x, y, &simdAllocSink8, n)
 	if allocs := testing.AllocsPerRun(100, func() {
-		xcorrKernelAVX8(&x[0], &y[0], &simdAllocSink8, n)
+		xcorrKernelAVX8(x, y, &simdAllocSink8, n)
 	}); allocs != 0 {
 		t.Fatalf("pitch xcorr allocated %v times", allocs)
 	}

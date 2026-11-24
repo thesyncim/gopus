@@ -9,7 +9,7 @@ const mdctUseNeonMidFold = false
 
 // mdctMidFoldStoreNeon is never called off arm64 (guarded by
 // mdctUseNeonMidFold); the stub keeps the package building on all targets.
-func mdctMidFoldStoreNeon(dst []kissCpx, bitrev []int, samples []float32, trig []float32, i0, n4, xp1, xp2, blocks int, preScale float32) {
+func mdctMidFoldStoreNeon(dst []float32, bitrev []int, samples []float32, trig []float32, i0, n4, xp1, xp2, blocks int, preScale float32) {
 	for b := 0; b < blocks; b++ {
 		for lane := 0; lane < 4; lane++ {
 			j := 4*b + lane

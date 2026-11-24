@@ -28,32 +28,46 @@ func smoothFade(in1, in2, out []float32, overlap, channels, sampleRate int) {
 		maxSamples = min(len(out), min(len(in1), len(in2)))
 		overlap = maxSamples / channels
 	}
-	for c := range channels {
-		for i := 0; i < overlap; i++ {
-			w := win[i*inc]
-			w = smoothFadeMul32(w, w)
-			idx := i*channels + c
-			if idx >= len(out) || idx >= len(in1) || idx >= len(in2) {
-				break
-			}
-			oneMinusW := smoothFadeSub32(float32(1), w)
-			out[idx] = smoothFadeFMA32(w, in2[idx], smoothFadeMul32(oneMinusW, in1[idx]))
+	if overlap <= 0 {
+		return
+	}
+	if inc == 1 && (channels == 1 || channels == 2) && overlap >= 4 {
+		if smoothFade48kSIMD(in1[:overlap*channels], in2[:overlap*channels], out[:overlap*channels], win[:overlap], overlap, channels) {
+			return
 		}
 	}
-}
-
-func smoothFadeFMA32(a, b, c float32) float32 {
-	return a*b + c
-}
-
-//go:noinline
-func smoothFadeMul32(a, b float32) float32 {
-	return a * b
-}
-
-//go:noinline
-func smoothFadeSub32(a, b float32) float32 {
-	return a - b
+	in1 = in1[:overlap*channels]
+	in2 = in2[:overlap*channels]
+	out = out[:overlap*channels]
+	if channels == 1 {
+		for i := range overlap {
+			w := win[i*inc]
+			w = float32(w * w)
+			oneMinusW := float32(1 - w)
+			out[i] = w*in2[i] + float32(oneMinusW*in1[i])
+		}
+		return
+	}
+	if channels == 2 {
+		for i := range overlap {
+			w := win[i*inc]
+			w = float32(w * w)
+			oneMinusW := float32(1 - w)
+			idx := 2 * i
+			out[idx] = w*in2[idx] + float32(oneMinusW*in1[idx])
+			out[idx+1] = w*in2[idx+1] + float32(oneMinusW*in1[idx+1])
+		}
+		return
+	}
+	for c := range channels {
+		for i := range overlap {
+			w := win[i*inc]
+			w = float32(w * w)
+			idx := i*channels + c
+			oneMinusW := float32(1 - w)
+			out[idx] = w*in2[idx] + float32(oneMinusW*in1[idx])
+		}
+	}
 }
 
 func copyFloat32(dst []float32, src []float32) {

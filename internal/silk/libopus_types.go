@@ -38,21 +38,10 @@ type cngState struct {
 	fsKHz         int32
 }
 
+// decoderState holds per-channel SILK decode state. It is pointer-free so Go's
+// GC skips scanning both channels inside silk.Decoder.
 type decoderState struct {
-	pitchLagLowBitsICDF []uint8
-	pitchContourICDF    []uint8
-	nlsfCB              *nlsfCB
-	// Scratch buffer references (set by parent Decoder for hot-path optimization).
-	// Grouped at offset 0 so the large value arrays below sit in the GC noscan tail.
-	scratchSLPC      []int32 // Pre-allocated sLPC buffer
-	scratchSLTP      []int16 // Pre-allocated sLTP buffer
-	scratchSLTPQ15   []int32 // Pre-allocated sLTP_Q15 buffer
-	scratchPresQ14   []int32 // Pre-allocated presQ14 buffer
-	scratchEcIx      []int16 // Pre-allocated ecIx buffer
-	scratchPredQ8    []uint8 // Pre-allocated predQ8 buffer
-	scratchSumPulses []int32 // Size: 21
-	scratchNLshifts  []int32 // Size: 21
-	prevGainQ16      int32
+	prevGainQ16          int32
 	excQ14               [maxFrameLength]int32
 	sLPCQ14Buf           [maxLPCOrder]int32
 	outBuf               [maxFrameLength + 2*maxSubFrameLength]int16

@@ -3,32 +3,28 @@ package silk
 // LibopusResampler implements the exact SILK resampler from libopus.
 // It follows libopus' copy, direct 2x, IIR/FIR upsampling, and downsampling paths.
 type LibopusResampler struct {
-	// IIR state for 2x upsampler (6 elements for 3rd order allpass)
-	sIIR [6]int32
+	// Pointer-bearing fields sit first so scalar state and inline backing
+	// arrays live in the GC noscan tail.
+	delayBuf      []int16
+	i16Slab       []int16 // Backing slab for scratchIn, scratchOut, scratchBuf
+	scratchBuf    []int16 // Size: 2*batchSize + resamplerOrderFIR12
+	scratchIn     []int16 // Size: max input samples
+	scratchOut    []int16 // Size: max output samples
+	scratchResult []float32
+	down          *DownsamplingResampler // down_FIR stage, set when fsOut < fsIn
+	downVal       DownsamplingResampler  // Embedded backing storage for down
 
-	// FIR delay buffer (8 samples for the 8-tap symmetric FIR)
-	sFIR [8]int16
-
-	// Configuration
+	// --- Pointer-free (noscan) tail ---
+	sIIR        [6]int32
+	sFIR        [8]int16
 	invRatioQ16 int32 // Input/output ratio in Q16
 	batchSize   int32 // Number of samples per batch
 	inputDelay  int32 // Delay compensation
 	fsInKHz     int32
 	fsOutKHz    int32
-
-	// Delay buffer for continuity (size = fsInKHz)
-	delayBuf []int16
-
-	// Pre-allocated scratch buffers for zero-allocation resampling
-	scratchBuf    []int16   // Size: 2*batchSize + resamplerOrderFIR12
-	scratchIn     []int16   // Size: max input samples
-	scratchOut    []int16   // Size: max output samples
-	scratchResult []float32 // Size: max output samples
-
-	copyMode  bool
-	up2HQMode bool
-	down      *DownsamplingResampler // down_FIR stage, set when fsOut < fsIn
-	idleDown  *DownsamplingResampler // down_FIR stage kept for reuse by init
+	copyMode    bool
+	up2HQMode   bool
+	delayBufArr [48]int16
 }
 
 type libopusResamplerSnapshot struct {
@@ -275,30 +271,38 @@ func (r *LibopusResampler) init(fsIn, fsOut int, forEnc bool) {
 	}
 
 	if fsOut < fsIn {
-		if r.down == nil {
-			r.down, r.idleDown = r.idleDown, nil
-			if r.down == nil {
-				r.down = &DownsamplingResampler{}
-			}
-		}
+		r.down = &r.downVal
 		r.down.init(fsIn, fsOut, forEnc)
 		r.delayBuf = r.delayBuf[:0]
 		return
 	}
-	if r.down != nil {
-		r.idleDown, r.down = r.down, nil
+	r.down = nil
+	if int(r.fsInKHz) <= len(r.delayBufArr) {
+		r.delayBuf = r.delayBufArr[:r.fsInKHz:r.fsInKHz]
+		clear(r.delayBuf)
+	} else {
+		clear(ensureInt16Slice(&r.delayBuf, int(r.fsInKHz)))
 	}
-	clear(ensureInt16Slice(&r.delayBuf, int(r.fsInKHz)))
 	maxInputSamples := int(r.fsInKHz * resamplerMaxFrameMs)
 	maxOutputSamples := int(r.fsOutKHz * resamplerMaxFrameMs)
-	ensureInt16Slice(&r.scratchIn, maxInputSamples)
-	ensureInt16Slice(&r.scratchOut, maxOutputSamples)
 	ensureFloat32Slice(&r.scratchResult, maxOutputSamples)
 	if fsOut == fsIn {
+		need := maxInputSamples + maxOutputSamples
+		if cap(r.i16Slab) < need {
+			r.i16Slab = make([]int16, need)
+		}
+		r.scratchIn = r.i16Slab[:maxInputSamples:maxInputSamples]
+		r.scratchOut = r.i16Slab[maxInputSamples:need:need]
 		r.copyMode = true
 		return
 	}
 	if fsOut == fsIn*2 {
+		need := maxInputSamples + maxOutputSamples
+		if cap(r.i16Slab) < need {
+			r.i16Slab = make([]int16, need)
+		}
+		r.scratchIn = r.i16Slab[:maxInputSamples:maxInputSamples]
+		r.scratchOut = r.i16Slab[maxInputSamples:need:need]
 		r.up2HQMode = true
 		return
 	}
@@ -318,7 +322,14 @@ func (r *LibopusResampler) init(fsIn, fsOut int, forEnc bool) {
 		r.invRatioQ16++
 	}
 
-	ensureInt16Slice(&r.scratchBuf, int(2*r.batchSize+resamplerOrderFIR12))
+	bufLen := int(2*r.batchSize + resamplerOrderFIR12)
+	need := maxInputSamples + maxOutputSamples + bufLen
+	if cap(r.i16Slab) < need {
+		r.i16Slab = make([]int16, need)
+	}
+	r.scratchIn = r.i16Slab[:maxInputSamples:maxInputSamples]
+	r.scratchOut = r.i16Slab[maxInputSamples : maxInputSamples+maxOutputSamples : maxInputSamples+maxOutputSamples]
+	r.scratchBuf = r.i16Slab[maxInputSamples+maxOutputSamples : need : need]
 }
 
 // ResamplerState holds the internal state of the resampler. For downsampling
@@ -605,14 +616,7 @@ func ResampleStereoInt16(l, r *LibopusResampler, left, right []int16) (outL, out
 // right[i] to dst[2i] and dst[2i+1] for i < len(left), as silk_Decode's stereo
 // output loop does.
 func InterleaveInt16AsFloat32(dst []float32, left, right []int16) {
-	const inv32768 = 1.0 / 32768.0
-	right = right[:len(left)]
-	dst = dst[:2*len(left)]
-	for i, l := range left {
-		pair := (*[2]float32)(dst[2*i : 2*i+2])
-		pair[0] = float32(l) * inv32768
-		pair[1] = float32(right[i]) * inv32768
-	}
+	interleaveInt16AsFloat32Core(dst, left, right)
 }
 
 // ProcessIntoBoth resamples float32 input, writing the resampler output to outF32
