@@ -8,7 +8,7 @@ import "simd/archsimd"
 // their API lists AVX (golang/go#81405). Keep this kernel behind AVX2.
 var analysisBinsUseAVX2 = archsimd.X86.AVX2() && (!analysisAvgModFMAEnabled || archsimd.X86.FMA())
 
-func (s *TonalityAnalysisState) analysisBinsSIMD(out *[480]complex64, tonality, tonality2, noisiness []float32) int {
+func (s *TonalityAnalysisState) analysisBinsSIMD(out *[960]float32, tonality, tonality2, noisiness []float32) int {
 	if !analysisBinsUseAVX2 {
 		return 1
 	}
@@ -21,11 +21,11 @@ func (s *TonalityAnalysisState) analysisBinsSIMD(out *[480]complex64, tonality, 
 // keeps Go 1.27 from hoisting SIMD instructions above the CPU check.
 //
 //go:noinline
-func (s *TonalityAnalysisState) analysisBinsAVX2(out *[480]complex64, tonality, tonality2, noisiness []float32) int {
+func (s *TonalityAnalysisState) analysisBinsAVX2(out *[960]float32, tonality, tonality2, noisiness []float32) int {
 	tonality = tonality[:240]
 	tonality2 = tonality2[:240]
 	noisiness = noisiness[:240]
-	of := complex64AsFloat32(out[:])
+	of := out[:]
 	scale := archsimd.BroadcastFloat32x4(analysisAtanScale)
 	quarter := archsimd.BroadcastFloat32x4(0.25)
 	two := archsimd.BroadcastFloat32x4(2)

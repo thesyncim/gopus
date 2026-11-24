@@ -18,14 +18,13 @@ import (
 // group bases and uses fixed offsets within each group, which reduces loop
 // address updates while preserving the rounded product and fused accumulate
 // sequence. Remaining vector groups and scalar outputs use the same order.
-func imdctPreRotateFMA32Kiss(fftIn []complex64, spectrum []float32, trig []float32, n2, n4 int) {
+func imdctPreRotateFMA32Kiss(fftIn []float32, spectrum []float32, trig []float32, n2, n4 int) {
 	if n4 <= 0 {
 		return
 	}
 	spectrum = spectrum[:n2]
 	trig = trig[:n2]
-	fftIn = fftIn[:n4]
-	outF := complex64AsFloat32(fftIn)
+	outF := fftIn[:2*n4]
 	x1Off := 0
 	x2Off := n2 - 1
 	t0Off := 0
@@ -104,9 +103,7 @@ func imdctPreRotateFMA32Kiss(fftIn []complex64, spectrum []float32, trig []float
 		x2 := spectrum[n2-1-2*i]
 		t0 := trig[i]
 		t1 := trig[n4+i]
-		fftIn[i] = complex(
-			opusmath.FMA32(x1, t0, -noFMA32Mul(x2, t1)),
-			opusmath.FMA32(x2, t0, noFMA32Mul(x1, t1)),
-		)
+		outF[2*i] = opusmath.FMA32(x1, t0, -noFMA32Mul(x2, t1))
+		outF[2*i+1] = opusmath.FMA32(x2, t0, noFMA32Mul(x1, t1))
 	}
 }

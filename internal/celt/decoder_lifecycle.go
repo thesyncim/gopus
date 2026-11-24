@@ -239,8 +239,8 @@ func (s *bandDecodeScratch) clearForReset() {
 }
 
 func (s *imdctScratchF32) clearForReset() {
-	clearComplex64Cap(s.fftIn)
-	clearKissCpxCap(s.fftTmp)
+	clearFloat32Cap(s.fftIn)
+	clearFloat32Cap(s.fftTmp)
 	clearFloat32Cap(s.buf)
 	clearFloat32Cap(s.out)
 }
@@ -276,13 +276,5 @@ func clearByteCap(s []byte) {
 }
 
 func clearUint32Cap(s []uint32) {
-	clear(s[:cap(s)])
-}
-
-func clearComplex64Cap(s []complex64) {
-	clear(s[:cap(s)])
-}
-
-func clearKissCpxCap(s []kissCpx) {
 	clear(s[:cap(s)])
 }

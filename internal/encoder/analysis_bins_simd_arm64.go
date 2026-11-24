@@ -7,11 +7,11 @@ import "simd/archsimd"
 // analysisBinsSIMD runs tonality_analysis's per-bin phase loop for bins
 // 1..236 four lanes at a time on ARM64 NEON, matching analysisBinsScalar
 // bit-for-bit in every output and in the phase history.
-func (s *TonalityAnalysisState) analysisBinsSIMD(out *[480]complex64, tonality, tonality2, noisiness []float32) int {
+func (s *TonalityAnalysisState) analysisBinsSIMD(out *[960]float32, tonality, tonality2, noisiness []float32) int {
 	tonality = tonality[:240]
 	tonality2 = tonality2[:240]
 	noisiness = noisiness[:240]
-	of := complex64AsFloat32(out[:])
+	of := out[:]
 	scale := archsimd.BroadcastFloat32x4(analysisAtanScale)
 	quarter := archsimd.BroadcastFloat32x4(0.25)
 	two := archsimd.BroadcastFloat32x4(2)

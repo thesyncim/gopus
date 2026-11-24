@@ -13,6 +13,6 @@ const mdctUseNegFoldSecondProduct = false
 // (yr=S_MUL(x2,t[i])+S_MUL(x1,t[N4+i]), yi=S_MUL(x1,t[i])-S_MUL(x2,t[N4+i])):
 // each output rounds its second product on its own and fuses the first
 // multiply into the add/sub.
-func imdctPreRotate(fftIn []complex64, spectrum []float32, trig []float32, n2, n4 int) {
+func imdctPreRotate(fftIn []float32, spectrum []float32, trig []float32, n2, n4 int) {
 	imdctPreRotateFMA32Kiss(fftIn, spectrum, trig, n2, n4)
 }

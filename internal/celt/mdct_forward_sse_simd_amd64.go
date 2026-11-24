@@ -16,7 +16,7 @@ var mdctUseSSEForward = archsimd.X86.AVX()
 // in[xp2-8*blocks+1 : xp2+1].
 //
 //go:noinline
-func mdctMidRotateSSE(fftStage []kissCpx, bitrev []int, in, trig []float32, i0, n4, xp1, xp2, blocks int, scale float32) {
+func mdctMidRotateSSE(fftStage []float32, bitrev []int, in, trig []float32, i0, n4, xp1, xp2, blocks int, scale float32) {
 	_ = in[xp1+8*blocks-1]
 	_ = in[xp2]
 	_ = in[xp2-8*blocks+1]
@@ -38,10 +38,11 @@ func mdctMidRotateSSE(fftStage []kissCpx, bitrev []int, in, trig []float32, i0, 
 		yr := re.Mul(t0).Sub(im.Mul(t1)).Mul(s4)
 		yi := im.Mul(t0).Add(re.Mul(t1)).Mul(s4)
 		k := br[4*b : 4*b+4]
-		fftStage[k[0]] = kissCpx{r: yr.GetElem(0), i: yi.GetElem(0)}
-		fftStage[k[1]] = kissCpx{r: yr.GetElem(1), i: yi.GetElem(1)}
-		fftStage[k[2]] = kissCpx{r: yr.GetElem(2), i: yi.GetElem(2)}
-		fftStage[k[3]] = kissCpx{r: yr.GetElem(3), i: yi.GetElem(3)}
+		k0, k1, k2, k3 := 2*k[0], 2*k[1], 2*k[2], 2*k[3]
+		fftStage[k0], fftStage[k0+1] = yr.GetElem(0), yi.GetElem(0)
+		fftStage[k1], fftStage[k1+1] = yr.GetElem(1), yi.GetElem(1)
+		fftStage[k2], fftStage[k2+1] = yr.GetElem(2), yi.GetElem(2)
+		fftStage[k3], fftStage[k3+1] = yr.GetElem(3), yi.GetElem(3)
 	}
 }
 
@@ -52,13 +53,13 @@ func mdctMidRotateSSE(fftStage []kissCpx, bitrev []int, in, trig []float32, i0, 
 // coeffs[n2-1-2i]. The caller finishes the n4%8 middle.
 //
 //go:noinline
-func mdctPostTwiddleSSE(coeffs []float32, fftStage []kissCpx, trig []float32, n2, n4, pairBlocks int) {
+func mdctPostTwiddleSSE(coeffs []float32, fftStage []float32, trig []float32, n2, n4, pairBlocks int) {
 	if pairBlocks == 0 {
 		return
 	}
 	coeffs = coeffs[:n2]
 	trig = trig[:2*n4]
-	ff := kissCpxAsFloat32(fftStage[:n4])
+	ff := fftStage[:2*n4]
 	if 8*pairBlocks > n4 {
 		panic("mdct: post-twiddle blocks overlap")
 	}
@@ -119,14 +120,15 @@ func mdctEvenDesc(s []float32) archsimd.Float32x4 {
 // mdctRotateStore is clt_mdct_forward_c's pre-rotation of four folded
 // (re, im) values: yr = re*t0 - im*t1, yi = im*t0 + re*t1, each scaled and
 // stored at fftStage[bitrev[i..i+3]], as mdctStoreDirectStage does per element.
-func mdctRotateStore(fftStage []kissCpx, br []int, t0, t1, s4, re, im archsimd.Float32x4) {
+func mdctRotateStore(fftStage []float32, br []int, t0, t1, s4, re, im archsimd.Float32x4) {
 	yr := re.Mul(t0).Sub(im.Mul(t1)).Mul(s4)
 	yi := im.Mul(t0).Add(re.Mul(t1)).Mul(s4)
 	k := br[:4:4]
-	fftStage[k[0]] = kissCpx{r: yr.GetElem(0), i: yi.GetElem(0)}
-	fftStage[k[1]] = kissCpx{r: yr.GetElem(1), i: yi.GetElem(1)}
-	fftStage[k[2]] = kissCpx{r: yr.GetElem(2), i: yi.GetElem(2)}
-	fftStage[k[3]] = kissCpx{r: yr.GetElem(3), i: yi.GetElem(3)}
+	k0, k1, k2, k3 := 2*k[0], 2*k[1], 2*k[2], 2*k[3]
+	fftStage[k0], fftStage[k0+1] = yr.GetElem(0), yi.GetElem(0)
+	fftStage[k1], fftStage[k1+1] = yr.GetElem(1), yi.GetElem(1)
+	fftStage[k2], fftStage[k2+1] = yr.GetElem(2), yi.GetElem(2)
+	fftStage[k3], fftStage[k3+1] = yr.GetElem(3), yi.GetElem(3)
 }
 
 // mdctLeadFoldSSE is clt_mdct_forward_c's leading windowed fold and
@@ -137,7 +139,7 @@ func mdctRotateStore(fftStage []kissCpx, br []int, t0, t1, s4, re, im archsimd.F
 // xp2+1], window[wp1 : wp1+8*blocks] and window[wp2-8*blocks+1 : wp2+1].
 //
 //go:noinline
-func mdctLeadFoldSSE(fftStage []kissCpx, bitrev []int, samples, window, trig []float32, i0, n4, n2, xp1, xp2, wp1, wp2, blocks int, scale float32) {
+func mdctLeadFoldSSE(fftStage []float32, bitrev []int, samples, window, trig []float32, i0, n4, n2, xp1, xp2, wp1, wp2, blocks int, scale float32) {
 	_ = samples[xp1+n2+8*blocks-1]
 	_ = samples[xp2]
 	_ = samples[xp2-n2-8*blocks+1]
@@ -177,7 +179,7 @@ func mdctLeadFoldSSE(fftStage []kissCpx, bitrev []int, samples, window, trig []f
 // xp2+n2+1], window[wp1 : wp1+8*blocks] and window[wp2-8*blocks+1 : wp2+1].
 //
 //go:noinline
-func mdctTailFoldSSE(fftStage []kissCpx, bitrev []int, samples, window, trig []float32, i0, n4, n2, xp1, xp2, wp1, wp2, blocks int, scale float32) {
+func mdctTailFoldSSE(fftStage []float32, bitrev []int, samples, window, trig []float32, i0, n4, n2, xp1, xp2, wp1, wp2, blocks int, scale float32) {
 	_ = samples[xp1-n2]
 	_ = samples[xp1+8*blocks-1]
 	_ = samples[xp2+n2]

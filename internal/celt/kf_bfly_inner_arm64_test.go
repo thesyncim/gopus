@@ -21,23 +21,27 @@ func refMulSub(a, b, c, d float32) float32 {
 	return float32(math.FMA(float64(a), float64(b), float64(-t)))
 }
 
-func kfBfly4InnerRef(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
+func kfBfly4InnerRef(fout []float32, w []kissCpx, m, N, mm, fstride int) {
+	m2 := 2 * m
+	mm2 := 2 * mm
 	for i := range N {
-		base := i * mm
+		base := i * mm2
 		tw1, tw2, tw3 := 0, 0, 0
 		for j := range m {
-			idx0 := base + j
-			idx1, idx2, idx3 := idx0+m, idx0+2*m, idx0+3*m
-			f0r, f0i := fout[idx0].r, fout[idx0].i
-			b1, b2, b3 := fout[idx1], fout[idx2], fout[idx3]
+			idx0 := base + 2*j
+			idx1, idx2, idx3 := idx0+m2, idx0+2*m2, idx0+3*m2
+			f0r, f0i := fout[idx0], fout[idx0+1]
+			b1r, b1i := fout[idx1], fout[idx1+1]
+			b2r, b2i := fout[idx2], fout[idx2+1]
+			b3r, b3i := fout[idx3], fout[idx3+1]
 			w1, w2, w3 := w[tw1], w[tw2], w[tw3]
 
-			s0r := refMulSub(b1.r, w1.r, b1.i, w1.i)
-			s0i := refMulAdd(b1.r, w1.i, b1.i, w1.r)
-			s1r := refMulSub(b2.r, w2.r, b2.i, w2.i)
-			s1i := refMulAdd(b2.r, w2.i, b2.i, w2.r)
-			s2r := refMulSub(b3.r, w3.r, b3.i, w3.i)
-			s2i := refMulAdd(b3.r, w3.i, b3.i, w3.r)
+			s0r := refMulSub(b1r, w1.r, b1i, w1.i)
+			s0i := refMulAdd(b1r, w1.i, b1i, w1.r)
+			s1r := refMulSub(b2r, w2.r, b2i, w2.i)
+			s1i := refMulAdd(b2r, w2.i, b2i, w2.r)
+			s2r := refMulSub(b3r, w3.r, b3i, w3.i)
+			s2i := refMulAdd(b3r, w3.i, b3i, w3.r)
 
 			s5r, s5i := f0r-s1r, f0i-s1i
 			f0r += s1r
@@ -45,10 +49,10 @@ func kfBfly4InnerRef(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 			s3r, s3i := s0r+s2r, s0i+s2i
 			s4r, s4i := s0r-s2r, s0i-s2i
 
-			fout[idx2] = kissCpx{f0r - s3r, f0i - s3i}
-			fout[idx0] = kissCpx{f0r + s3r, f0i + s3i}
-			fout[idx1] = kissCpx{s5r + s4i, s5i - s4r}
-			fout[idx3] = kissCpx{s5r - s4i, s5i + s4r}
+			fout[idx2], fout[idx2+1] = f0r-s3r, f0i-s3i
+			fout[idx0], fout[idx0+1] = f0r+s3r, f0i+s3i
+			fout[idx1], fout[idx1+1] = s5r+s4i, s5i-s4r
+			fout[idx3], fout[idx3+1] = s5r-s4i, s5i+s4r
 
 			tw1 += fstride
 			tw2 += 2 * fstride
@@ -57,23 +61,26 @@ func kfBfly4InnerRef(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 	}
 }
 
-func kfBfly3InnerRef(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
+func kfBfly3InnerRef(fout []float32, w []kissCpx, m, N, mm, fstride int) {
 	m2 := 2 * m
+	m4 := 4 * m
+	mm2 := 2 * mm
 	epi3i := w[fstride*m].i
 	for i := range N {
-		base := i * mm
+		base := i * mm2
 		tw1, tw2 := 0, 0
 		for j := range m {
-			idx0 := base + j
-			idx1, idx2 := idx0+m, idx0+m2
-			a0r, a0i := fout[idx0].r, fout[idx0].i
-			b1, b2 := fout[idx1], fout[idx2]
+			idx0 := base + 2*j
+			idx1, idx2 := idx0+m2, idx0+m4
+			a0r, a0i := fout[idx0], fout[idx0+1]
+			b1r, b1i := fout[idx1], fout[idx1+1]
+			b2r, b2i := fout[idx2], fout[idx2+1]
 			w1, w2 := w[tw1], w[tw2]
 
-			s1r := refMulSub(b1.r, w1.r, b1.i, w1.i)
-			s1i := refMulAdd(b1.r, w1.i, b1.i, w1.r)
-			s2r := refMulSub(b2.r, w2.r, b2.i, w2.i)
-			s2i := refMulAdd(b2.r, w2.i, b2.i, w2.r)
+			s1r := refMulSub(b1r, w1.r, b1i, w1.i)
+			s1i := refMulAdd(b1r, w1.i, b1i, w1.r)
+			s2r := refMulSub(b2r, w2.r, b2i, w2.i)
+			s2i := refMulAdd(b2r, w2.i, b2i, w2.r)
 
 			s3r, s3i := s1r+s2r, s1i+s2i
 			s0r, s0i := s1r-s2r, s1i-s2i
@@ -90,61 +97,66 @@ func kfBfly3InnerRef(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 			f1i := a0i - h3i
 			s0r = float32(s0r * epi3i)
 			s0i = float32(s0i * epi3i)
-			fout[idx0] = kissCpx{a0r + s3r, a0i + s3i}
-			fout[idx2] = kissCpx{f1r + s0i, f1i - s0r}
-			fout[idx1] = kissCpx{f1r - s0i, f1i + s0r}
+			fout[idx0], fout[idx0+1] = a0r+s3r, a0i+s3i
+			fout[idx2], fout[idx2+1] = f1r+s0i, f1i-s0r
+			fout[idx1], fout[idx1+1] = f1r-s0i, f1i+s0r
 		}
 	}
 }
 
-func kfBfly5InnerRef(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
+func kfBfly5InnerRef(fout []float32, w []kissCpx, m, N, mm, fstride int) {
 	ya := w[fstride*m]
 	yb := w[fstride*2*m]
+	m2 := 2 * m
+	mm2 := 2 * mm
 	for i := range N {
-		base := i * mm
-		idx0, idx1, idx2, idx3, idx4 := base, base+m, base+2*m, base+3*m, base+4*m
+		base := i * mm2
+		idx0, idx1, idx2, idx3, idx4 := base, base+m2, base+2*m2, base+3*m2, base+4*m2
 		tw1, tw2, tw3, tw4 := 0, 0, 0, 0
 		for range m {
-			s0 := fout[idx0]
-			b1, b2, b3, b4 := fout[idx1], fout[idx2], fout[idx3], fout[idx4]
+			s0r, s0i := fout[idx0], fout[idx0+1]
+			b1r, b1i := fout[idx1], fout[idx1+1]
+			b2r, b2i := fout[idx2], fout[idx2+1]
+			b3r, b3i := fout[idx3], fout[idx3+1]
+			b4r, b4i := fout[idx4], fout[idx4+1]
 			w1, w2, w3, w4 := w[tw1], w[tw2], w[tw3], w[tw4]
 
-			s1r := refMulSub(b1.r, w1.r, b1.i, w1.i)
-			s1i := refMulAdd(b1.r, w1.i, b1.i, w1.r)
-			s2r := refMulSub(b2.r, w2.r, b2.i, w2.i)
-			s2i := refMulAdd(b2.r, w2.i, b2.i, w2.r)
-			s3r := refMulSub(b3.r, w3.r, b3.i, w3.i)
-			s3i := refMulAdd(b3.r, w3.i, b3.i, w3.r)
-			s4r := refMulSub(b4.r, w4.r, b4.i, w4.i)
-			s4i := refMulAdd(b4.r, w4.i, b4.i, w4.r)
+			s1r := refMulSub(b1r, w1.r, b1i, w1.i)
+			s1i := refMulAdd(b1r, w1.i, b1i, w1.r)
+			s2r := refMulSub(b2r, w2.r, b2i, w2.i)
+			s2i := refMulAdd(b2r, w2.i, b2i, w2.r)
+			s3r := refMulSub(b3r, w3.r, b3i, w3.i)
+			s3i := refMulAdd(b3r, w3.i, b3i, w3.r)
+			s4r := refMulSub(b4r, w4.r, b4i, w4.i)
+			s4i := refMulAdd(b4r, w4.i, b4i, w4.r)
 
 			s7r, s7i := s1r+s4r, s1i+s4i
 			s10r, s10i := s1r-s4r, s1i-s4i
 			s8r, s8i := s2r+s3r, s2i+s3i
 			s9r, s9i := s2r-s3r, s2i-s3i
 
-			fout[idx0].r = s0.r + (s7r + s8r)
-			fout[idx0].i = s0.i + (s7i + s8i)
+			fout[idx0] = s0r + (s7r + s8r)
+			fout[idx0+1] = s0i + (s7i + s8i)
 
-			s5r := s0.r + refMulAdd(s7r, ya.r, s8r, yb.r)
-			s5i := s0.i + refMulAdd(s7i, ya.r, s8i, yb.r)
+			s5r := s0r + refMulAdd(s7r, ya.r, s8r, yb.r)
+			s5i := s0i + refMulAdd(s7i, ya.r, s8i, yb.r)
 			s6r := refMulAdd(s10i, ya.i, s9i, yb.i)
 			s6i := -refMulAdd(s10r, ya.i, s9r, yb.i)
-			fout[idx1] = kissCpx{s5r - s6r, s5i - s6i}
-			fout[idx4] = kissCpx{s5r + s6r, s5i + s6i}
+			fout[idx1], fout[idx1+1] = s5r-s6r, s5i-s6i
+			fout[idx4], fout[idx4+1] = s5r+s6r, s5i+s6i
 
-			s11r := s0.r + refMulAdd(s7r, yb.r, s8r, ya.r)
-			s11i := s0.i + refMulAdd(s7i, yb.r, s8i, ya.r)
+			s11r := s0r + refMulAdd(s7r, yb.r, s8r, ya.r)
+			s11i := s0i + refMulAdd(s7i, yb.r, s8i, ya.r)
 			s12r := refMulSub(s9i, ya.i, s10i, yb.i)
 			s12i := refMulSub(s10r, yb.i, s9r, ya.i)
-			fout[idx2] = kissCpx{s11r + s12r, s11i + s12i}
-			fout[idx3] = kissCpx{s11r - s12r, s11i - s12i}
+			fout[idx2], fout[idx2+1] = s11r+s12r, s11i+s12i
+			fout[idx3], fout[idx3+1] = s11r-s12r, s11i-s12i
 
-			idx0++
-			idx1++
-			idx2++
-			idx3++
-			idx4++
+			idx0 += 2
+			idx1 += 2
+			idx2 += 2
+			idx3 += 2
+			idx4 += 2
 			tw1 += fstride
 			tw2 += 2 * fstride
 			tw3 += 3 * fstride
@@ -158,32 +170,30 @@ type bflyShape struct {
 }
 
 func runBflyCase(t *testing.T, radix int, s bflyShape,
-	asm, ref func(fout []kissCpx, w []kissCpx, m, N, mm, fstride int)) {
+	asm, ref func(fout []float32, w []kissCpx, m, N, mm, fstride int)) {
 	t.Helper()
 	rng := rand.New(rand.NewSource(int64(radix*1000003 + s.m*101 + s.N*13 + s.fstride)))
 	n := (s.N-1)*s.mm + radix*s.m
-	fout := make([]kissCpx, n)
+	fout := make([]float32, 2*n)
 	for i := range fout {
-		fout[i] = kissCpx{rng.Float32()*2 - 1, rng.Float32()*2 - 1}
+		fout[i] = rng.Float32()*2 - 1
 	}
 	wlen := (radix-1)*s.fstride*(s.m-1) + s.fstride*(radix-1)*s.m + 1
 	w := make([]kissCpx, wlen)
 	for i := range w {
 		w[i] = kissCpx{rng.Float32()*2 - 1, rng.Float32()*2 - 1}
 	}
-	got := make([]kissCpx, n)
-	want := make([]kissCpx, n)
+	got := make([]float32, 2*n)
+	want := make([]float32, 2*n)
 	copy(got, fout)
 	copy(want, fout)
 	asm(got, w, s.m, s.N, s.mm, s.fstride)
 	ref(want, w, s.m, s.N, s.mm, s.fstride)
 	for k := range want {
-		if math.Float32bits(got[k].r) != math.Float32bits(want[k].r) ||
-			math.Float32bits(got[k].i) != math.Float32bits(want[k].i) {
-			t.Fatalf("radix%d %+v: fout[%d] = (%08x,%08x), want (%08x,%08x)",
+		if math.Float32bits(got[k]) != math.Float32bits(want[k]) {
+			t.Fatalf("radix%d %+v: fout[%d] = %08x, want %08x",
 				radix, s, k,
-				math.Float32bits(got[k].r), math.Float32bits(got[k].i),
-				math.Float32bits(want[k].r), math.Float32bits(want[k].i))
+				math.Float32bits(got[k]), math.Float32bits(want[k]))
 		}
 	}
 }

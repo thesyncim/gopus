@@ -18,7 +18,7 @@ const mdctUseNeonMidFold = true
 // descending re reversed with reverse4, fused MulAdd, scaling Mul), matching
 // mdctStoreDirectStageFMALike bit-for-bit; the bit-reversed output placement
 // remains scalar.
-func mdctMidFoldStoreNeon(dst []kissCpx, bitrev []int, samples []float32, trig []float32, i0, n4, xp1, xp2, blocks int, preScale float32) {
+func mdctMidFoldStoreNeon(dst []float32, bitrev []int, samples []float32, trig []float32, i0, n4, xp1, xp2, blocks int, preScale float32) {
 	if blocks == 0 {
 		return
 	}
@@ -44,10 +44,11 @@ func mdctMidFoldStoreNeon(dst []kissCpx, bitrev []int, samples []float32, trig [
 		yr := re.MulAdd(t0, im.Mul(t1).Neg()).Mul(pv)
 		yi := im.MulAdd(t0, re.Mul(t1)).Mul(pv)
 		br := bitrev[t0Off : t0Off+4]
-		dst[br[0]] = kissCpx{r: yr.GetElem(0), i: yi.GetElem(0)}
-		dst[br[1]] = kissCpx{r: yr.GetElem(1), i: yi.GetElem(1)}
-		dst[br[2]] = kissCpx{r: yr.GetElem(2), i: yi.GetElem(2)}
-		dst[br[3]] = kissCpx{r: yr.GetElem(3), i: yi.GetElem(3)}
+		b0, b1, b2, b3 := 2*br[0], 2*br[1], 2*br[2], 2*br[3]
+		dst[b0], dst[b0+1] = yr.GetElem(0), yi.GetElem(0)
+		dst[b1], dst[b1+1] = yr.GetElem(1), yi.GetElem(1)
+		dst[b2], dst[b2+1] = yr.GetElem(2), yi.GetElem(2)
+		dst[b3], dst[b3+1] = yr.GetElem(3), yi.GetElem(3)
 		imOff += 8
 		reOff -= 8
 		t0Off += 4

@@ -35,12 +35,12 @@ func storeInterleaved4(dst []float32, even, odd archsimd.Float32x4) {
 //	buf[2i+1]    = re2*trig[n2-1-i] - im2*trig[n4-1-i]
 //
 // four iterations per block, then a scalar loop for limit%4.
-func imdctPostRotateF32FromKiss(buf []float32, fft []kissCpx, trig []float32, n2, n4 int) {
+func imdctPostRotateF32FromKiss(buf []float32, fft []float32, trig []float32, n2, n4 int) {
 	if !archsimd.X86.AVX() {
 		imdctPostRotateF32FromKissScalar(buf, fft, trig, n2, n4)
 		return
 	}
-	if len(buf) < n2 || len(fft) < n4 {
+	if len(buf) < n2 || len(fft) < 2*n4 {
 		return
 	}
 	limit := (n4 + 1) >> 1
@@ -48,9 +48,8 @@ func imdctPostRotateF32FromKiss(buf []float32, fft []kissCpx, trig []float32, n2
 		return
 	}
 	buf = buf[:n2]
-	fft = fft[:n4]
+	ff := fft[:2*n4]
 	trig = trig[:n2]
-	ff := kissCpxAsFloat32(fft)
 
 	i := 0
 	for ; i+4 <= limit; i += 4 {
@@ -87,29 +86,28 @@ func imdctPostRotateF32FromKiss(buf []float32, fft []kissCpx, trig []float32, n2
 	}
 	for ; i < limit; i++ {
 		k := n4 - 1 - i
-		re, im := fft[i].i, fft[i].r
+		re, im := ff[2*i+1], ff[2*i]
 		t0, t1 := trig[i], trig[n4+i]
 		buf[2*i] = mdctMulAddMix(re, im, t0, t1)
 		buf[n2-1-2*i] = mdctMulSubMix(re, im, t1, t0)
-		re2, im2 := fft[k].i, fft[k].r
+		re2, im2 := ff[2*k+1], ff[2*k]
 		t0, t1 = trig[n4-i-1], trig[n2-i-1]
 		buf[n2-2-2*i] = mdctMulAddMix(re2, im2, t0, t1)
 		buf[2*i+1] = mdctMulSubMix(re2, im2, t1, t0)
 	}
 }
 
-// imdctPreRotateNoFMA computes fftIn[i] = (x1*t0 - x2*t1, x2*t0 + x1*t1) with
+// imdctPreRotateNoFMA computes fftIn[2*i..2*i+1] = (x1*t0 - x2*t1, x2*t0 + x1*t1) with
 // x1 = spectrum[2i], x2 = spectrum[n2-1-2i], t0 = trig[i], t1 = trig[n4+i],
 // four i per block, then a scalar loop for n4%4.
-func imdctPreRotateNoFMA(fftIn []complex64, spectrum []float32, trig []float32, n2, n4 int) {
+func imdctPreRotateNoFMA(fftIn []float32, spectrum []float32, trig []float32, n2, n4 int) {
 	if !archsimd.X86.AVX() {
 		imdctPreRotateNoFMAScalar(fftIn, spectrum, trig, n2, n4)
 		return
 	}
 	spectrum = spectrum[:max(n2, 2*n4)]
 	trig = trig[:n2]
-	fftIn = fftIn[:n4]
-	outF := complex64AsFloat32(fftIn)
+	outF := fftIn[:2*n4]
 
 	i := 0
 	for ; i+4 <= n4; i += 4 {
@@ -131,9 +129,7 @@ func imdctPreRotateNoFMA(fftIn []complex64, spectrum []float32, trig []float32, 
 		x2 := spectrum[n2-1-2*i]
 		t0 := trig[i]
 		t1 := trig[n4+i]
-		fftIn[i] = complex(
-			noFMA32Sub(noFMA32Mul(x1, t0), noFMA32Mul(x2, t1)),
-			noFMA32Add(noFMA32Mul(x2, t0), noFMA32Mul(x1, t1)),
-		)
+		outF[2*i] = noFMA32Sub(noFMA32Mul(x1, t0), noFMA32Mul(x2, t1))
+		outF[2*i+1] = noFMA32Add(noFMA32Mul(x2, t0), noFMA32Mul(x1, t1))
 	}
 }

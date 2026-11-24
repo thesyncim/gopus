@@ -176,7 +176,7 @@ func (s *FeatureState) CalculateFeatures(features []float32, xq16k []int16) {
 	var (
 		fftIn   [bweWindowSize]complex64
 		fftOut  [bweWindowSize]complex64
-		fftTmp  [bweWindowSize]celt.KissCpx
+		fftTmp  [2 * bweWindowSize]float32
 		buffer  [bweWindowSize]float32
 		spec    [bweInstaFreqLen]float32
 		magSpec [bweSpecNumFreqs]float32

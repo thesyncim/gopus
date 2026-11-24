@@ -12,7 +12,7 @@ import "simd/archsimd"
 // real and imaginary lanes; CPUs without AVX and stages off this grid use the
 // scalar implementation. The arithmetic keeps the separate float32 multiply
 // and add/subtract operations used by libopus's x86 path.
-func kfBfly5InnerSIMD(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
+func kfBfly5InnerSIMD(fout []float32, w []kissCpx, m, N, mm, fstride int) {
 	if m <= 0 || N <= 0 {
 		kfBfly5InnerScalar(fout, w, m, N, mm, fstride)
 		return
@@ -22,7 +22,7 @@ func kfBfly5InnerSIMD(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 		return
 	}
 
-	ff := kissCpxAsFloat32(fout[:(N-1)*mm+5*m])
+	ff := fout[:2*((N-1)*mm+5*m)]
 	ya := w[fstride*m]
 	yb := w[fstride*2*m]
 	yar, yai := broadcastF32x4Arch(ya.r), broadcastF32x4Arch(ya.i)
@@ -73,7 +73,7 @@ func kfBfly5InnerSIMD(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 	}
 }
 
-func kfBfly4InnerSIMD(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
+func kfBfly4InnerSIMD(fout []float32, w []kissCpx, m, N, mm, fstride int) {
 	if m <= 0 || N <= 0 {
 		kfBfly4InnerScalar(fout, w, m, N, mm, fstride)
 		return
@@ -83,7 +83,7 @@ func kfBfly4InnerSIMD(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 		return
 	}
 
-	ff := kissCpxAsFloat32(fout[:(N-1)*mm+4*m])
+	ff := fout[:2*((N-1)*mm+4*m)]
 	m2 := 2 * m
 	for j := 0; j < m; j += 4 {
 		w1r, w1i := bflyGatherTwiddle4AMD64(w, j*fstride, fstride)
@@ -120,12 +120,12 @@ func kfBfly4InnerSIMD(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 	}
 }
 
-func kfBfly3InnerSIMD(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
+func kfBfly3InnerSIMD(fout []float32, w []kissCpx, m, N, mm, fstride int) {
 	if m <= 0 || N <= 0 || !archsimd.X86.AVX() || m&3 != 0 {
 		kfBfly3InnerScalar(fout, w, m, N, mm, fstride)
 		return
 	}
-	ff := kissCpxAsFloat32(fout[:(N-1)*mm+3*m])
+	ff := fout[:2*((N-1)*mm+3*m)]
 	_ = w[2*(m-1)*fstride]
 
 	epi3i := broadcastF32x4Arch(w[fstride*m].i)
@@ -164,12 +164,12 @@ func kfBfly3InnerSIMD(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 // Lane 3 needs the opposite operation from lanes 0-2 (f1.i = s0.i - t.r,
 // f3.i = s0.i + t.r), so the sum and difference are blended rather than
 // negating t.r; every lane runs the scalar reference's exact operation.
-func kfBfly4M1CoreSIMD(fout []kissCpx, n int) {
+func kfBfly4M1CoreSIMD(fout []float32, n int) {
 	if n <= 0 || !archsimd.X86.AVX() {
 		kfBfly4M1CoreScalar(fout, n)
 		return
 	}
-	ff := kissCpxAsFloat32(fout[:4*n])
+	ff := fout[:8*n]
 	lane3 := archsimd.LoadInt32x4Array(&[4]int32{0, 0, 0, -1}).ToMask()
 	for i := range n {
 		blk := ff[i*8 : i*8+8]

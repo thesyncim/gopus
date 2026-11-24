@@ -83,18 +83,18 @@ func imdctOverlapWithPrevScratchF32LegacyBufferCopy(out []float32, spectrum []fl
 
 	trig := getMDCTTrigF32(n)
 
-	var fftIn []complex64
-	var fftTmp []kissCpx
+	var fftIn []float32
+	var fftTmp []float32
 	var buf []float32
 	var outF32 []float32
 	if scratch == nil {
-		fftIn = make([]complex64, n4)
-		fftTmp = make([]kissCpx, n4)
+		fftIn = make([]float32, 2*n4)
+		fftTmp = make([]float32, 2*n4)
 		buf = make([]float32, n2)
 		outF32 = make([]float32, needed)
 	} else {
-		fftIn = ensureComplex64Slice(&scratch.fftIn, n4)
-		fftTmp = ensureKissCpxSlice(&scratch.fftTmp, n4)
+		fftIn = ensureFloat32Slice(&scratch.fftIn, 2*n4)
+		fftTmp = ensureFloat32Slice(&scratch.fftTmp, 2*n4)
 		buf = ensureFloat32Slice(&scratch.buf, n2)
 		outF32 = ensureFloat32Slice(&scratch.out, needed)
 	}
@@ -116,7 +116,8 @@ func imdctOverlapWithPrevScratchF32LegacyBufferCopy(out []float32, spectrum []fl
 	}
 
 	imdctPreRotateF32Spectrum(fftIn, spectrum, trig, n2, n4)
-	kissFFT32ToInterleaved(buf, fftIn, fftTmp)
+	fftOut := kissFFT32InterleavedToScratch(fftIn, fftTmp, nil)
+	copy(buf, fftOut)
 	imdctPostRotateF32InterleavedLibopusPolicy(buf, trig, n2, n4)
 	copy(outF32[start:start+n2], buf)
 

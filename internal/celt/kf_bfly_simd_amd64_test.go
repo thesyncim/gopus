@@ -24,8 +24,8 @@ func TestKfBflyInnerAMD64MatchesScalar(t *testing.T) {
 		name   string
 		radix  int
 		shape  amd64BflyShape
-		fn     func([]kissCpx, []kissCpx, int, int, int, int)
-		scalar func([]kissCpx, []kissCpx, int, int, int, int)
+		fn     func([]float32, []kissCpx, int, int, int, int)
+		scalar func([]float32, []kissCpx, int, int, int, int)
 	}{
 		{"radix4_m8_N15_fs15", 4, amd64BflyShape{8, 15, 32, 15}, kfBfly4Inner, kfBfly4InnerScalar},
 		{"radix4_m4_N15_fs15", 4, amd64BflyShape{4, 15, 16, 15}, kfBfly4Inner, kfBfly4InnerScalar},
@@ -47,15 +47,15 @@ func TestKfBflyInnerAMD64MatchesScalar(t *testing.T) {
 			shape := tc.shape
 			rng := rand.New(rand.NewSource(int64(tc.radix*1000003 + shape.m*101 + shape.n*13 + shape.fstride)))
 			n := shape.n * shape.mm
-			initial := make([]kissCpx, n)
+			initial := make([]float32, 2*n)
 			for i := range initial {
-				initial[i] = kissCpx{r: rng.Float32()*2 - 1, i: rng.Float32()*2 - 1}
+				initial[i] = rng.Float32()*2 - 1
 			}
 			w := make([]kissCpx, (tc.radix*shape.m-1)*shape.fstride+1)
 			for i := range w {
 				w[i] = kissCpx{r: rng.Float32()*2 - 1, i: rng.Float32()*2 - 1}
 			}
-			got, want := append([]kissCpx(nil), initial...), append([]kissCpx(nil), initial...)
+			got, want := append([]float32(nil), initial...), append([]float32(nil), initial...)
 			tc.fn(got, w, shape.m, shape.n, shape.mm, shape.fstride)
 			if kissFFTTargetV3FMA && shape.m&3 == 0 {
 				switch tc.radix {
@@ -70,11 +70,9 @@ func TestKfBflyInnerAMD64MatchesScalar(t *testing.T) {
 				tc.scalar(want, w, shape.m, shape.n, shape.mm, shape.fstride)
 			}
 			for i := range want {
-				if math.Float32bits(got[i].r) != math.Float32bits(want[i].r) ||
-					math.Float32bits(got[i].i) != math.Float32bits(want[i].i) {
-					t.Fatalf("fout[%d] = (%08x,%08x), want (%08x,%08x)", i,
-						math.Float32bits(got[i].r), math.Float32bits(got[i].i),
-						math.Float32bits(want[i].r), math.Float32bits(want[i].i))
+				if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
+					t.Fatalf("fout[%d] = %08x, want %08x", i,
+						math.Float32bits(got[i]), math.Float32bits(want[i]))
 				}
 			}
 		})
@@ -103,17 +101,19 @@ func refKissCpxMulFused(a, b kissCpx) kissCpx {
 	}
 }
 
-func kfBfly3InnerSIMDV3Ref(fout, w []kissCpx, m, N, mm, fstride int) {
+func kfBfly3InnerSIMDV3Ref(fout []float32, w []kissCpx, m, N, mm, fstride int) {
 	m2 := 2 * m
+	m4 := 4 * m
+	mm2 := 2 * mm
 	epi3i := w[fstride*m].i
 	for i := 0; i < N; i++ {
-		base := i * mm
+		base := i * mm2
 		for j := 0; j < m; j++ {
-			idx0 := base + j
-			idx1, idx2 := idx0+m, idx0+m2
-			a0 := fout[idx0]
-			s1 := refKissCpxMulFused(fout[idx1], w[j*fstride])
-			s2 := refKissCpxMulFused(fout[idx2], w[j*2*fstride])
+			idx0 := base + 2*j
+			idx1, idx2 := idx0+m2, idx0+m4
+			a0 := kissCpx{fout[idx0], fout[idx0+1]}
+			s1 := refKissCpxMulFused(kissCpx{fout[idx1], fout[idx1+1]}, w[j*fstride])
+			s2 := refKissCpxMulFused(kissCpx{fout[idx2], fout[idx2+1]}, w[j*2*fstride])
 			s3 := kissCpx{s1.r + s2.r, s1.i + s2.i}
 			s0 := kissCpx{s1.r - s2.r, s1.i - s2.i}
 			f1 := kissCpx{
@@ -121,22 +121,25 @@ func kfBfly3InnerSIMDV3Ref(fout, w []kissCpx, m, N, mm, fstride int) {
 				i: opusmath.FMA32(-0.5, s3.i, a0.i),
 			}
 			s0.r, s0.i = round32(s0.r*epi3i), round32(s0.i*epi3i)
-			fout[idx0] = kissCpx{a0.r + s3.r, a0.i + s3.i}
-			fout[idx1] = kissCpx{f1.r - s0.i, f1.i + s0.r}
-			fout[idx2] = kissCpx{f1.r + s0.i, f1.i - s0.r}
+			fout[idx0], fout[idx0+1] = a0.r+s3.r, a0.i+s3.i
+			fout[idx1], fout[idx1+1] = f1.r-s0.i, f1.i+s0.r
+			fout[idx2], fout[idx2+1] = f1.r+s0.i, f1.i-s0.r
 		}
 	}
 }
 
-func kfBfly4InnerSIMDV3Ref(fout, w []kissCpx, m, N, mm, fstride int) {
-	m2, m3 := 2*m, 3*m
+func kfBfly4InnerSIMDV3Ref(fout []float32, w []kissCpx, m, N, mm, fstride int) {
+	m2, m4, m6 := 2*m, 4*m, 6*m
+	mm2 := 2 * mm
 	for i := 0; i < N; i++ {
-		base := i * mm
+		base := i * mm2
 		for j := 0; j < m; j++ {
-			idx0 := base + j
-			idx1, idx2, idx3 := idx0+m, idx0+m2, idx0+m3
-			f0 := fout[idx0]
-			b1, b2, b3 := fout[idx1], fout[idx2], fout[idx3]
+			idx0 := base + 2*j
+			idx1, idx2, idx3 := idx0+m2, idx0+m4, idx0+m6
+			f0 := kissCpx{fout[idx0], fout[idx0+1]}
+			b1 := kissCpx{fout[idx1], fout[idx1+1]}
+			b2 := kissCpx{fout[idx2], fout[idx2+1]}
+			b3 := kissCpx{fout[idx3], fout[idx3+1]}
 			tw1, tw2, tw3 := w[j*fstride], w[j*2*fstride], w[j*3*fstride]
 			s0u := refKissCpxMulUnfused(b1, tw1)
 			s1u := refKissCpxMulUnfused(b2, tw2)
@@ -147,10 +150,10 @@ func kfBfly4InnerSIMDV3Ref(fout, w []kissCpx, m, N, mm, fstride int) {
 			f01 := kissCpx{f0.r + s1u.r, f0.i + s1u.i}
 			s3 := kissCpx{s0u.r + s2u.r, s0u.i + s2u.i}
 			s4 := kissCpx{s0f.r - s2f.r, s0f.i - s2f.i}
-			fout[idx2] = kissCpx{f01.r - s3.r, f01.i - s3.i}
-			fout[idx0] = kissCpx{f01.r + s3.r, f01.i + s3.i}
-			fout[idx1] = kissCpx{s5.r + s4.i, s5.i - s4.r}
-			fout[idx3] = kissCpx{s5.r - s4.i, s5.i + s4.r}
+			fout[idx2], fout[idx2+1] = f01.r-s3.r, f01.i-s3.i
+			fout[idx0], fout[idx0+1] = f01.r+s3.r, f01.i+s3.i
+			fout[idx1], fout[idx1+1] = s5.r+s4.i, s5.i-s4.r
+			fout[idx3], fout[idx3+1] = s5.r-s4.i, s5.i+s4.r
 		}
 	}
 }
@@ -163,7 +166,7 @@ func TestKfBflyInnerAMD64NoAllocs(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		radix int
-		fn    func([]kissCpx, []kissCpx, int, int, int, int)
+		fn    func([]float32, []kissCpx, int, int, int, int)
 	}{
 		{"radix3", 3, kfBfly3Inner},
 		{"radix4", 4, kfBfly4Inner},
@@ -172,7 +175,7 @@ func TestKfBflyInnerAMD64NoAllocs(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			const m, n, fstride = 8, 4, 8
 			mm := tc.radix * m
-			fout := make([]kissCpx, n*mm)
+			fout := make([]float32, 2*n*mm)
 			w := make([]kissCpx, (tc.radix*m-1)*fstride+1)
 			tc.fn(fout, w, m, n, mm, fstride)
 			if allocs := testing.AllocsPerRun(100, func() {
@@ -187,29 +190,28 @@ func TestKfBflyInnerAMD64NoAllocs(t *testing.T) {
 func TestKfBfly4M1CoreAMD64MatchesScalar(t *testing.T) {
 	rng := rand.New(rand.NewSource(11))
 	for _, n := range []int{1, 2, 3, 15, 30, 60, 120} {
-		got := make([]kissCpx, 4*n)
-		for i := range got {
-			got[i] = kissCpx{rng.Float32()*2 - 1, rng.Float32()*2 - 1}
+		got := make([]float32, 8*n)
+		for i := range 4 * n {
+			got[2*i] = rng.Float32()*2 - 1
+			got[2*i+1] = rng.Float32()*2 - 1
 			if rng.Intn(8) == 0 {
-				got[i].r = float32(math.Copysign(0, float64(rng.Float32()-0.5)))
+				got[2*i] = float32(math.Copysign(0, float64(rng.Float32()-0.5)))
 			}
 			if rng.Intn(8) == 0 {
-				got[i].i = got[(i*7)%len(got)].i
+				got[2*i+1] = got[2*((i*7)%(4*n))+1]
 			}
 		}
-		want := append([]kissCpx(nil), got...)
+		want := append([]float32(nil), got...)
 		kfBfly4M1Core(got, n)
 		kfBfly4M1CoreScalar(want, n)
 		for k := range want {
-			if math.Float32bits(got[k].r) != math.Float32bits(want[k].r) ||
-				math.Float32bits(got[k].i) != math.Float32bits(want[k].i) {
-				t.Fatalf("n=%d: fout[%d] = (%08x,%08x), want (%08x,%08x)", n, k,
-					math.Float32bits(got[k].r), math.Float32bits(got[k].i),
-					math.Float32bits(want[k].r), math.Float32bits(want[k].i))
+			if math.Float32bits(got[k]) != math.Float32bits(want[k]) {
+				t.Fatalf("n=%d: fout[%d] = %08x, want %08x", n, k,
+					math.Float32bits(got[k]), math.Float32bits(want[k]))
 			}
 		}
 	}
-	fout := make([]kissCpx, 4*60)
+	fout := make([]float32, 8*60)
 	if allocs := testing.AllocsPerRun(100, func() { kfBfly4M1Core(fout, 60) }); allocs != 0 {
 		t.Fatalf("steady-state allocations = %g, want 0", allocs)
 	}
@@ -220,17 +222,18 @@ func BenchmarkKfBflyAMD64(b *testing.B) {
 		name          string
 		radix         int
 		m, n, fstride int
-		fn            func([]kissCpx, []kissCpx, int, int, int, int)
-		scalar        func([]kissCpx, []kissCpx, int, int, int, int)
+		fn            func([]float32, []kissCpx, int, int, int, int)
+		scalar        func([]float32, []kissCpx, int, int, int, int)
 	}{
 		{"radix3_m32_N5", 3, 32, 5, 5, kfBfly3Inner, kfBfly3InnerScalar},
 		{"radix4_m8_N15", 4, 8, 15, 15, kfBfly4Inner, kfBfly4InnerScalar},
 		{"radix5_m96_N1", 5, 96, 1, 1, kfBfly5Inner, kfBfly5InnerScalar},
 	} {
 		mm := tc.radix * tc.m
-		fout := make([]kissCpx, tc.n*mm)
-		for i := range fout {
-			fout[i] = kissCpx{0.25, -0.5}
+		fout := make([]float32, 2*tc.n*mm)
+		for i := range tc.n * mm {
+			fout[2*i] = 0.25
+			fout[2*i+1] = -0.5
 		}
 		w := make([]kissCpx, (tc.radix*tc.m-1)*tc.fstride+1)
 		for i := range w {
@@ -247,7 +250,7 @@ func BenchmarkKfBflyAMD64(b *testing.B) {
 			}
 		})
 	}
-	fout := make([]kissCpx, 4*120)
+	fout := make([]float32, 8*120)
 	b.Run("radix4m1_n120/simd", func(b *testing.B) {
 		for b.Loop() {
 			kfBfly4M1Core(fout, 120)

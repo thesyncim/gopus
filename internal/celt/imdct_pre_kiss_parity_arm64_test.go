@@ -9,7 +9,7 @@ import (
 // FMA-like IMDCT pre-rotation. It rounds the standalone product to float32 and
 // fuses the first multiply into the add via math.FMA, matching the scalar Go and
 // arm64 Go SIMD implementations bit-for-bit.
-func imdctPreRotateFMA32KissScalarRef(fftIn []complex64, spectrum []float32, trig []float32, n2, n4 int) {
+func imdctPreRotateFMA32KissScalarRef(fftIn []float32, spectrum []float32, trig []float32, n2, n4 int) {
 	for i := range n4 {
 		x1 := float64(spectrum[2*i])
 		x2 := float64(spectrum[n2-1-2*i])
@@ -19,7 +19,8 @@ func imdctPreRotateFMA32KissScalarRef(fftIn []complex64, spectrum []float32, tri
 		prodI := float64(float32(x1 * t1))
 		yr := float32(math.FMA(x1, t0, -prodR))
 		yi := float32(math.FMA(x2, t0, prodI))
-		fftIn[i] = complex(yr, yi)
+		fftIn[2*i] = yr
+		fftIn[2*i+1] = yi
 	}
 }
 
@@ -38,13 +39,13 @@ func TestIMDCTPreRotateFMA32KissMatchesScalar(t *testing.T) {
 			trig[i] = float32((i*5%97)-48) * 0.021
 		}
 
-		got := make([]complex64, n4)
-		want := make([]complex64, n4)
+		got := make([]float32, 2*n4)
+		want := make([]float32, 2*n4)
 		imdctPreRotateFMA32Kiss(got, spectrum, trig, n2, n4)
 		imdctPreRotateFMA32KissScalarRef(want, spectrum, trig, n2, n4)
-		for i := range want {
-			gr, gi := real(got[i]), imag(got[i])
-			wr, wi := real(want[i]), imag(want[i])
+		for i := range n4 {
+			gr, gi := got[2*i], got[2*i+1]
+			wr, wi := want[2*i], want[2*i+1]
 			if math.Float32bits(gr) != math.Float32bits(wr) || math.Float32bits(gi) != math.Float32bits(wi) {
 				t.Fatalf("n2=%d i=%d: got (%v,%v) want (%v,%v)", n2, i, gr, gi, wr, wi)
 			}
@@ -57,7 +58,7 @@ func TestIMDCTPreRotateFMA32KissNoAllocs(t *testing.T) {
 	const n4 = n2 / 2
 	spectrum := make([]float32, n2)
 	trig := make([]float32, n2)
-	fftIn := make([]complex64, n4)
+	fftIn := make([]float32, 2*n4)
 	for i := range spectrum {
 		spectrum[i] = float32(i%17-8) * 0.0625
 	}
@@ -77,7 +78,7 @@ func BenchmarkIMDCTPreRotateFMA32Kiss(b *testing.B) {
 	n4 := n2 / 2
 	spectrum := make([]float32, n2)
 	trig := make([]float32, n2)
-	fftIn := make([]complex64, n4)
+	fftIn := make([]float32, 2*n4)
 	for i := range spectrum {
 		spectrum[i] = float32((i%17)-8) * 0.0625
 	}

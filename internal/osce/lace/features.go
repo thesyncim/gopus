@@ -387,7 +387,7 @@ func (s *FeatureState) CalculateFeatures(
 	var (
 		fftIn  [specWindowSize]complex64
 		fftOut [specWindowSize]complex64
-		fftTmp [specWindowSize]celt.KissCpx
+		fftTmp [2 * specWindowSize]float32
 		// Reused buffers across subframes.
 		magBuf  [specWindowSize]float32
 		invBuf  [specNumFreqs]float32
@@ -478,7 +478,7 @@ func calculateLogSpectrumFromLPC(
 	aQ12 []int16,
 	lpcOrder int,
 	fftIn, fftOut []complex64,
-	fftTmp []celt.KissCpx,
+	fftTmp []float32,
 	magBuf []float32,
 	invBuf []float32,
 ) {
@@ -518,7 +518,7 @@ func calculateCepstrum(
 	cepstrum []float32,
 	signal []float32, // length specWindowSize
 	fftIn, fftOut []complex64,
-	fftTmp []celt.KissCpx,
+	fftTmp []float32,
 	magBuf []float32,
 	cepBuf []float32, // length noisySpecNumBands
 	specBuf []float32, // length noisySpecNumBands
@@ -560,7 +560,7 @@ func magSpec320OneSided(
 	out []float32,
 	in []float32,
 	fftIn, fftOut []complex64,
-	fftTmp []celt.KissCpx,
+	fftTmp []float32,
 ) {
 	const fftScale = float32(1.0 / specWindowSize)
 	for n := range specWindowSize {

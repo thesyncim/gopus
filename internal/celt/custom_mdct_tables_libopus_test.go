@@ -85,7 +85,7 @@ func TestCustomModeTransformsMatchLibopus(t *testing.T) {
 				runForward := func() {
 					mdctForwardOverlapF32Scratch(inputs[shift], overlap, coeffs, forward.mdctF, forward.mdctFFTIn, forward.mdctFFTOut, forward.mdctFFTTmp, forward.mdctLookup(2*block))
 				}
-				forward.mdctFFTTmp = make([]kissCpx, block/2)
+				forward.mdctFFTTmp = make([]float32, block)
 				runForward()
 				compare(fmt.Sprintf("shift%d/forward", shift), coeffs)
 				decoded := imdctOverlapWithPrevScratchF32Output32(spectra[shift], histories[shift], overlap, &inverse)

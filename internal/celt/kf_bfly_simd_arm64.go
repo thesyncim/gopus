@@ -7,27 +7,27 @@ import "simd/archsimd"
 // The SIMD inner kernels process four consecutive j values. Their scalar
 // counterparts retain the short and off-grid stages where a vector block
 // cannot run.
-func kfBfly4M1Core(fout []kissCpx, n int) {
+func kfBfly4M1Core(fout []float32, n int) {
 	kfBfly4M1CoreSIMD(fout, n)
 }
 
-func kfBfly5Inner(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
+func kfBfly5Inner(fout []float32, w []kissCpx, m, N, mm, fstride int) {
 	kfBfly5InnerSIMD(fout, w, m, N, mm, fstride)
 }
 
-func kfBfly3Inner(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
+func kfBfly3Inner(fout []float32, w []kissCpx, m, N, mm, fstride int) {
 	kfBfly3InnerSIMD(fout, w, m, N, mm, fstride)
 }
 
-func kfBfly4Inner(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
+func kfBfly4Inner(fout []float32, w []kissCpx, m, N, mm, fstride int) {
 	kfBfly4InnerSIMD(fout, w, m, N, mm, fstride)
 }
 
-func kfBfly4M1CoreSIMD(fout []kissCpx, n int) {
+func kfBfly4M1CoreSIMD(fout []float32, n int) {
 	if n <= 0 {
 		return
 	}
-	ff := kissCpxAsFloat32(fout[:n*4])
+	ff := fout[:n*8]
 	blocks := n / 2
 	for block := 0; block < blocks; block++ {
 		blk := ff[block*16 : block*16+16]
@@ -70,11 +70,11 @@ func kfBfly4M1CoreSIMD(fout []kissCpx, n int) {
 	}
 
 	if n&1 != 0 {
-		kfBfly4M1CoreScalar(fout[blocks*8:], 1)
+		kfBfly4M1CoreScalar(fout[blocks*16:], 1)
 	}
 }
 
-func kfBfly5InnerSIMD(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
+func kfBfly5InnerSIMD(fout []float32, w []kissCpx, m, N, mm, fstride int) {
 	if m <= 0 || N <= 0 {
 		return
 	}
@@ -82,7 +82,7 @@ func kfBfly5InnerSIMD(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 		kfBfly5InnerScalar(fout, w, m, N, mm, fstride)
 		return
 	}
-	ff := kissCpxAsFloat32(fout[:(N-1)*mm+5*m])
+	ff := fout[:2*((N-1)*mm+5*m)]
 	_ = w[max(fstride*2*m, (m-1)*4*fstride)]
 
 	ya := w[fstride*m]
@@ -137,7 +137,7 @@ func kfBfly5InnerSIMD(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 	}
 }
 
-func kfBfly3InnerSIMD(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
+func kfBfly3InnerSIMD(fout []float32, w []kissCpx, m, N, mm, fstride int) {
 	if m <= 0 || N <= 0 {
 		return
 	}
@@ -145,7 +145,7 @@ func kfBfly3InnerSIMD(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 		kfBfly3InnerScalar(fout, w, m, N, mm, fstride)
 		return
 	}
-	ff := kissCpxAsFloat32(fout[:(N-1)*mm+3*m])
+	ff := fout[:2*((N-1)*mm+3*m)]
 	_ = w[max(fstride*m, (m-1)*2*fstride)]
 
 	epi3i := archsimd.BroadcastFloat32x4(w[fstride*m].i)
@@ -176,7 +176,7 @@ func kfBfly3InnerSIMD(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 	}
 }
 
-func kfBfly4InnerSIMD(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
+func kfBfly4InnerSIMD(fout []float32, w []kissCpx, m, N, mm, fstride int) {
 	if m <= 0 || N <= 0 {
 		return
 	}
@@ -184,7 +184,7 @@ func kfBfly4InnerSIMD(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 		kfBfly4InnerScalar(fout, w, m, N, mm, fstride)
 		return
 	}
-	ff := kissCpxAsFloat32(fout[:(N-1)*mm+4*m])
+	ff := fout[:2*((N-1)*mm+4*m)]
 	_ = w[(m-1)*3*fstride]
 	m2 := 2 * m
 
@@ -250,13 +250,13 @@ func bflyMulSource4(ar, ai, wr, wi archsimd.Float32x4) (re, im archsimd.Float32x
 }
 
 // kfBflyScalarFastInput is false: the SIMD butterflies handle every stage.
-func kfBflyScalarFastInput([]kissCpx) bool { return false }
+func kfBflyScalarFastInput([]float32) bool { return false }
 
-func kfBfly2M4(fout []kissCpx, n int) {
+func kfBfly2M4(fout []float32, n int) {
 	if n <= 0 {
 		return
 	}
-	ff := kissCpxAsFloat32(fout[:8*n])
+	ff := fout[:16*n]
 	tw := archsimd.BroadcastFloat32x4(kfBfly2M4Twiddle)
 	lane0 := archsimd.LoadInt32x4Array(&[4]int32{-1, 0, 0, 0}).ToMask()
 	lane2 := archsimd.LoadInt32x4Array(&[4]int32{0, 0, -1, 0}).ToMask()

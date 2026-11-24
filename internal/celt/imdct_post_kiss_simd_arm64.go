@@ -17,8 +17,8 @@ import "simd/archsimd"
 // four walk down from fft[n4-1] and reverse4 so the descending lanes line up.
 // Each product is a single-round Mul and each accumulate a fused MulAdd, matching
 // mdctMulAddMix/mdctMulSubMix bit-for-bit; a scalar loop finishes limit%4.
-func imdctPostRotateF32FromKiss(buf []float32, fft []kissCpx, trig []float32, n2, n4 int) {
-	if len(buf) < n2 || len(fft) < n4 {
+func imdctPostRotateF32FromKiss(buf []float32, fft []float32, trig []float32, n2, n4 int) {
+	if len(buf) < n2 || len(fft) < 2*n4 {
 		return
 	}
 	limit := (n4 + 1) >> 1
@@ -26,9 +26,8 @@ func imdctPostRotateF32FromKiss(buf []float32, fft []kissCpx, trig []float32, n2
 		return
 	}
 	buf = buf[:n2]
-	fft = fft[:n4]
+	ff := fft[:2*n4]
 	trig = trig[:n2]
-	ff := kissCpxAsFloat32(fft)
 
 	i := 0
 	for ; i+4 <= limit; i += 4 {
@@ -67,14 +66,14 @@ func imdctPostRotateF32FromKiss(buf []float32, fft []kissCpx, trig []float32, n2
 	}
 	for ; i < limit; i++ {
 		k := n4 - 1 - i
-		re := fft[i].i
-		im := fft[i].r
+		re := ff[2*i+1]
+		im := ff[2*i]
 		t0 := trig[i]
 		t1 := trig[n4+i]
 		buf[2*i] = mdctMulAddMix(re, im, t0, t1)
 		buf[n2-1-2*i] = mdctMulSubMix(re, im, t1, t0)
-		re2 := fft[k].i
-		im2 := fft[k].r
+		re2 := ff[2*k+1]
+		im2 := ff[2*k]
 		t0 = trig[n4-i-1]
 		t1 = trig[n2-i-1]
 		buf[n2-2-2*i] = mdctMulAddMix(re2, im2, t0, t1)
@@ -84,6 +83,6 @@ func imdctPostRotateF32FromKiss(buf []float32, fft []kissCpx, trig []float32, n2
 
 // imdctPreRotateNoFMA is unreachable on arm64, whose float build takes the
 // fused pre-rotation, and stays scalar.
-func imdctPreRotateNoFMA(fftIn []complex64, spectrum []float32, trig []float32, n2, n4 int) {
+func imdctPreRotateNoFMA(fftIn []float32, spectrum []float32, trig []float32, n2, n4 int) {
 	imdctPreRotateNoFMAScalar(fftIn, spectrum, trig, n2, n4)
 }

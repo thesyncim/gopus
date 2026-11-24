@@ -16,12 +16,12 @@ func TestMDCTPostTwiddleNeonBitExact(t *testing.T) {
 	for _, n4 := range []int{8, 16, 24, 30, 60, 120, 240} {
 		n2 := 2 * n4
 		for trial := range 6 {
-			stageStorage := make([]kissCpx, n4+2)
-			stageStorage[0] = kissCpx{123.5, -91.25}
-			stageStorage[n4+1] = kissCpx{-65.75, 47.125}
-			stage := stageStorage[1 : n4+1]
+			stageStorage := make([]float32, 2*n4+4)
+			stageStorage[0], stageStorage[1] = 123.5, -91.25
+			stageStorage[2*n4+2], stageStorage[2*n4+3] = -65.75, 47.125
+			stage := stageStorage[2 : 2*n4+2]
 			for i := range stage {
-				stage[i] = kissCpx{float32(rng.NormFloat64()), float32(rng.NormFloat64())}
+				stage[i] = float32(rng.NormFloat64())
 			}
 			trigStorage := make([]float32, n2+2)
 			trigStorage[0] = 87.75
@@ -41,10 +41,10 @@ func TestMDCTPostTwiddleNeonBitExact(t *testing.T) {
 			want := make([]float32, n2)
 			for i := 0; i < 4*pairBlocks; i++ {
 				j := n4 - 1 - i
-				want[2*i] = mdctMulSubMixEncode(stage[i].i, stage[i].r, trig[n4+i], trig[i])
-				want[n2-1-2*i] = mdctMulAddMixEncode(stage[i].r, stage[i].i, trig[n4+i], trig[i])
-				want[2*j] = mdctMulSubMixEncode(stage[j].i, stage[j].r, trig[n4+j], trig[j])
-				want[n2-1-2*j] = mdctMulAddMixEncode(stage[j].r, stage[j].i, trig[n4+j], trig[j])
+				want[2*i] = mdctMulSubMixEncode(stage[2*i+1], stage[2*i], trig[n4+i], trig[i])
+				want[n2-1-2*i] = mdctMulAddMixEncode(stage[2*i], stage[2*i+1], trig[n4+i], trig[i])
+				want[2*j] = mdctMulSubMixEncode(stage[2*j+1], stage[2*j], trig[n4+j], trig[j])
+				want[n2-1-2*j] = mdctMulAddMixEncode(stage[2*j], stage[2*j+1], trig[n4+j], trig[j])
 			}
 			mdctPostTwiddleNeon(got, stage, trig, n2, n4, pairBlocks)
 			for k := range want {
@@ -53,7 +53,7 @@ func TestMDCTPostTwiddleNeonBitExact(t *testing.T) {
 						math.Float32bits(got[k]), math.Float32bits(want[k]))
 				}
 			}
-			if stageStorage[0] != (kissCpx{123.5, -91.25}) || stageStorage[n4+1] != (kissCpx{-65.75, 47.125}) {
+			if stageStorage[0] != 123.5 || stageStorage[1] != -91.25 || stageStorage[2*n4+2] != -65.75 || stageStorage[2*n4+3] != 47.125 {
 				t.Fatalf("n4=%d trial=%d: FFT input canary changed", n4, trial)
 			}
 			if trigStorage[0] != 87.75 || trigStorage[n2+1] != -43.625 {
@@ -69,10 +69,11 @@ func TestMDCTPostTwiddleNeonBitExact(t *testing.T) {
 func TestMDCTPostTwiddleNeonAllocs(t *testing.T) {
 	const n4, n2 = 64, 128
 	coeffs := make([]float32, n2)
-	stage := make([]kissCpx, n4)
+	stage := make([]float32, 2*n4)
 	trig := make([]float32, n2)
-	for i := range stage {
-		stage[i] = kissCpx{float32(i) * 0.03125, -float32(i) * 0.015625}
+	for i := range n4 {
+		stage[2*i] = float32(i) * 0.03125
+		stage[2*i+1] = -float32(i) * 0.015625
 	}
 	for i := range trig {
 		trig[i] = float32(i) * 0.0078125

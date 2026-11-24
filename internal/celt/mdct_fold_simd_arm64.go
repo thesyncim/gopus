@@ -22,16 +22,17 @@ func mdctFoldEvenDescAt(s []float32) archsimd.Float32x4 {
 // computed (re, im) block, matching mdctStoreDirectStageFMALike bit-for-bit:
 // yr = (re*t0 - round(im*t1))*preScale, yi = (im*t0 + round(re*t1))*preScale,
 // dst[bitrev[j+lane]] = {yr, yi}.
-func mdctFoldStore(dst []kissCpx, bitrev []int, t0, t1 []float32, j int, re, im, pv archsimd.Float32x4) {
+func mdctFoldStore(dst []float32, bitrev []int, t0, t1 []float32, j int, re, im, pv archsimd.Float32x4) {
 	tv0 := archsimd.LoadFloat32x4Array((*[4]float32)(t0))
 	tv1 := archsimd.LoadFloat32x4Array((*[4]float32)(t1))
 	yr := re.MulAdd(tv0, im.Mul(tv1).Neg()).Mul(pv)
 	yi := im.MulAdd(tv0, re.Mul(tv1)).Mul(pv)
 	br := bitrev[j : j+4]
-	dst[br[0]] = kissCpx{r: yr.GetElem(0), i: yi.GetElem(0)}
-	dst[br[1]] = kissCpx{r: yr.GetElem(1), i: yi.GetElem(1)}
-	dst[br[2]] = kissCpx{r: yr.GetElem(2), i: yi.GetElem(2)}
-	dst[br[3]] = kissCpx{r: yr.GetElem(3), i: yi.GetElem(3)}
+	b0, b1, b2, b3 := 2*br[0], 2*br[1], 2*br[2], 2*br[3]
+	dst[b0], dst[b0+1] = yr.GetElem(0), yi.GetElem(0)
+	dst[b1], dst[b1+1] = yr.GetElem(1), yi.GetElem(1)
+	dst[b2], dst[b2+1] = yr.GetElem(2), yi.GetElem(2)
+	dst[b3], dst[b3+1] = yr.GetElem(3), yi.GetElem(3)
 }
 
 // mdctFold1StoreNeon is the archsimd leading windowed fold of the forward MDCT.
@@ -39,7 +40,7 @@ func mdctFoldStore(dst []kissCpx, bitrev []int, t0, t1 []float32, j int, re, im,
 // A=s[xp1+n2+2j], A2=s[xp1+2j], B=s[xp2-2j], B2=s[xp2-n2-2j], wC=w[wp1+2j],
 // wD=w[wp2-2j]. Fused MulAdds + single-round Muls match the scalar
 // mdctMulAddMixEncode/mdctMulSubMixEncode sequence bit-for-bit.
-func mdctFold1StoreNeon(dst []kissCpx, bitrev []int, samples []float32, window []float32, trig []float32, i0, n4, n2, xp1, xp2, wp1, wp2, blocks int, preScale float32) {
+func mdctFold1StoreNeon(dst []float32, bitrev []int, samples []float32, window []float32, trig []float32, i0, n4, n2, xp1, xp2, wp1, wp2, blocks int, preScale float32) {
 	if blocks == 0 {
 		return
 	}
@@ -90,7 +91,7 @@ func mdctFold1StoreNeon(dst []kissCpx, bitrev []int, samples []float32, window [
 // wD=w[wp2-2j]. Both fuse the first product as clang -ffp-contract=on does for
 // clt_mdct_forward_c(), matching mdctNegMulAddMixEncode/mdctMulAddMixEncode
 // bit-for-bit.
-func mdctFold3StoreNeon(dst []kissCpx, bitrev []int, samples []float32, window []float32, trig []float32, i0, n4, n2, xp1, xp2, wp1, wp2, blocks int, preScale float32) {
+func mdctFold3StoreNeon(dst []float32, bitrev []int, samples []float32, window []float32, trig []float32, i0, n4, n2, xp1, xp2, wp1, wp2, blocks int, preScale float32) {
 	if blocks == 0 {
 		return
 	}

@@ -65,18 +65,6 @@ func ensureUint32Slice(buf *[]uint32, n int) []uint32 {
 	return *buf
 }
 
-func ensureKissCpxSlice(buf *[]kissCpx, n int) []kissCpx {
-	if n < 0 {
-		n = 0
-	}
-	if cap(*buf) < n {
-		*buf = make([]kissCpx, n)
-	} else {
-		*buf = (*buf)[:n]
-	}
-	return *buf
-}
-
 type bandDecodeScratch struct {
 	// floatScratch backs the band-decode-local float-family scratch (left, right,
 	// norm, lowband, pvqNorm/foldResult, hadamardTmpNorm, quantWork) with
@@ -421,8 +409,8 @@ type imdctScratch = imdctScratchF32
 // imdctScratchF32 holds scratch buffers for float32 IMDCT to avoid per-call allocations.
 type imdctScratchF32 struct {
 	customMDCTState
-	fftIn  []complex64
-	fftTmp []kissCpx
+	fftIn  []float32
+	fftTmp []float32
 	buf    []float32
 	out    []float32
 }

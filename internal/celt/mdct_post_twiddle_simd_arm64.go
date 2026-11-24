@@ -20,7 +20,7 @@ const mdctUsePostTwiddleNeon = true
 // clt_mdct_forward_c(), matching mdctMulSubMixEncode/mdctMulAddMixEncode and
 // the scalar loop bit-for-bit. The caller does the n4%8
 // middle scalarly, so this runs exactly pairBlocks blocks.
-func mdctPostTwiddleNeon(coeffs []float32, fftStage []kissCpx, trig []float32, n2, n4, pairBlocks int) {
+func mdctPostTwiddleNeon(coeffs []float32, fftStage []float32, trig []float32, n2, n4, pairBlocks int) {
 	if pairBlocks <= 0 {
 		return
 	}
@@ -29,7 +29,7 @@ func mdctPostTwiddleNeon(coeffs []float32, fftStage []kissCpx, trig []float32, n
 	}
 	coeffs = coeffs[:n2]
 	trig = trig[:n2]
-	ff := kissCpxAsFloat32(fftStage[:n4])
+	ff := fftStage[:2*n4]
 	fwdFFT := 0
 	mirFFT := 2 * (n4 - 4)
 	fwdT0 := 0

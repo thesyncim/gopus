@@ -3,17 +3,16 @@ package celt
 import (
 	"reflect"
 	"testing"
-	"unsafe"
 )
 
-func imdctPreRotateF32Ref(fftIn []complex64, spectrum []float32, trig []float32, n2, n4 int) {
+func imdctPreRotateF32Ref(fftIn []float32, spectrum []float32, trig []float32, n2, n4 int) {
 	if n4 <= 0 {
 		return
 	}
 
 	_ = spectrum[n2-1]
 	_ = trig[n2-1]
-	out := unsafe.Slice((*float32)(unsafe.Pointer(&fftIn[0])), n4*2)
+	out := fftIn[:n4*2]
 	_ = out[n4*2-1]
 
 	i := 0
@@ -83,19 +82,11 @@ func imdctPostRotateF32Ref(buf []float32, trig []float32, n2, n4 int) {
 	}
 }
 
-func imdctPostRotateF32FromKissRef(buf []float32, fft []kissCpx, trig []float32, n2, n4 int) {
-	if len(buf) < n2 || len(fft) < n4 {
+func imdctPostRotateF32FromKissRef(buf []float32, fft []float32, trig []float32, n2, n4 int) {
+	if len(buf) < n2 || len(fft) < 2*n4 {
 		return
 	}
-	_ = buf[n2-1]
-	_ = fft[n4-1]
-	j := 0
-	for i := range n4 {
-		v := fft[i]
-		buf[j] = v.r
-		buf[j+1] = v.i
-		j += 2
-	}
+	copy(buf[:2*n4], fft[:2*n4])
 	imdctPostRotateF32Ref(buf, trig, n2, n4)
 }
 
@@ -111,8 +102,8 @@ func TestIMDCTRotateDispatchMatchesReference(t *testing.T) {
 		trig[i] = float32((i%19)-9) * 0.03125
 	}
 
-	gotFFT := make([]complex64, n4)
-	wantFFT := make([]complex64, n4)
+	gotFFT := make([]float32, 2*n4)
+	wantFFT := make([]float32, 2*n4)
 	imdctPreRotateF32Spectrum(gotFFT, spectrum, trig, n2, n4)
 	imdctPreRotateF32Ref(wantFFT, spectrum, trig, n2, n4)
 	if !reflect.DeepEqual(gotFFT, wantFFT) {
@@ -121,8 +112,8 @@ func TestIMDCTRotateDispatchMatchesReference(t *testing.T) {
 
 	gotBuf := make([]float32, n2)
 	wantBuf := make([]float32, n2)
-	copy(gotBuf, unsafe.Slice((*float32)(unsafe.Pointer(&gotFFT[0])), n4*2))
-	copy(wantBuf, unsafe.Slice((*float32)(unsafe.Pointer(&wantFFT[0])), n4*2))
+	copy(gotBuf, gotFFT)
+	copy(wantBuf, wantFFT)
 	imdctPostRotateF32(gotBuf, trig, n2, n4)
 	imdctPostRotateF32Ref(wantBuf, trig, n2, n4)
 	if !reflect.DeepEqual(gotBuf, wantBuf) {
@@ -134,15 +125,13 @@ func TestIMDCTPostRotateF32FromKissMatchesReference(t *testing.T) {
 	for _, n2 := range []int{10, 120} {
 		n4 := n2 / 2
 		trig := make([]float32, n2)
-		fft := make([]kissCpx, n4)
+		fft := make([]float32, 2*n4)
 		for i := range trig {
 			trig[i] = float32((i%19)-9) * 0.03125
 		}
-		for i := range fft {
-			fft[i] = kissCpx{
-				r: float32((i%17)-8) * 0.0625,
-				i: float32((i%23)-11) * -0.03125,
-			}
+		for i := range n4 {
+			fft[2*i] = float32((i%17)-8) * 0.0625
+			fft[2*i+1] = float32((i%23)-11) * -0.03125
 		}
 
 		got := make([]float32, n2)
@@ -160,7 +149,7 @@ func BenchmarkIMDCTPreRotateCurrent(b *testing.B) {
 	n4 := n2 / 2
 	spectrum := make([]float32, n2)
 	trig := make([]float32, n2)
-	fftIn := make([]complex64, n4)
+	fftIn := make([]float32, 2*n4)
 	for i := range spectrum {
 		spectrum[i] = float32((i%17)-8) * 0.0625
 	}
@@ -178,7 +167,7 @@ func BenchmarkIMDCTPreRotateReference(b *testing.B) {
 	n4 := n2 / 2
 	spectrum := make([]float32, n2)
 	trig := make([]float32, n2)
-	fftIn := make([]complex64, n4)
+	fftIn := make([]float32, 2*n4)
 	for i := range spectrum {
 		spectrum[i] = float32((i%17)-8) * 0.0625
 	}

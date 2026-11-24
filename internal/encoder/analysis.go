@@ -279,17 +279,18 @@ func analysisFloat2Int(x float32) int32 {
 }
 
 // analysisBins runs tonality_analysis's per-bin loop over bins 1..239 of the
-// FFT output: the two phase-acceleration estimates, the noisiness and the
-// per-bin tonality, updating the phase history.
-func (s *TonalityAnalysisState) analysisBins(out *[480]complex64, tonality, tonality2, noisiness []float32) {
+// interleaved FFT output: the two phase-acceleration estimates, the noisiness
+// and the per-bin tonality, updating the phase history.
+func (s *TonalityAnalysisState) analysisBins(out *[960]float32, tonality, tonality2, noisiness []float32) {
 	s.analysisBinsScalar(out, s.analysisBinsSIMD(out, tonality, tonality2, noisiness), tonality, tonality2, noisiness)
 }
 
 // analysisBinsScalar is analysisBins for bins from..239.
-func (s *TonalityAnalysisState) analysisBinsScalar(out *[480]complex64, from int, tonality, tonality2, noisiness []float32) {
+func (s *TonalityAnalysisState) analysisBinsScalar(out *[960]float32, from int, tonality, tonality2, noisiness []float32) {
 	for i := from; i < 240; i++ {
-		a, c := real(out[i]), imag(out[i])
-		b, d := real(out[480-i]), imag(out[480-i])
+		a, c := out[2*i], out[2*i+1]
+		m := 2 * (480 - i)
+		b, d := out[m], out[m+1]
 		s.scratchBinE[i] = fma32(a, a, round32(b*b)) + c*c + d*d
 
 		x1r := a + b
@@ -507,10 +508,9 @@ type TonalityAnalysisState struct {
 	silentWindow bool
 
 	// Fixed-size scratch buffers (pointer-free, no per-stream heap allocs).
-	scratchFFTKiss   [480]celt.KissCpx
 	scratchBinE      [240]float32 // precomputed bin energies for bins 1..239
 	scratchFFTIn     [480]complex64
-	scratchFFTOut    [480]complex64
+	scratchFFTOut    [960]float32 // interleaved [re0, im0, ...] FFT output
 	scratchTonality  [240]float32
 	scratchTonality2 [240]float32
 	scratchNoisiness [240]float32
@@ -575,9 +575,10 @@ func (s *TonalityAnalysisState) SetLSBDepth(depth int) {
 const analysisFFTScale = float32(1.0 / 480.0)
 
 // fft480 computes a 480-point complex forward FFT using the shared CELT KISS
-// FFT, applying libopus' 1/nfft output normalisation exactly as opus_fft().
-func fft480(out, in *[480]complex64, scratch []celt.KissCpx) {
-	celt.KissFFT32ToScaledWithScratch(out[:], in[:], analysisFFTScale, scratch)
+// FFT, applying libopus' 1/nfft output normalisation directly into interleaved
+// [re, im] pairs in out.
+func fft480(out *[960]float32, in *[480]complex64) {
+	celt.KissFFT32ToScaledInterleaved(out[:], in[:], analysisFFTScale)
 }
 
 func analysisSpecVariability(logE *[NbFrames][NbTBands]float32) float32 {
@@ -714,7 +715,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 
 	s.analysisRunFFT()
 	outBuf := s.scratchFFTOut[:]
-	if math.Float32bits(real(outBuf[0]))&0x7fffffff > 0x7f800000 {
+	if math.Float32bits(outBuf[0])&0x7fffffff > 0x7f800000 {
 		s.Info[infoPos].Valid = false
 		s.WritePos = int32(nextWritePos)
 		return
@@ -770,8 +771,8 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 
 	// Match libopus special handling for the first band (DC/Nyquist bins).
 	{
-		x1r := 2 * real(outBuf[0])
-		x2r := 2 * imag(outBuf[0])
+		x1r := 2 * outBuf[0]
+		x2r := 2 * outBuf[1]
 		E := fma32(x1r, x1r, round32(x2r*x2r))
 		E += s.scratchBinE[1]
 		E += s.scratchBinE[2]

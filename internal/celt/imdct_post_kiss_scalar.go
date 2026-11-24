@@ -11,25 +11,25 @@ package celt
 // into buf, then rotate in place" into a single pass that reads the source
 // complex pair directly. Output pair i is buf[2i:2i+2] (libopus yp0) and pair
 // k = n4-1-i is buf[2k:2k+2] (libopus yp1).
-func imdctPostRotateF32FromKissScalar(buf []float32, fft []kissCpx, trig []float32, n2, n4 int) {
-	if n4 <= 0 || len(buf) < n2 || len(fft) < n4 {
+func imdctPostRotateF32FromKissScalar(buf []float32, fft []float32, trig []float32, n2, n4 int) {
+	if n4 <= 0 || len(buf) < n2 || len(fft) < 2*n4 {
 		return
 	}
 	imdctPostRotateF32FromKissPairs(buf, fft, trig, n4)
 }
 
-// imdctPostRotateF32FromKissPairs rotates checked complex input pairs into
-// checked output pairs. Both source pairs are read before either output pair is
-// written, including the middle pair when n4 is odd.
-func imdctPostRotateF32FromKissPairs(buf []float32, fft []kissCpx, trig []float32, n4 int) {
-	fft = fft[:n4]
+// imdctPostRotateF32FromKissPairs rotates checked interleaved complex input
+// pairs into checked output pairs. Both source pairs are read before either
+// output pair is written, including the middle pair when n4 is odd.
+func imdctPostRotateF32FromKissPairs(buf []float32, fft []float32, trig []float32, n4 int) {
+	fft = fft[:2*n4]
 	buf = buf[:2*n4]
 	trigA := trig[:n4]
 	trigB := trig[n4 : 2*n4][:len(trigA)]
 	for i := range (len(trigA) + 1) >> 1 {
 		k := len(trigA) - 1 - i
-		re, im := fft[i].i, fft[i].r
-		re2, im2 := fft[k].i, fft[k].r
+		re, im := fft[2*i+1], fft[2*i]
+		re2, im2 := fft[2*k+1], fft[2*k]
 		t0, t1 := trigA[i], trigB[i]
 		t2, t3 := trigA[k], trigB[k]
 		pairI := (*[2]float32)(buf[2*i:])

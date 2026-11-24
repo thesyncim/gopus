@@ -95,7 +95,7 @@ func TestBWEFeatureFFTMatchesLibopus(t *testing.T) {
 			}
 
 			got := make([]complex64, bweWindowSize)
-			fftScratch := make([]celt.KissCpx, bweWindowSize)
+			fftScratch := make([]float32, 2*bweWindowSize)
 			celt.KissFFT32ToWithScratch(got, fftIn[:], fftScratch)
 			for i := range wantFFT {
 				if math.Float32bits(real(got[i])) != math.Float32bits(real(wantFFT[i])) ||

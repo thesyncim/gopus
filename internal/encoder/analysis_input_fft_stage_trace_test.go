@@ -140,7 +140,7 @@ func TestAnalysisInputFFTStageTrace(t *testing.T) {
 	var frame0InMem [480]float32
 	copy(frame0InMem[:], state.InMem[240:720])
 	frame0FFTInput := state.scratchFFTIn
-	frame0FFTOutput := state.scratchFFTOut
+	frame0FFTOutput := analysisFFTOutAsComplex(state.scratchFFTOut[:])
 	frame0Angle := state.Angle
 	frame0DAngle := state.DAngle
 	frame0D2Angle := state.D2Angle
@@ -512,6 +512,14 @@ func parseLibopusAnalysisPhaseTrace(data []byte, expectedTargetFrame uint32) (li
 		return phase, fmt.Errorf("GAPH parser consumed %d bytes want %d", offset, len(data))
 	}
 	return phase, nil
+}
+
+func analysisFFTOutAsComplex(ri []float32) []complex64 {
+	out := make([]complex64, len(ri)/2)
+	for i := range out {
+		out[i] = complex(ri[2*i], ri[2*i+1])
+	}
+	return out
 }
 
 func compareAnalysisPhaseInputs(t *testing.T, trace libopusAnalysisPhaseTrace, fft []complex64) {

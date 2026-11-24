@@ -6,7 +6,7 @@ package celt
 // mdctUseNeonMidFold); the stubs keep the package building on all targets and
 // mirror the per-element scalar sequence for reference.
 
-func mdctFold1StoreNeon(dst []kissCpx, bitrev []int, samples []float32, window []float32, trig []float32, i0, n4, n2, xp1, xp2, wp1, wp2, blocks int, preScale float32) {
+func mdctFold1StoreNeon(dst []float32, bitrev []int, samples []float32, window []float32, trig []float32, i0, n4, n2, xp1, xp2, wp1, wp2, blocks int, preScale float32) {
 	for j := 0; j < 4*blocks; j++ {
 		re := mdctMulAddMixEncode(samples[xp1+n2+2*j], samples[xp2-2*j], window[wp2-2*j], window[wp1+2*j])
 		im := mdctMulSubMixEncode(samples[xp1+2*j], samples[xp2-n2-2*j], window[wp1+2*j], window[wp2-2*j])
@@ -14,7 +14,7 @@ func mdctFold1StoreNeon(dst []kissCpx, bitrev []int, samples []float32, window [
 	}
 }
 
-func mdctFold3StoreNeon(dst []kissCpx, bitrev []int, samples []float32, window []float32, trig []float32, i0, n4, n2, xp1, xp2, wp1, wp2, blocks int, preScale float32) {
+func mdctFold3StoreNeon(dst []float32, bitrev []int, samples []float32, window []float32, trig []float32, i0, n4, n2, xp1, xp2, wp1, wp2, blocks int, preScale float32) {
 	for j := 0; j < 4*blocks; j++ {
 		re := mdctNegMulAddMixEncode(samples[xp1-n2+2*j], samples[xp2-2*j], window[wp1+2*j], window[wp2-2*j])
 		im := mdctMulAddMixEncode(samples[xp1+2*j], samples[xp2+n2-2*j], window[wp2-2*j], window[wp1+2*j])

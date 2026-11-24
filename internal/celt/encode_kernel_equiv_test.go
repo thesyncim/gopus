@@ -237,15 +237,15 @@ func TestMDCTForwardRotationsMatchScalar(t *testing.T) {
 		xp1 := rng.Intn(8)
 		xp2 := len(in) - 1 - rng.Intn(8)
 		scale := encodeKernelValue(rng)
-		got := make([]kissCpx, n4)
-		want := make([]kissCpx, n4)
+		got := make([]float32, 2*n4)
+		want := make([]float32, 2*n4)
 		mdctMidRotateSSE(got, bitrev, in, trig, i0, n4, xp1, xp2, blocks, scale)
 		for k := 0; k < 4*blocks; k++ {
 			i := i0 + k
 			mdctStoreDirectStage(want, bitrev[i], scale, in[xp2-2*k], in[xp1+2*k], trig[i], trig[n4+i])
 		}
 		for i := range want {
-			if !sameFloatBits(got[i].r, want[i].r) || !sameFloatBits(got[i].i, want[i].i) {
+			if !sameFloatBits(got[i], want[i]) {
 				t.Fatalf("pre-rotation trial %d index %d: got %v want %v", trial, i, got[i], want[i])
 			}
 		}
@@ -260,8 +260,8 @@ func TestMDCTForwardRotationsMatchScalar(t *testing.T) {
 		fwp1 := rng.Intn(8)
 		fwp2 := 8*blocks + rng.Intn(8)
 		for _, tail := range []bool{false, true} {
-			gotF := make([]kissCpx, n4)
-			wantF := make([]kissCpx, n4)
+			gotF := make([]float32, 2*n4)
+			wantF := make([]float32, 2*n4)
 			if tail {
 				mdctTailFoldSSE(gotF, bitrev, fs, win, trig, i0, n4, n2, fxp1, fxp2, fwp1, fwp2, blocks, scale)
 			} else {
@@ -281,15 +281,15 @@ func TestMDCTForwardRotationsMatchScalar(t *testing.T) {
 				mdctStoreDirectStage(wantF, bitrev[i], scale, re, im, trig[i], trig[n4+i])
 			}
 			for i := range wantF {
-				if !sameFloatBits(gotF[i].r, wantF[i].r) || !sameFloatBits(gotF[i].i, wantF[i].i) {
+				if !sameFloatBits(gotF[i], wantF[i]) {
 					t.Fatalf("fold (tail %v) trial %d index %d: got %v want %v", tail, trial, i, gotF[i], wantF[i])
 				}
 			}
 		}
 
-		stage := make([]kissCpx, n4)
+		stage := make([]float32, 2*n4)
 		for i := range stage {
-			stage[i] = kissCpx{r: encodeKernelValue(rng), i: encodeKernelValue(rng)}
+			stage[i] = encodeKernelValue(rng)
 		}
 		pairBlocks := n4 >> 3
 		gotC := make([]float32, n2)
@@ -300,7 +300,7 @@ func TestMDCTForwardRotationsMatchScalar(t *testing.T) {
 			if i >= covered && i < n4-covered {
 				continue
 			}
-			re, im := stage[i].r, stage[i].i
+			re, im := stage[2*i], stage[2*i+1]
 			t0, t1 := trig[i], trig[n4+i]
 			wantC[2*i] = mdctMulSubMixEncode(im, re, t1, t0)
 			wantC[n2-1-2*i] = mdctMulAddMixEncode(re, im, t1, t0)

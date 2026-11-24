@@ -216,7 +216,7 @@ func analysisAtan2CapturedPhaseCases(t *testing.T) []analysisAtan2KernelCase {
 	state := NewTonalityAnalysisState(fs)
 	state.SetLSBDepth(lsbDepth)
 	_ = state.RunAnalysis(samples[:frameSize*channels], frameSize, channels)
-	compareAnalysisPhaseInputs(t, phase, state.scratchFFTOut[:])
+	compareAnalysisPhaseInputs(t, phase, analysisFFTOutAsComplex(state.scratchFFTOut[:]))
 
 	cases := make([]analysisAtan2KernelCase, 0, len(phase.records)*2)
 	for _, record := range phase.records {

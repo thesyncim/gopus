@@ -116,28 +116,27 @@ func imdctOverlapWithPrevScratch(out []float32, spectrum []float32, prevOverlap 
 	imdctOverlapWithPrevScratchF32(out, spectrum, prevOverlap, overlap, scratch)
 }
 
-func imdctPreRotateF32Spectrum(fftIn []complex64, spectrum []float32, trig []float32, n2, n4 int) {
+func imdctPreRotateF32Spectrum(fftIn []float32, spectrum []float32, trig []float32, n2, n4 int) {
 	if n4 <= 0 {
 		return
 	}
 
 	_ = spectrum[n2-1]
 	_ = trig[n2-1]
-	_ = fftIn[n4-1]
+	_ = fftIn[2*n4-1]
 	imdctPreRotate(fftIn, spectrum, trig, n2, n4)
 }
 
 // imdctPreRotateNoFMAScalar is the split multiply/add libopus pre-rotation.
-func imdctPreRotateNoFMAScalar(fftIn []complex64, spectrum []float32, trig []float32, n2, n4 int) {
+func imdctPreRotateNoFMAScalar(fftIn []float32, spectrum []float32, trig []float32, n2, n4 int) {
+	_ = fftIn[2*n4-1]
 	for i := range n4 {
 		x1 := spectrum[2*i]
 		x2 := spectrum[n2-1-2*i]
 		t0 := trig[i]
 		t1 := trig[n4+i]
-		fftIn[i] = complex(
-			noFMA32Sub(noFMA32Mul(x1, t0), noFMA32Mul(x2, t1)),
-			noFMA32Add(noFMA32Mul(x2, t0), noFMA32Mul(x1, t1)),
-		)
+		fftIn[2*i] = noFMA32Sub(noFMA32Mul(x1, t0), noFMA32Mul(x2, t1))
+		fftIn[2*i+1] = noFMA32Add(noFMA32Mul(x2, t0), noFMA32Mul(x1, t1))
 	}
 }
 
@@ -183,14 +182,14 @@ func imdctOverlapWithPrevInto(outF32, spectrum []float32, prevOverlap []celtSig,
 	n4 := n2 / 2
 	needed := n2 + overlap
 	start := overlap / 2
-	var fftIn []complex64
-	var fftTmp []kissCpx
+	var fftIn []float32
+	var fftTmp []float32
 	if scratch == nil {
-		fftIn = make([]complex64, n4)
-		fftTmp = make([]kissCpx, n4)
+		fftIn = make([]float32, 2*n4)
+		fftTmp = make([]float32, 2*n4)
 	} else {
-		fftIn = ensureComplex64Slice(&scratch.fftIn, n4)
-		fftTmp = ensureKissCpxSlice(&scratch.fftTmp, n4)
+		fftIn = ensureFloat32Slice(&scratch.fftIn, 2*n4)
+		fftTmp = ensureFloat32Slice(&scratch.fftTmp, 2*n4)
 	}
 
 	if start+n2 < needed {
@@ -252,8 +251,8 @@ func imdctShortBlockInto(coeffs []float32, b, shortBlocks, n2 int, out []float32
 	} else {
 		trig = getMDCTTrigF32(n)
 	}
-	fftIn := ensureComplex64Slice(&scratch.fftIn, n4)
-	fftTmp := ensureKissCpxSlice(&scratch.fftTmp, n4)
+	fftIn := ensureFloat32Slice(&scratch.fftIn, 2*n4)
+	fftTmp := ensureFloat32Slice(&scratch.fftTmp, 2*n4)
 	fftOut := imdctPreRotateFFTStrided(fftIn, fftTmp, coeffs, b, shortBlocks, trig, n2, n4, fftState, gather)
 	start := blockStart + overlap/2
 	imdctPostRotateF32FromKiss(out[start:start+n2], fftOut, trig, n2, n4)
@@ -292,16 +291,16 @@ func imdctInPlaceScratchF32Spectrum(spectrum []float32, out []float32, blockStar
 		trig = getMDCTTrigF32(n)
 	}
 
-	var fftIn []complex64
+	var fftIn []float32
 	var buf []float32
-	var fftTmp []kissCpx
+	var fftTmp []float32
 	if scratch == nil {
-		fftIn = make([]complex64, n4)
-		fftTmp = make([]kissCpx, n4)
+		fftIn = make([]float32, 2*n4)
+		fftTmp = make([]float32, 2*n4)
 		buf = make([]float32, n2)
 	} else {
-		fftIn = ensureComplex64Slice(&scratch.fftIn, n4)
-		fftTmp = ensureKissCpxSlice(&scratch.fftTmp, n4)
+		fftIn = ensureFloat32Slice(&scratch.fftIn, 2*n4)
+		fftTmp = ensureFloat32Slice(&scratch.fftTmp, 2*n4)
 		buf = ensureFloat32Slice(&scratch.buf, n2)
 	}
 

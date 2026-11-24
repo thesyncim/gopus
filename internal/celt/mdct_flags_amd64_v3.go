@@ -7,6 +7,6 @@ const mdctUseFMALikeMixEnabled = true
 const mdctUseFusedForwardPreRotate = true
 const mdctUseNegFoldSecondProduct = true
 
-func imdctPreRotate(fftIn []complex64, spectrum []float32, trig []float32, n2, n4 int) {
+func imdctPreRotate(fftIn []float32, spectrum []float32, trig []float32, n2, n4 int) {
 	imdctPreRotateFMA32Scalar(fftIn, spectrum, trig, n2, n4)
 }

@@ -10,6 +10,6 @@ const mdctUseNegFoldSecondProduct = true
 // instruction, so it keeps the scalar pre-rotation unfused on this path.
 const mdctUseFusedForwardPreRotate = false
 
-func imdctPreRotate(fftIn []complex64, spectrum []float32, trig []float32, n2, n4 int) {
+func imdctPreRotate(fftIn []float32, spectrum []float32, trig []float32, n2, n4 int) {
 	imdctPreRotateNoFMA(fftIn, spectrum, trig, n2, n4)
 }

@@ -26,7 +26,7 @@ func (s *TonalityAnalysisState) analysisShiftInput() {
 }
 
 func (s *TonalityAnalysisState) analysisRunFFT() {
-	fft480(&s.scratchFFTOut, &s.scratchFFTIn, s.scratchFFTKiss[:])
+	fft480(&s.scratchFFTOut, &s.scratchFFTIn)
 }
 
 func (s *TonalityAnalysisState) analysisEnergyScale() float32 {

@@ -39,15 +39,15 @@ func TestMDCTFoldStoreNeonBitExact(t *testing.T) {
 			xp2 := n2 - 1 + overlap/2
 			wp1 := overlap / 2
 			wp2 := overlap/2 - 1
-			got := make([]kissCpx, n4)
-			want := make([]kissCpx, n4)
+			got := make([]float32, 2*n4)
+			want := make([]float32, 2*n4)
 			for j := 0; j < 4*blocks; j++ {
 				re := mdctMulAddMix(samples[xp1+n2+2*j], samples[xp2-2*j], window[wp2-2*j], window[wp1+2*j])
 				im := mdctMulSubMix(samples[xp1+2*j], samples[xp2-n2-2*j], window[wp1+2*j], window[wp2-2*j])
 				mdctStoreDirectStageFMALike(want, bitrev[i0+j], preScale, re, im, trig[i0+j], trig[n4+i0+j])
 			}
 			mdctFold1StoreNeon(got, bitrev, samples, window, trig, i0, n4, n2, xp1, xp2, wp1, wp2, blocks, preScale)
-			compareCpx(t, "fold1", n4, blocks, got, want)
+			compareInterleavedCpx(t, "fold1", n4, blocks, got, want)
 			if allocs := testing.AllocsPerRun(100, func() {
 				mdctFold1StoreNeon(got, bitrev, samples, window, trig, i0, n4, n2, xp1, xp2, wp1, wp2, blocks, preScale)
 			}); allocs != 0 {
@@ -63,15 +63,15 @@ func TestMDCTFoldStoreNeonBitExact(t *testing.T) {
 			xp2 = n2 - 1 + overlap/2 - 2*i0
 			wp1 = 0
 			wp2 = overlap - 1
-			got = make([]kissCpx, n4)
-			want = make([]kissCpx, n4)
+			got = make([]float32, 2*n4)
+			want = make([]float32, 2*n4)
 			for j := 0; j < 4*blocks; j++ {
 				re := mdctNegMulAddMixEncode(samples[xp1-n2+2*j], samples[xp2-2*j], window[wp1+2*j], window[wp2-2*j])
 				im := mdctMulAddMix(samples[xp1+2*j], samples[xp2+n2-2*j], window[wp2-2*j], window[wp1+2*j])
 				mdctStoreDirectStageFMALike(want, bitrev[i0+j], preScale, re, im, trig[i0+j], trig[n4+i0+j])
 			}
 			mdctFold3StoreNeon(got, bitrev, samples, window, trig, i0, n4, n2, xp1, xp2, wp1, wp2, blocks, preScale)
-			compareCpx(t, "fold3", n4, blocks, got, want)
+			compareInterleavedCpx(t, "fold3", n4, blocks, got, want)
 			if allocs := testing.AllocsPerRun(100, func() {
 				mdctFold3StoreNeon(got, bitrev, samples, window, trig, i0, n4, n2, xp1, xp2, wp1, wp2, blocks, preScale)
 			}); allocs != 0 {
@@ -81,15 +81,15 @@ func TestMDCTFoldStoreNeonBitExact(t *testing.T) {
 	}
 }
 
-func compareCpx(t *testing.T, name string, n4, blocks int, got, want []kissCpx) {
+func compareInterleavedCpx(t *testing.T, name string, n4, blocks int, got, want []float32) {
 	t.Helper()
-	for k := range want {
-		if math.Float32bits(got[k].r) != math.Float32bits(want[k].r) ||
-			math.Float32bits(got[k].i) != math.Float32bits(want[k].i) {
+	for k := 0; k < len(want); k += 2 {
+		if math.Float32bits(got[k]) != math.Float32bits(want[k]) ||
+			math.Float32bits(got[k+1]) != math.Float32bits(want[k+1]) {
 			t.Fatalf("%s n4=%d blocks=%d: dst[%d] = (%08x,%08x), want (%08x,%08x)",
-				name, n4, blocks, k,
-				math.Float32bits(got[k].r), math.Float32bits(got[k].i),
-				math.Float32bits(want[k].r), math.Float32bits(want[k].i))
+				name, n4, blocks, k/2,
+				math.Float32bits(got[k]), math.Float32bits(got[k+1]),
+				math.Float32bits(want[k]), math.Float32bits(want[k+1]))
 		}
 	}
 }
