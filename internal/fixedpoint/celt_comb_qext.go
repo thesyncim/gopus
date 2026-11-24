@@ -90,7 +90,7 @@ func CombFilterQEXTPF(y []int32, yOff int, x []int32, xOff, t0, t1, n int,
 	if n <= 0 {
 		return
 	}
-	if overlap != 240 {
+	if overlap != 240 || xOff < 2*qextCombFilterMaxPeriod {
 		qextCombFilterOffsets(y, yOff, x, xOff, t0, t1, n, g0, g1, tapset0, tapset1, window, overlap)
 		return
 	}

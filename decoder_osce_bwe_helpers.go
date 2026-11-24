@@ -20,6 +20,14 @@ import (
 // channel and `osceBWERuntime[1].Process` for the side/right channel without
 // extra plumbing. libopus does the same: a single `osce_model` plus one
 // `silk_OSCE_BWE_struct` per channel state.
+func validateOSCEBWEModel(blob *dnnblob.Blob, supported bool) error {
+	if blob == nil || !supported {
+		return nil
+	}
+	_, err := osceBWE.LoadModel(blob)
+	return err
+}
+
 func (d *Decoder) bindOSCEBWEModel(blob *dnnblob.Blob, supported bool) error {
 	if d == nil {
 		return nil

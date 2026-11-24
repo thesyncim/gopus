@@ -142,15 +142,16 @@ func (d *Decoder) prepareQEXTDecodeRange(payload []byte, mainRD *rangecoding.Dec
 	channels := int(d.channels)
 
 	qext := &qextState.scratchDecode
+	mainBands := d.modeNbEBands()
 	*qext = preparedQEXTDecode{
 		dec:         extDec,
 		totalBitsQ3: len(payload) * (8 << bitRes),
-		extraPulses: ensureInt32Slice(&qextState.scratchPulses, MaxBands+nbQEXTBands),
-		extraQuant:  ensureInt32Slice(&qextState.scratchFineQuant, MaxBands+nbQEXTBands),
+		extraPulses: ensureInt32Slice(&qextState.scratchPulses, qextMaxBaseBands+nbQEXTBands),
+		extraQuant:  ensureInt32Slice(&qextState.scratchFineQuant, qextMaxBaseBands+nbQEXTBands),
 	}
 
 	var qextMode *qextModeConfig
-	if end == MaxBands {
+	if end == mainBands {
 		if cfg, ok := computeQEXTModeConfig(int(d.sampleRate), qextShortMDCTSizeForMode(frameSize, d.modeConfig(frameSize))); ok {
 			// Supported fullband packets carry this header; non-fullband packets
 			// use the extension coder directly for extra main-band allocation.
@@ -176,7 +177,7 @@ func (d *Decoder) prepareQEXTDecodeRange(payload []byte, mainRD *rangecoding.Dec
 	}
 
 	budgetQ3 := max(qext.totalBitsQ3-mainRD.TellFrac()-1, 0)
-	computeQEXTExtraAllocationDecodeWithMode(start, end, qext.end, budgetQ3, channels, lm, extDec, qext.extraPulses, qext.extraQuant, qextMode)
+	computeQEXTExtraAllocationDecodeWithEdges(start, end, qext.end, budgetQ3, channels, lm, extDec, qext.extraPulses, qext.extraQuant, d.modeEdges(), mainBands, qextMode)
 	return qext
 }
 
@@ -184,19 +185,20 @@ func (d *Decoder) decodeQEXTBands(frameSize, lm, shortBlocks, spread int, disabl
 	if qext == nil || qext.dec == nil || qext.end <= 0 {
 		return
 	}
+	mainBands := d.modeNbEBands()
 	extBalance := qext.totalBitsQ3 - qext.dec.TellFrac()
 	fineQ3 := 0
 	channels := int(d.channels)
 	if qext.end > 1 {
-		fineQ3 = channels * int(qext.extraQuant[MaxBands+1]<<bitRes)
+		fineQ3 = channels * int(qext.extraQuant[mainBands+1]<<bitRes)
 	}
 	for i := 0; i < qext.end; i++ {
-		idx := MaxBands + i
+		idx := mainBands + i
 		extBalance -= int(qext.extraPulses[idx])
 		extBalance -= fineQ3
 	}
 
-	d.decodeFineEnergyGLogWithDecoder(qext.dec, qext.energies, qext.end, qext.extraQuant[MaxBands:MaxBands+qext.end])
+	d.decodeFineEnergyGLogWithDecoder(qext.dec, qext.energies, qext.end, qext.extraQuant[mainBands:mainBands+qext.end])
 	zeros := ensureInt32Slice(&d.scratchTFRes, qext.end)
 	for i := 0; i < qext.end; i++ {
 		zeros[i] = 0
@@ -212,7 +214,7 @@ func (d *Decoder) decodeQEXTBands(frameSize, lm, shortBlocks, spread int, disabl
 		lm,
 		0,
 		qext.end,
-		qext.extraPulses[MaxBands:MaxBands+qext.end],
+		qext.extraPulses[mainBands:mainBands+qext.end],
 		shortBlocks,
 		spread,
 		qext.dualStereo,

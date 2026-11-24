@@ -8,6 +8,10 @@ import "github.com/thesyncim/gopus/internal/dnnblob"
 // `gopus_osce` build. The DRED-only build
 // retains the `osceModelsLoaded` blob-presence flag but never instantiates
 // the runtime state.
+func validateOSCELACEModel(_ *dnnblob.Blob, _ bool) error {
+	return nil
+}
+
 func (d *Decoder) bindOSCELACEModel(_ *dnnblob.Blob, _ bool) error {
 	return nil
 }

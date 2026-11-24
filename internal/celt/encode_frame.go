@@ -1047,8 +1047,8 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 			qs.encoder.Init(qextBuf)
 			qextEnc = &qs.encoder
 
-			qextExtraBits = qs.extraBits[:MaxBands+nbQEXTBands]
-			qextFineBits = qs.fineBits[:MaxBands+nbQEXTBands]
+			qextExtraBits = qs.extraBits[:max(nbBands, end)+nbQEXTBands]
+			qextFineBits = qs.fineBits[:max(nbBands, end)+nbQEXTBands]
 			clear(qextExtraBits)
 			clear(qextFineBits)
 		}
@@ -1102,7 +1102,7 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 	// by coarse quantization. This mirrors libopus quant_fine_energy() ->
 	// quant_energy_finalise() operating on the same error[] buffer.
 	coarseResidual := e.scratch.coarseError
-	var qextErrorBak [MaxBands * 2]celtGLog
+	var qextErrorBak [qextMaxBaseBands * 2]celtGLog
 	if len(coarseResidual) >= nbBands*codedChannels {
 		coarseResidual = coarseResidual[:nbBands*codedChannels]
 		if start > 0 {
@@ -1172,7 +1172,11 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 		}
 
 		qextBitsQ3 := max((qextEnc.StorageBits()<<bitRes)-re.TellFrac()-1, 0)
-		computeQEXTExtraAllocationEncode(
+		mainLogN := LogN[:]
+		if e.perMode != nil && len(e.perMode.logN) > 0 {
+			mainLogN = e.perMode.logN
+		}
+		computeQEXTExtraAllocationEncodeWithMode(
 			start,
 			end,
 			qextEnd,
@@ -1182,6 +1186,8 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 			// libopus passes bandLogE after its coarse-energy stabilization bias.
 			energies,
 			qextBandLogE,
+			e.modeEdges(),
+			mainLogN,
 			func() *qextModeConfig {
 				if !qextActive {
 					return nil
@@ -1285,7 +1291,7 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 	}
 	e.encodeStageTrace.recordQuantOutput(normL, normR)
 	if qextActive {
-		qextBandBits := qextFineBits[MaxBands : MaxBands+qextEnd]
+		qextBandBits := qextFineBits[end : end+qextEnd]
 
 		qextDualStereoVal := 0
 		if allocResult.DualStereo {
@@ -1298,7 +1304,7 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 			fineQ3 = codedChannels * int(qextBandBits[1]<<bitRes)
 		}
 		for i := 0; i < qextEnd; i++ {
-			qextBalance -= int(qextExtraBits[MaxBands+i])
+			qextBalance -= int(qextExtraBits[end+i])
 			qextBalance -= fineQ3
 		}
 		// libopus samples ext_balance before quant_fine_energy writes its raw bits.
@@ -1321,7 +1327,7 @@ func (e *Encoder) encodeWithEC(pcm []float32, frameSize int, nbCompressedBytes i
 			qextEnd,
 			qextNormL,
 			qextNormR,
-			qextExtraBits[MaxBands:MaxBands+qextEnd],
+			qextExtraBits[end:end+qextEnd],
 			shortBlocks,
 			spread,
 			tapset,

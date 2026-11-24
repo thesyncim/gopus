@@ -487,7 +487,8 @@ func calculateLogSpectrumFromLPC(
 		magBuf[i] = 0
 	}
 	magBuf[0] = 1
-	for i := range lpcOrder {
+	order := min(max(lpcOrder, 0), min(len(aQ12), len(magBuf)-1))
+	for i := range order {
 		magBuf[i+1] = -float32(aQ12[i]) / float32(1<<12)
 	}
 
@@ -653,6 +654,17 @@ func calculateAcorr(
 	buffer []float32,
 	lag int,
 ) {
+	if len(acorr) < 5 || len(signal) < SubframeSize || len(buffer) == 0 {
+		return
+	}
+	minLag := signalAbsBase + SubframeSize + 1 - len(buffer)
+	maxLag := signalAbsBase - 2
+	if lag < minLag {
+		lag = minLag
+	}
+	if lag > maxLag {
+		lag = maxLag
+	}
 	for k := -2; k <= 2; k++ {
 		var xx, xy, yy float32
 		for n := range SubframeSize {

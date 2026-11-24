@@ -483,7 +483,7 @@ func (e *Encoder) transientAnalysisMonoFloat32(pcm []float32, frameSize int, all
 	const epsF32 = float32(1e-15)
 	var unmask int
 	for i := 12; i < len2-5; i += 4 {
-		id := min(int(normE*(energy[i]+epsF32)), 127)
+		id := transientInvIndex(normE * (energy[i] + epsF32))
 		unmask += transientInvTable[id]
 	}
 
@@ -622,10 +622,10 @@ func (e *Encoder) transientAnalysisScratchF32(pcm []float32, frameSize int, allo
 		const epsF32 = float32(1e-15)
 		var unmaskL, unmaskR int
 		for i := 12; i < len2-5; i += 4 {
-			idL := min(int(normEL*(energy[i]+epsF32)), 127)
+			idL := transientInvIndex(normEL * (energy[i] + epsF32))
 			unmaskL += transientInvTable[idL]
 
-			idR := min(int(normER*(energyR[i]+epsF32)), 127)
+			idR := transientInvIndex(normER * (energyR[i] + epsF32))
 			unmaskR += transientInvTable[idR]
 		}
 
@@ -728,10 +728,7 @@ func (e *Encoder) transientAnalysisScratchF32(pcm []float32, frameSize int, allo
 		const epsF32 = float32(1e-15)
 		var unmask int
 		for i := 12; i < len2-5; i += 4 {
-			// Map energy to table index
-			// For non-negative values, int(x) truncates toward zero which equals floor.
-			// energy[i] + epsilon is always >= 0, so int() is equivalent to math.Floor.
-			id := min(int(normE*(energy[i]+epsF32)), 127)
+			id := transientInvIndex(normE * (energy[i] + epsF32))
 			unmask += transientInvTable[id]
 		}
 
@@ -913,6 +910,16 @@ func PatchTransientDecisionWithScratch(newE []celtGLog, oldE []celtGLog, nbEBand
 // (celt/celt_encoder.c): the float product mean*maxE widens to C double for
 // the .5 and len2 factors, which it holds exactly, and for the square root
 // before rounding to float.
+func transientInvIndex(x float32) int {
+	if !(x > 0) {
+		return 0
+	}
+	if x >= 127 {
+		return 127
+	}
+	return int(x)
+}
+
 func transientFrameEnergy(mean, maxE float32, len2 int) float32 {
 	return float32(math.Sqrt(opusmath.CReal(mean*maxE) * 0.5 * opusmath.CReal(len2)))
 }

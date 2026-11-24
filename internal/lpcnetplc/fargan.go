@@ -455,6 +455,7 @@ func (f *FARGAN) computeConditioning(out, features []float32, period int) {
 }
 
 func (f *FARGAN) runSubframe(pcm, cond []float32, period int) {
+	period = clampInt(period, PitchMinPeriod, PitchMaxPeriod)
 	computeFARGANSignalDense(&f.model.CondGainDense, f.scratch.gain[:], cond[:FARGANCondSize], activationLinear, &f.scratch)
 	gain := opusmath.ExpF32(f.scratch.gain[0])
 	gainInv := 1 / (1e-5 + gain)

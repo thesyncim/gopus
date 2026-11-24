@@ -151,6 +151,10 @@ func (e *Encoder) normalize() {
 // reconstructs by reading those bytes and applying the inverse operation
 // (255 &^ sym).
 func (e *Encoder) normalizeSlow() {
+	if e.rng == 0 {
+		e.err = -1
+		return
+	}
 	for {
 		// Extract high bits to output via carry propagation
 		e.carryOut(int(e.val >> EC_CODE_SHIFT))
@@ -184,7 +188,15 @@ func (e *Encoder) writeByte(b byte) {
 // Callers must ensure 0 <= fl < fh <= ft. The range is subdivided by the scale
 // factor r = rng/ft, after which the encoder renormalizes.
 func (e *Encoder) Encode(fl, fh, ft uint32) {
+	if ft == 0 || fl >= fh || fh > ft {
+		e.err = -1
+		return
+	}
 	r := e.rng / ft
+	if r == 0 {
+		e.err = -1
+		return
+	}
 	if fl > 0 {
 		e.val += e.rng - r*(ft-fl)
 		e.rng = r * (fh - fl)
@@ -199,10 +211,14 @@ func (e *Encoder) Encode(fl, fh, ft uint32) {
 // ec_encode_bin and the inverse of [Decoder.DecodeBin]+[Decoder.Update]. Using a
 // power-of-two total lets the scale factor be a shift instead of a division.
 func (e *Encoder) EncodeBin(fl, fh uint32, bits uint) {
-	if bits == 0 {
+	if bits == 0 || bits >= 24 || fl >= fh {
 		return
 	}
 	r := e.rng >> bits
+	if r == 0 {
+		e.err = -1
+		return
+	}
 	if fl > 0 {
 		e.val += e.rng - r*((uint32(1)<<bits)-fl)
 		e.rng = r * (fh - fl)
@@ -229,7 +245,15 @@ func (e *Encoder) EncodeICDF8(s int, icdf []uint8, ftb uint) {
 //
 // This is a direct port of libopus ec_enc_icdf.
 func (e *Encoder) EncodeICDF(s int, icdf []uint8, ftb uint) {
+	if s < 0 || s >= len(icdf) || ftb >= 24 {
+		e.err = -1
+		return
+	}
 	r := e.rng >> ftb
+	if r == 0 {
+		e.err = -1
+		return
+	}
 	if s > 0 {
 		e.val += e.rng - r*uint32(icdf[s-1])
 		e.rng = r * uint32(icdf[s-1]-icdf[s])

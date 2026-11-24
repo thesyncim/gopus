@@ -37,8 +37,11 @@ func (e *Encoder) fixedStereoWidthForMode(frameSize int) (opusVal16, bool) {
 		e.fixedWidthQ15 = 0
 		return 0, true
 	}
+	if frameSize <= 0 {
+		return 0, false
+	}
 	pcm := e.fixedRawRes
-	frameRate := int(e.sampleRate) / frameSize
+	frameRate := max(1, int(e.sampleRate)/frameSize)
 	shortAlpha := int16(25 * 32767 / max(50, frameRate))
 	shift := int(fixedpoint.CeltILog2(int32(frameSize))) - 2
 	var xx, xy, yy int32

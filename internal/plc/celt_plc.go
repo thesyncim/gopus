@@ -220,11 +220,17 @@ type celtConcealmentConfig struct {
 //
 // Returns the concealed samples at 48 kHz, interleaved if stereo.
 func ConcealCELT(dec CELTDecoderState, synth CELTSynthesizer, frameSize int, fadeFactor float32) []float32 {
+	if frameSize <= 0 {
+		return nil
+	}
 	if dec == nil {
 		return make([]float32, frameSize)
 	}
 
 	channels := dec.Channels()
+	if channels <= 0 {
+		return nil
+	}
 
 	// If fade is effectively zero, return silence
 	if fadeFactor < 0.001 {
@@ -448,10 +454,16 @@ func applyDeemphasisPLCToDecoderFloat32(samples []float32, dec CELTDecoderState,
 //
 // Returns the concealed high-frequency samples at 48 kHz, interleaved if stereo.
 func ConcealCELTHybrid(dec CELTDecoderState, synth CELTSynthesizer, frameSize int, fadeFactor float32) []float32 {
+	if frameSize <= 0 {
+		return nil
+	}
 	if dec == nil {
 		return make([]float32, frameSize)
 	}
 	channels := dec.Channels()
+	if channels <= 0 {
+		return nil
+	}
 	outLen := frameSize * channels
 	out := make([]float32, outLen)
 	ConcealCELTHybridRawInto(out, dec, synth, frameSize, fadeFactor)

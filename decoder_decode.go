@@ -40,9 +40,6 @@ func (d *Decoder) decodeFloat32(data []byte, pcm []float32, clearSoftClipOnPacke
 	dredPossible := false
 	if extsupport.DREDRuntime {
 		dredPossible = d.dredDecodeSidecarPossible()
-		if len(data) > 0 && dredPossible && d.dredCachedPayloadActive() {
-			d.invalidateDREDPayloadState()
-		}
 	}
 
 	if len(data) == 0 {
@@ -77,6 +74,10 @@ func (d *Decoder) decodeFloat32(data []byte, pcm []float32, clearSoftClipOnPacke
 			return 0, err
 		}
 		return 0, ErrBufferTooSmall
+	}
+
+	if extsupport.DREDRuntime && dredPossible && d.dredCachedPayloadActive() {
+		d.invalidateDREDPayloadState()
 	}
 
 	if d.beginDREDRawMonoFrameCapture(toc.Mode) {

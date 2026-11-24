@@ -7,6 +7,9 @@ package fixedpoint
 // X is the interleaved normalised spectrum (celt_norm), N0 the per-channel
 // stride, eBands the mode band edges, nbEBands unused beyond bounds.
 func StereoAnalysis(eBands []int16, X []int32, LM, N0, nbEBands int) bool {
+	if nbEBands < 13 || len(eBands) <= 13 {
+		return false
+	}
 	sumLR := int32(1) // EPSILON
 	sumMS := int32(1)
 	for i := 0; i < 13; i++ {

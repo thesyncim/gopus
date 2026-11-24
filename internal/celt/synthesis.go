@@ -83,13 +83,21 @@ func (d *Decoder) effectiveEndBand(frameSize int) int {
 
 // validFrameSize reports whether frameSize is acceptable for the active mode.
 func (d *Decoder) validFrameSize(frameSize int) bool {
+	if frameSize <= 0 {
+		return false
+	}
 	if d.customScaleBase > 0 {
-		return frameSize > 0 && frameSize%d.customScaleBase == 0
+		for lm := 0; lm <= 3; lm++ {
+			if d.customScaleBase<<lm == frameSize {
+				return true
+			}
+		}
+		return false
 	}
 	if d.sampleRate == 96000 && d.synthOverlap == 240 {
 		return frameSize == 240 || frameSize == 480 || frameSize == 960 || frameSize == 1920
 	}
-	return ValidFrameSize(frameSize)
+	return frameSize == 120 || frameSize == 240 || frameSize == 480 || frameSize == 960
 }
 
 // OverlapAdd combines the current frame with the previous overlap.

@@ -18,6 +18,14 @@ import (
 //
 // Both postfilter families ship together in the upstream weights blob and
 // share an `OSCEModel` instance, so the loader binds both in one pass.
+func validateOSCELACEModel(blob *dnnblob.Blob, supported bool) error {
+	if blob == nil || !supported {
+		return nil
+	}
+	_, err := osceLACE.Load(blob)
+	return err
+}
+
 func (d *Decoder) bindOSCELACEModel(blob *dnnblob.Blob, supported bool) error {
 	if d == nil {
 		return nil

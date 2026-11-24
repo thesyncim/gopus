@@ -947,10 +947,21 @@ func (e *Encoder) toneDetectFs() int {
 
 // validFrameSize reports whether frameSize is acceptable for the active mode.
 func (e *Encoder) validFrameSize(frameSize int) bool {
-	if e.customScaleBase > 0 {
-		return frameSize > 0 && frameSize%e.customScaleBase == 0
+	if frameSize <= 0 {
+		return false
 	}
-	return ValidFrameSize(frameSize)
+	if e.customScaleBase > 0 {
+		for lm := 0; lm <= 3; lm++ {
+			if e.customScaleBase<<lm == frameSize {
+				return true
+			}
+		}
+		return false
+	}
+	if e.hd96kOverlap == 240 && e.sampleRate == 96000 {
+		return frameSize == 240 || frameSize == 480 || frameSize == 960 || frameSize == 1920
+	}
+	return frameSize == 120 || frameSize == 240 || frameSize == 480 || frameSize == 960
 }
 
 func (e *Encoder) effectiveBandCount(frameSize int) int {

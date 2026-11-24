@@ -23,7 +23,7 @@ const hd96kCombHistory = 2 * combFilterMaxPeriod
 // hd96kPostfilterActive reports whether the native 96 kHz comb-filter postfilter
 // applies (the decoder is in HD96k mode).
 func (d *Decoder) hd96kPostfilterActive() bool {
-	return d.synthOverlap == 240
+	return d.synthOverlap == 240 && d.qextDecodeScale() == 2
 }
 
 // hd96kPostfilterDecodeMem runs celt_decode_with_ec()'s two comb_filter
