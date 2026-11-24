@@ -491,9 +491,6 @@ func (e *Encoder) transientAnalysisMonoFloat32(pcm []float32, frameSize int, all
 
 		x1 := src[j+1]
 		y1 := hp0 + x1
-		hp00 = hp0
-		hp0 = hp0 - x1 + hpFeedback*hp1
-		hp1 = x1 - hp00
 
 		pair := y0*y0 + y1*y1
 		mean += pair
