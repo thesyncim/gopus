@@ -153,10 +153,61 @@ func preemphMonoAVX(pcm, out []float32, coef, m float32) float32 {
 // returns the updated per-channel m.
 func preemphStereoPlanar(pcm, outL, outR []float32, coef float32, state [2]float32) [2]float32 {
 	n := len(outL)
-	if n < 5 || !archsimd.X86.AVX() {
+	if n < 5 {
+		return preemphStereoPlanarScalar(pcm, outL, outR, coef, state)
+	}
+	if preemphUsesAVX2 && n >= 9 {
+		return preemphStereoPlanarAVX2(pcm, outL, outR, coef, state)
+	}
+	if !archsimd.X86.AVX() {
 		return preemphStereoPlanarScalar(pcm, outL, outR, coef, state)
 	}
 	return preemphStereoPlanarAVX(pcm, outL, outR, coef, state)
+}
+
+//go:noinline
+func preemphStereoPlanarAVX2(pcm, outL, outR []float32, coef float32, state [2]float32) [2]float32 {
+	n := len(outL)
+	pcm = pcm[:2*n]
+	outR = outR[:n]
+	outL[0] = pcm[0]*float32(CELTSigScale) - state[0]
+	outR[0] = pcm[1]*float32(CELTSigScale) - state[1]
+	scale := archsimd.BroadcastFloat32x8(float32(CELTSigScale))
+	coef8 := archsimd.BroadcastFloat32x8(coef)
+	perm0213 := archsimd.LoadUint32x8Array(&kfBflyPerm0213U32x8)
+	i := 1
+	for ; i+8 <= n; i += 8 {
+		curL, curR := bflyLoadCpx8AMD64(pcm[2*i:], perm0213)
+		prevL, prevR := bflyLoadCpx8AMD64(pcm[2*i-2:], perm0213)
+		curL.Mul(scale).Sub(coef8.Mul(prevL.Mul(scale))).StoreArray((*[8]float32)(outL[i:]))
+		curR.Mul(scale).Sub(coef8.Mul(prevR.Mul(scale))).StoreArray((*[8]float32)(outR[i:]))
+	}
+	archsimd.ClearAVXUpperBits()
+	if i+4 <= n {
+		scale4 := broadcastF32x4Arch(float32(CELTSigScale))
+		coef4 := broadcastF32x4Arch(coef)
+		cur := pcm[2*i : 2*i+8]
+		prev := pcm[2*i-2 : 2*i+6]
+		cur0 := archsimd.LoadFloat32x4Array((*[4]float32)(cur))
+		cur1 := archsimd.LoadFloat32x4Array((*[4]float32)(cur[4:]))
+		prev0 := archsimd.LoadFloat32x4Array((*[4]float32)(prev))
+		prev1 := archsimd.LoadFloat32x4Array((*[4]float32)(prev[4:]))
+		curL := cur0.ConcatPermuteScalars(0, 2, 4, 6, cur1)
+		curR := cur0.ConcatPermuteScalars(1, 3, 5, 7, cur1)
+		prevL := prev0.ConcatPermuteScalars(0, 2, 4, 6, prev1)
+		prevR := prev0.ConcatPermuteScalars(1, 3, 5, 7, prev1)
+		curL.Mul(scale4).Sub(coef4.Mul(prevL.Mul(scale4))).StoreArray((*[4]float32)(outL[i:]))
+		curR.Mul(scale4).Sub(coef4.Mul(prevR.Mul(scale4))).StoreArray((*[4]float32)(outR[i:]))
+		i += 4
+	}
+	for ; i < n; i++ {
+		outL[i] = pcm[2*i]*float32(CELTSigScale) - mul32(coef, pcm[2*i-2]*float32(CELTSigScale))
+		outR[i] = pcm[2*i+1]*float32(CELTSigScale) - mul32(coef, pcm[2*i-1]*float32(CELTSigScale))
+	}
+	return [2]float32{
+		coef * (pcm[2*n-2] * float32(CELTSigScale)),
+		coef * (pcm[2*n-1] * float32(CELTSigScale)),
+	}
 }
 
 //go:noinline

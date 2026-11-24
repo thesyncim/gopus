@@ -84,13 +84,55 @@ func haar1Stride1AVX(x []float32, n0 int) {
 }
 
 // haar1Stride2 runs haar1's stride-2 butterfly over n0 groups of four,
-// pairing x[4j+i] with x[4j+2+i]; two groups per step.
+// pairing x[4j+i] with x[4j+2+i]; four groups per step on AVX2 or two on AVX1.
 func haar1Stride2(x []float32, n0 int) {
+	if haar1UsesAVX2 && n0 >= 4 {
+		haar1Stride2AVX2(x, n0)
+		return
+	}
 	if !archsimd.X86.AVX() {
 		haar1StrideScalarAMD64(x, n0, 2)
 		return
 	}
 	haar1Stride2AVX(x, n0)
+}
+
+//go:noinline
+func haar1Stride2AVX2(x []float32, n0 int) {
+	if n0 <= 0 {
+		return
+	}
+	x = x[:4*n0]
+	scale := archsimd.BroadcastFloat32x8(haar1Scale)
+	i := 0
+	for ; i+4 <= n0; i += 4 {
+		p := x[4*i : 4*i+16 : 4*i+16]
+		a := archsimd.LoadFloat32x8Array((*[8]float32)(p[0:8]))
+		b := archsimd.LoadFloat32x8Array((*[8]float32)(p[8:16]))
+		lo := a.ConcatPermuteScalarsGrouped(0, 1, 4, 5, b)
+		hi := a.ConcatPermuteScalarsGrouped(2, 3, 6, 7, b)
+		sum, diff := haar1ScaledPairVectors8(lo, hi, scale)
+		sum.ConcatPermuteScalarsGrouped(0, 1, 4, 5, diff).StoreArray((*[8]float32)(p[0:8]))
+		sum.ConcatPermuteScalarsGrouped(2, 3, 6, 7, diff).StoreArray((*[8]float32)(p[8:16]))
+	}
+	archsimd.ClearAVXUpperBits()
+	if i+2 <= n0 {
+		scale4 := broadcastF32x4Arch(haar1Scale)
+		p := x[4*i : 4*i+8 : 4*i+8]
+		a := archsimd.LoadFloat32x4Array((*[4]float32)(p[0:4]))
+		b := archsimd.LoadFloat32x4Array((*[4]float32)(p[4:8]))
+		lo := a.ConcatPermuteScalars(0, 1, 4, 5, b)
+		hi := a.ConcatPermuteScalars(2, 3, 6, 7, b)
+		sum, diff := haar1ScaledPairVectors(lo, hi, scale4)
+		sum.ConcatPermuteScalars(0, 1, 4, 5, diff).StoreArray((*[4]float32)(p[0:4]))
+		sum.ConcatPermuteScalars(2, 3, 6, 7, diff).StoreArray((*[4]float32)(p[4:8]))
+		i += 2
+	}
+	for ; i < n0; i++ {
+		off := 4 * i
+		haar1PairNorm(x, off, off+2, haar1Scale)
+		haar1PairNorm(x, off+1, off+3, haar1Scale)
+	}
 }
 
 //go:noinline
@@ -119,13 +161,47 @@ func haar1Stride2AVX(x []float32, n0 int) {
 }
 
 // haar1Stride4 runs haar1's stride-4 butterfly over n0 groups of eight,
-// pairing the low and high four lanes of each group.
+// pairing the low and high four lanes of each group; two groups per step on AVX2.
 func haar1Stride4(x []float32, n0 int) {
+	if haar1UsesAVX2 && n0 >= 2 {
+		haar1Stride4AVX2(x, n0)
+		return
+	}
 	if !archsimd.X86.AVX() {
 		haar1StrideScalarAMD64(x, n0, 4)
 		return
 	}
 	haar1Stride4AVX(x, n0)
+}
+
+//go:noinline
+func haar1Stride4AVX2(x []float32, n0 int) {
+	if n0 <= 0 {
+		return
+	}
+	x = x[:8*n0]
+	scale := archsimd.BroadcastFloat32x8(haar1Scale)
+	i := 0
+	for ; i+2 <= n0; i += 2 {
+		p := x[8*i : 8*i+16 : 8*i+16]
+		g0 := archsimd.LoadFloat32x8Array((*[8]float32)(p[0:8]))
+		g1 := archsimd.LoadFloat32x8Array((*[8]float32)(p[8:16]))
+		lo := g0.ConcatPermute128Scalars(0, 2, g1)
+		hi := g0.ConcatPermute128Scalars(1, 3, g1)
+		sum, diff := haar1ScaledPairVectors8(lo, hi, scale)
+		sum.ConcatPermute128Scalars(0, 2, diff).StoreArray((*[8]float32)(p[0:8]))
+		sum.ConcatPermute128Scalars(1, 3, diff).StoreArray((*[8]float32)(p[8:16]))
+	}
+	archsimd.ClearAVXUpperBits()
+	if i < n0 {
+		scale4 := broadcastF32x4Arch(haar1Scale)
+		p := x[8*i : 8*i+8 : 8*i+8]
+		lo := archsimd.LoadFloat32x4Array((*[4]float32)(p[0:4]))
+		hi := archsimd.LoadFloat32x4Array((*[4]float32)(p[4:8]))
+		sum, diff := haar1ScaledPairVectors(lo, hi, scale4)
+		sum.StoreArray((*[4]float32)(p[0:4]))
+		diff.StoreArray((*[4]float32)(p[4:8]))
+	}
 }
 
 //go:noinline
