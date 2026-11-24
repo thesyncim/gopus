@@ -38,6 +38,32 @@ func bflyHalfSub4AMD64(a, b, half archsimd.Float32x4) archsimd.Float32x4 {
 	return negF32x4AVX(half).MulAdd(b, a)
 }
 
+func bflyMulSource8AMD64(ar, ai, wr, wi archsimd.Float32x8) (re, im archsimd.Float32x8) {
+	re = ar.MulAdd(wr, ai.Mul(wi).Neg())
+	im = ar.MulAdd(wi, ai.Mul(wr))
+	return re, im
+}
+
+func bflyMulSource8UnfusedAMD64(ar, ai, wr, wi archsimd.Float32x8) (re, im archsimd.Float32x8) {
+	return ar.Mul(wr).Sub(ai.Mul(wi)), ar.Mul(wi).Add(ai.Mul(wr))
+}
+
+func bflyMulSource8FusedAMD64(ar, ai, wr, wi archsimd.Float32x8) (re, im archsimd.Float32x8) {
+	return bflyMulSource8AMD64(ar, ai, wr, wi)
+}
+
+func bflyMulAddSource8AMD64(a, b, c, d archsimd.Float32x8) archsimd.Float32x8 {
+	return a.MulAdd(b, c.Mul(d))
+}
+
+func bflyMulSubSource8AMD64(a, b, c, d archsimd.Float32x8) archsimd.Float32x8 {
+	return a.MulAdd(b, c.Mul(d).Neg())
+}
+
+func bflyHalfSub8AMD64(a, b, half archsimd.Float32x8) archsimd.Float32x8 {
+	return half.Neg().MulAdd(b, a)
+}
+
 // GCC vectorizes celt/kiss_fft.c's radix-2 m==4 loop in four-group blocks.
 // The final one to three groups use the scalar tail, whose twiddle products
 // round before the output add/subtract.
