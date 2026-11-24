@@ -11,3 +11,7 @@ import "simd/archsimd"
 func analysisAtan2PolyTermSIMD(p, q, c archsimd.Float32x4) archsimd.Float32x4 {
 	return q.MulAdd(c, p)
 }
+
+func analysisAtan2PolyTermSIMD8(p, q, c archsimd.Float32x8) archsimd.Float32x8 {
+	return q.MulAdd(c, p)
+}

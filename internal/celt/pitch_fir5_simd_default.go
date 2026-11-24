@@ -10,6 +10,10 @@ func celtFIR5Accumulate(sum, coefficient, previous archsimd.Float32x4) archsimd.
 	return sum.Add(coefficient.Mul(previous))
 }
 
+func celtFIR5Accumulate8(sum, coefficient, previous archsimd.Float32x8) archsimd.Float32x8 {
+	return sum.Add(coefficient.Mul(previous))
+}
+
 // celtFIR5Head filters the first n <= 8 samples of x, whose inputs are still
 // unmodified, from the last one down. The leading outputs read the zero filter
 // memory, which m holds ahead of the inputs: m[k] is x[k-5].

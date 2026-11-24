@@ -12,6 +12,10 @@ func celtFIR5Accumulate(sum, coefficient, previous archsimd.Float32x4) archsimd.
 	return coefficient.MulAdd(previous, sum)
 }
 
+func celtFIR5Accumulate8(sum, coefficient, previous archsimd.Float32x8) archsimd.Float32x8 {
+	return coefficient.MulAdd(previous, sum)
+}
+
 // celtFIR5Head filters the unprocessed prefix using the same five fused MACs
 // per output as celt_fir5. celtFIR5AVX leaves at most eight prefix samples;
 // the local window preserves them while overlapping vectors are evaluated.
