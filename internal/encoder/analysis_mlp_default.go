@@ -1,4 +1,4 @@
-//go:build !(arm64 && goexperiment.simd && !nosimd && !purego)
+//go:build !((arm64 || amd64) && goexperiment.simd && !nosimd && !purego)
 
 package encoder
 
