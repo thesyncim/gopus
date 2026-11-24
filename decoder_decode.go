@@ -355,25 +355,12 @@ func (d *Decoder) decodeMultiFrameFloat32(pcm []float32, data []byte, toc *TOC, 
 		padding := 0
 
 		if hasPadding {
-			for {
-				if offset >= len(data) {
-					return 0, ErrPacketTooShort
-				}
-				padByte := int(data[offset])
-				offset++
-				if padByte == 255 {
-					padding += 254
-				} else {
-					padding += padByte
-				}
-				if padByte < 255 {
-					break
-				}
+			var err error
+			offset, padding, err = parseCode3Padding(data, offset)
+			if err != nil {
+				return 0, err
 			}
 			if extsupport.QEXT && !d.ignoreExtensions && toc.Mode != ModeSILK {
-				if padding > len(data) {
-					return 0, ErrInvalidPacket
-				}
 				qextPayloads.collect(data[len(data)-padding:], m, qextPacketExtensionID)
 			}
 		}

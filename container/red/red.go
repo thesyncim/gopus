@@ -193,7 +193,7 @@ func BuildAppend(dst []byte, primary []byte, primaryTimestamp uint32, history []
 		} else {
 			primary = snapshotIfOverlapping(dst[:needed], primary)
 		}
-		out = append(dst[:0], primaryPayloadType)
+		out = append(dst[:0], primaryPayloadType&0x7f)
 		return append(out, primary...), 0
 	}
 	if depth > MaxDepth {
@@ -228,7 +228,7 @@ func BuildAppend(dst []byte, primary []byte, primaryTimestamp uint32, history []
 		} else {
 			primary = snapshotIfOverlapping(dst[:needed], primary)
 		}
-		out = append(dst[:0], primaryPayloadType)
+		out = append(dst[:0], primaryPayloadType&0x7f)
 		return append(out, primary...), 0
 	}
 	needed := len(primary) + 1 + 4*nc
@@ -262,7 +262,7 @@ func BuildAppend(dst []byte, primary []byte, primaryTimestamp uint32, history []
 		)
 		redundantBytes += blen
 	}
-	out = append(out, primaryPayloadType)
+	out = append(out, primaryPayloadType&0x7f)
 	for i := 0; i < nc; i++ {
 		out = append(out, cands[i].payload...)
 	}

@@ -171,18 +171,21 @@ Across the entire repository, only **one production file** imports `"unsafe"`:
 
 ## Performance
 
-Measured on **Apple M4 Max (`darwin/arm64`)**, **Go 1.27.4**, **Apple Clang 21.0.0**, `GOMAXPROCS=1`, running pinned libopus 1.6.1 immediately before gopus per case (medians across 5 runs of ≥500 ms). Go uses the checked-in `default.pgo` and `GOEXPERIMENT=simd`; C uses `-O3` with NEON. Every Go row reports **0 B/op, 0 allocs/op**. Lower `ns/sample` and ratios below `1.00×` mean gopus is faster.
+Go (`GOEXPERIMENT=simd`, `default.pgo`, **0 B/op, 0 allocs/op** on every row) vs pinned libopus 1.6.1 SIMD (`-O3`, NEON on `arm64`, SSE/AVX2 on `amd64`), measured with `Go 1.27.4` running C immediately before Go per case. Lower ratios (`< 1.00×`) mean gopus is faster.
 
-| Workload | C SIMD (ns/sample) | Go SIMD (ns/sample) | Go / C | Result |
-|---|---:|---:|---:|---|
-| Encode aggregate | 150.30 | **132.80** | **0.88×** | **Go faster (−11.6%)** |
-| Encode CELT, 20 ms stereo, 128 kbps | 77.21 | **73.83** | **0.96×** | **Go faster (−4.4%)** |
-| Encode CELT, 5 ms mono, 64 kbps | 34.58 | 35.29 | 1.02× | ~parity (+2.1%) |
-| Encode SILK, WB 20 ms mono, 32 kbps | 349.03 | **290.23** | **0.83×** | **Go faster (−16.8%)** |
-| Encode Hybrid, 20 ms mono, 64 kbps | 182.54 | **163.14** | **0.89×** | **Go faster (−10.6%)** |
-| Encode Hybrid, 20 ms stereo, 96 kbps | 94.10 | **93.03** | **0.99×** | **Go faster (−1.1%)** |
-| Decode RFC 8251 vectors (float32, 20,075 pkts) | 19.17 | **17.93** | **0.94×** | **Go faster (−6.5%)** |
-| Decode RFC 8251 vectors (int16, 20,075 pkts) | 19.16 | 19.64 | 1.03× | ~parity (+2.5%) |
+- **`arm64`**: Apple M4 Max (`darwin/arm64`), Apple Clang 21.0.0, `GOMAXPROCS=1`, medians across 5 runs of ≥500 ms.
+- **`amd64`**: Intel Xeon Platinum 8573C (`linux/amd64`), GCC 13.3.0, `GOAMD64=v1`, GitHub Actions `test-linux-simd-ab` paired run (3 × 250 ms).
+
+| Workload | `arm64` C / Go (ns/sample) | `arm64` Go / C | `amd64` C / Go (ns/sample) | `amd64` Go / C |
+|---|---:|---:|---:|---:|
+| Encode aggregate | 150.30 / **132.80** | **0.88×** | 213.02 / **187.38** | **0.88×** |
+| Encode CELT, 20 ms stereo, 128 kbps | 77.21 / **73.83** | **0.96×** | 148.69 / **133.69** | **0.90×** |
+| Encode CELT, 5 ms mono, 64 kbps | 34.58 / 35.29 | 1.02× | 81.24 / **76.51** | **0.94×** |
+| Encode SILK, WB 20 ms mono, 32 kbps | 349.03 / **290.23** | **0.83×** | 418.04 / **352.96** | **0.84×** |
+| Encode Hybrid, 20 ms mono, 64 kbps | 182.54 / **163.14** | **0.89×** | 249.09 / **225.15** | **0.90×** |
+| Encode Hybrid, 20 ms stereo, 96 kbps | 94.10 / **93.03** | **0.99×** | 168.02 / **148.59** | **0.88×** |
+| Decode RFC 8251 vectors (float32, 20,075 pkts) | 19.17 / **17.93** | **0.94×** | 38.04 / **36.88** | **0.97×** |
+| Decode RFC 8251 vectors (int16, 20,075 pkts) | 19.16 / 19.64 | 1.03× | 42.21 / 42.26 | 1.00× |
 
 Detailed scalar, PGO-off, short-frame, and native AMD EPYC 7763 (`amd64`) numbers live in [reports/benchmarks/2026-10-23-m4/README.md](reports/benchmarks/2026-10-23-m4/README.md) and [reports/validation.md#performance](reports/validation.md#performance).
 
