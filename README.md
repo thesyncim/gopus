@@ -18,7 +18,7 @@ Pure-Go implementation of the Opus audio codec (RFC 6716 / RFC 8251) — no cgo,
 Requires **Go 1.27.4** or newer.
 
 ```sh
-go get github.com/thesyncim/gopus@v0.2.5
+go get github.com/thesyncim/gopus@v0.2.6
 ```
 
 ## Quick start
@@ -271,7 +271,7 @@ API is pre-v1 (`v0.1.0` is retracted). Each release requires green CI on the tag
 - `test-windows`
 <!-- required-checks:end -->
 
-- Latest release: [v0.2.5](https://github.com/thesyncim/gopus/releases/tag/v0.2.5)
+- Latest release: [v0.2.6](https://github.com/thesyncim/gopus/releases/tag/v0.2.6)
 - Security: [SECURITY.md](SECURITY.md)
 - Contributing: [CONTRIBUTING.md](CONTRIBUTING.md) · [Code of Conduct](CODE_OF_CONDUCT.md)
 - License: [LICENSE](LICENSE)
