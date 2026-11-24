@@ -117,6 +117,91 @@ func quantCoarseEnergyImpl(
 		_ = error[maxIdx]
 	}
 
+	if channels == 1 && start < end {
+		eB := eBands[:end:end]
+		oldB := oldEBands[:end:end]
+		errB := error[:end:end]
+		var prev0 float32
+		const minEnergy = float32(-9.0)
+		const minDecay = float32(-28.0)
+		for i := start; i < end; i++ {
+			x := eB[i]
+			oldEBandVal := oldB[i]
+			oldE := oldEBandVal
+			if oldE < minEnergy {
+				oldE = minEnergy
+			}
+			f, oldProduct := quantCoarseEnergyResidual32(x, coef, oldE, prev0)
+			qi := floor32ToInt(f + 0.5)
+			decayBound := oldEBandVal
+			if decayBound < minDecay {
+				decayBound = minDecay
+			}
+			decayBound -= maxDecay
+			if qi < 0 && x < decayBound {
+				qi += int(decayBound - x)
+				if qi > 0 {
+					qi = 0
+				}
+			}
+			qi0 := qi
+			tellNow := re.Tell()
+			remaining := budget - tellNow
+			bitsLeft := remaining - 3*(end-i)
+			if i != start && bitsLeft < 30 {
+				if bitsLeft < 24 && qi > 1 {
+					qi = 1
+				}
+				if bitsLeft < 16 && qi < -1 {
+					qi = -1
+				}
+			}
+			if lfe && i >= 2 && qi > 0 {
+				qi = 0
+			}
+			if remaining >= 15 {
+				pi := min(2*i, 40)
+				fs := int(probModel[pi]) << 7
+				decay := int(probModel[pi+1]) << 6
+				qi = encodeLaplaceEnergy(re, qi, fs, decay)
+			} else if remaining >= 2 {
+				if qi > 1 {
+					qi = 1
+				}
+				if qi < -1 {
+					qi = -1
+				}
+				var s int
+				if qi < 0 {
+					s = -2*qi - 1
+				} else {
+					s = 2 * qi
+				}
+				re.EncodeICDF(s, smallEnergyICDF, 2)
+			} else if remaining >= 1 {
+				if qi > 0 {
+					qi = 0
+				}
+				re.EncodeBit(-qi, 1)
+			} else {
+				qi = -1
+			}
+			errB[i] = celtGLog(f - float32(qi))
+			if qi0 > qi {
+				badness += qi0 - qi
+			} else {
+				badness += qi - qi0
+			}
+			q := float32(qi)
+			oldB[i] = celtGLog(quantCoarseEnergyReconstruct32(oldProduct, coef, oldE, prev0, q))
+			prev0 = quantCoarseEnergyUpdate32(prev0, q, beta)
+		}
+		if lfe {
+			return 0
+		}
+		return badness
+	}
+
 	for i := start; i < end; i++ {
 		for c := range channels {
 			idx := c*nbEBands + i

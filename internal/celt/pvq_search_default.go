@@ -21,6 +21,12 @@ func pvqRestoreSigns(iy []int32, signx []byte, n int) {
 // pvqSearchPulseLoop places pulsesLeft pulses using the rate-distortion
 // criterion. Go fallback for non-SIMD architectures.
 func pvqSearchPulseLoop(absX, y []float32, iy []int32, xy, yy float32, n, pulsesLeft int) (float32, float32) {
+	if n <= 0 || pulsesLeft <= 0 {
+		return xy, yy
+	}
+	absX = absX[:n:n]
+	y = y[:n:n]
+	iy = iy[:n:n]
 	for i := 0; i < pulsesLeft; i++ {
 		yy += 1
 

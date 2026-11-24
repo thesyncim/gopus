@@ -763,7 +763,17 @@ func cwrsiTableLookup32(n, k int, i uint32, y []int32) uint32 {
 	if n <= 0 || k <= 0 || len(y) < n {
 		return 0
 	}
-	y = y[:n]
+	y = y[:n:n]
+
+	if k == 1 && i < 2*uint32(n) {
+		clear(y)
+		if i < uint32(n) {
+			y[i] = 1
+		} else {
+			y[2*uint32(n)-1-i] = -1
+		}
+		return 1
+	}
 
 	var yy uint32
 	j := 0
@@ -834,8 +844,19 @@ func cwrsiTableLookup32(n, k int, i uint32, y []int32) uint32 {
 		y[j] = int32(yj)
 		yy += uint32(yj * yj)
 		j++
-		if k == 0 {
+		if k <= 1 {
 			clear(y[j:])
+			if k == 1 {
+				rem := uint32(nCur - 1)
+				if i < rem {
+					y[j+int(i)] = 1
+					return yy + 1
+				}
+				if i < 2*rem {
+					y[j+int(2*rem-1-i)] = -1
+					return yy + 1
+				}
+			}
 			return yy
 		}
 	}
@@ -916,24 +937,42 @@ func icwrsLookupFast32(n, k int, y []int32) (uint32, bool) {
 	if len(y) < n || !canUseICWRSLookupFast(n, k) {
 		return 0, false
 	}
-	y = y[:n]
+	y = y[:n:n]
+	if k == 1 {
+		for idx, v := range y {
+			if v != 0 {
+				if v > 0 {
+					return uint32(idx), true
+				}
+				return uint32(2*n - 1 - idx), true
+			}
+		}
+		return 0, true
+	}
 	last := y[n-1]
 	i := uint32(last) >> 31
 	k1 := int(absInt32(last))
 	remDims := 2
-	for ; remDims <= min(n, pvqUSymRows-1); remDims++ {
+	// Skip trailing zeros where k1 == 0 (U(remDims, 0) == 0).
+	if k1 == 0 {
+		for remDims <= n && y[n-remDims] == 0 {
+			remDims++
+		}
+	}
+	limitSym := min(n, pvqUSymRows-1)
+	for ; remDims <= limitSym; remDims++ {
 		v := y[n-remDims]
 		row := &pvqUSym[remDims]
-		i += row[k1]
+		i += row[k1&255]
 		k1 += int(absInt32(v))
-		i += row[k1+1] & uint32(v>>31)
+		i += row[(k1+1)&255] & uint32(v>>31)
 	}
 	for ; remDims <= n; remDims++ {
 		v := y[n-remDims]
-		col := &pvqUCol[remDims]
-		i += col[k1]
+		col := &pvqUCol[remDims&255]
+		i += col[k1&15]
 		k1 += int(absInt32(v))
-		i += col[k1+1] & uint32(v>>31)
+		i += col[(k1+1)&15] & uint32(v>>31)
 	}
 	return i, true
 }

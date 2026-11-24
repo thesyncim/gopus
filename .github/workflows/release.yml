@@ -76,8 +76,8 @@ jobs:
           # fixedpoint), and test-macos/test-windows run the exhaustive tier. They
           # are the authoritative, arch-matched codec gate, so a release publishes
           # only when they are green on the exact commit the tag points at.
-          latest="$(gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/commits/${sha}/check-runs?per_page=100" \
-            --jq '[.[].check_runs[] | {name, conclusion, started_at}] | group_by(.name) | map(max_by(.started_at)) | .[] | [.name, .conclusion] | @tsv')"
+          latest="$(gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/commits/${sha}/check-runs?per_page=100" | \
+            jq -r '[.[].check_runs[] | {name, conclusion, started_at}] | group_by(.name) | map(max_by(.started_at)) | .[] | [.name, .conclusion] | @tsv')"
           printf '%s\n' "${latest}"
 
           fail=0

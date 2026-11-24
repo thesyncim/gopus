@@ -445,20 +445,50 @@ func (e *Encoder) transientAnalysisMonoFloat32(pcm []float32, frameSize int, all
 		hp1 = x1 - hp00
 		energy[i] = 0
 	}
-	for i := warm; i < len2; i++ {
+	i := warm
+	for ; i+1 < len2; i += 2 {
 		j := i << 1
+		s := src[j : j+4 : j+4]
+		x0, x1, x2, x3 := s[0], s[1], s[2], s[3]
 
-		x0 := src[j]
 		y0 := hp0 + x0
 		hp00 := hp0
 		hp0 = hp0 - x0 + hpFeedback*hp1
 		hp1 = x0 - hp00
 
-		x1 := src[j+1]
 		y1 := hp0 + x1
 		hp00 = hp0
 		hp0 = hp0 - x1 + hpFeedback*hp1
 		hp1 = x1 - hp00
+
+		pair0 := y0*y0 + y1*y1
+		mean += pair0
+		mask = pair0 + forwardRetain*mask
+		energy[i] = forwardDecay * mask
+
+		y2 := hp0 + x2
+		hp00 = hp0
+		hp0 = hp0 - x2 + hpFeedback*hp1
+		hp1 = x2 - hp00
+
+		y3 := hp0 + x3
+		hp00 = hp0
+		hp0 = hp0 - x3 + hpFeedback*hp1
+		hp1 = x3 - hp00
+
+		pair1 := y2*y2 + y3*y3
+		mean += pair1
+		mask = pair1 + forwardRetain*mask
+		energy[i+1] = forwardDecay * mask
+	}
+	if i < len2 {
+		j := i << 1
+		x0 := src[j]
+		y0 := hp0 + x0
+		hp0 = hp0 - x0 + hpFeedback*hp1
+
+		x1 := src[j+1]
+		y1 := hp0 + x1
 
 		pair := y0*y0 + y1*y1
 		mean += pair
@@ -468,11 +498,24 @@ func (e *Encoder) transientAnalysisMonoFloat32(pcm []float32, frameSize int, all
 
 	var maxE float32
 	mask = 0
-	for i := len2; i > 0; {
-		i--
-		mask = energy[i] + backwardRetain*mask
+	bi := len2
+	for ; bi >= 2; bi -= 2 {
+		e1 := energy[bi-1]
+		e0 := energy[bi-2]
+		mask = e1 + backwardRetain*mask
+		ei1 := backwardScale * mask
+		energy[bi-1] = ei1
+		maxE = opusmath.MaxF32(maxE, ei1)
+
+		mask = e0 + backwardRetain*mask
+		ei0 := backwardScale * mask
+		energy[bi-2] = ei0
+		maxE = opusmath.MaxF32(maxE, ei0)
+	}
+	if bi == 1 {
+		mask = energy[0] + backwardRetain*mask
 		ei := backwardScale * mask
-		energy[i] = ei
+		energy[0] = ei
 		maxE = opusmath.MaxF32(maxE, ei)
 	}
 
@@ -873,6 +916,7 @@ func PatchTransientDecisionWithScratch(newE []celtGLog, oldE []celtGLog, nbEBand
 	}
 
 	// Backward pass: spread from high to low frequencies
+	spreadOld = spreadOld[:end:end]
 	for i := end - 2; i >= start; i-- {
 		if v := spreadOld[i+1] - 1.0; v > spreadOld[i] {
 			spreadOld[i] = v
@@ -883,9 +927,10 @@ func PatchTransientDecisionWithScratch(newE []celtGLog, oldE []celtGLog, nbEBand
 	var meanDiff celtGLog
 	startBand := max(start, 2)
 
-	for c := range channels {
+	if channels == 1 {
+		newE = newE[:end:end]
 		for i := startBand; i < end-1; i++ {
-			x1 := newE[i+c*nbEBands]
+			x1 := newE[i]
 			if x1 < 0 {
 				x1 = 0
 			}
@@ -895,6 +940,23 @@ func PatchTransientDecisionWithScratch(newE []celtGLog, oldE []celtGLog, nbEBand
 			}
 			if diff := x1 - x2; diff > 0 {
 				meanDiff += diff
+			}
+		}
+	} else {
+		for c := range channels {
+			base := c * nbEBands
+			for i := startBand; i < end-1; i++ {
+				x1 := newE[base+i]
+				if x1 < 0 {
+					x1 = 0
+				}
+				x2 := spreadOld[i]
+				if x2 < 0 {
+					x2 = 0
+				}
+				if diff := x1 - x2; diff > 0 {
+					meanDiff += diff
+				}
 			}
 		}
 	}

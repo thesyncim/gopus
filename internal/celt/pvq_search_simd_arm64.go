@@ -198,7 +198,7 @@ func pvqSearchPulseLoop(absX, y []float32, iy []int32, xy, yy float32, n, pulses
 		bestDen := ryy
 
 		j := 1
-		if n >= 16 {
+		if n >= 8 {
 			xy4 := archsimd.BroadcastFloat32x4(xy)
 			yy4 := archsimd.BroadcastFloat32x4(yy)
 			bestNum4 := archsimd.BroadcastFloat32x4(bestNum)
@@ -218,15 +218,16 @@ func pvqSearchPulseLoop(absX, y []float32, iy []int32, xy, yy float32, n, pulses
 					if mAll.GetElem(0)|mAll.GetElem(1) != 0 {
 						m0u := m0.ToBits().ReshapeToUint64s()
 						if m0u.GetElem(0)|m0u.GetElem(1) != 0 {
+							var yArr, nArr [4]float32
+							ryy0.StoreArray(&yArr)
+							num0.StoreArray(&nArr)
 							for k := range 4 {
-								idx := j + k
-								rk := xy + absX[idx]
-								yk := yy + y[idx]
-								nk := rk * rk
+								yk := yArr[k]
+								nk := nArr[k]
 								if bestDen*nk > yk*bestNum {
 									bestDen = yk
 									bestNum = nk
-									bestID = idx
+									bestID = j + k
 								}
 							}
 							bestNum4 = archsimd.BroadcastFloat32x4(bestNum)
@@ -235,15 +236,16 @@ func pvqSearchPulseLoop(absX, y []float32, iy []int32, xy, yy float32, n, pulses
 						}
 						m1u := m1.ToBits().ReshapeToUint64s()
 						if m1u.GetElem(0)|m1u.GetElem(1) != 0 {
+							var yArr, nArr [4]float32
+							ryy1.StoreArray(&yArr)
+							num1.StoreArray(&nArr)
 							for k := range 4 {
-								idx := j + 4 + k
-								rk := xy + absX[idx]
-								yk := yy + y[idx]
-								nk := rk * rk
+								yk := yArr[k]
+								nk := nArr[k]
 								if bestDen*nk > yk*bestNum {
 									bestDen = yk
 									bestNum = nk
-									bestID = idx
+									bestID = j + 4 + k
 								}
 							}
 							bestNum4 = archsimd.BroadcastFloat32x4(bestNum)
@@ -258,15 +260,16 @@ func pvqSearchPulseLoop(absX, y []float32, iy []int32, xy, yy float32, n, pulses
 				num4 := rxy4.Mul(rxy4)
 				m := bestDen4.Mul(num4).Greater(ryy4.Mul(bestNum4)).ToInt32x4().ToBits().ReshapeToUint64s()
 				if m.GetElem(0)|m.GetElem(1) != 0 {
+					var yArr, nArr [4]float32
+					ryy4.StoreArray(&yArr)
+					num4.StoreArray(&nArr)
 					for k := range 4 {
-						idx := j + k
-						rk := xy + absX[idx]
-						yk := yy + y[idx]
-						nk := rk * rk
+						yk := yArr[k]
+						nk := nArr[k]
 						if bestDen*nk > yk*bestNum {
 							bestDen = yk
 							bestNum = nk
-							bestID = idx
+							bestID = j + k
 						}
 					}
 					bestNum4 = archsimd.BroadcastFloat32x4(bestNum)
