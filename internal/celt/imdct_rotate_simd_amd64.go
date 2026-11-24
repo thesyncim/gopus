@@ -59,7 +59,7 @@ func imdctPostRotateF32FromKissAVX2(buf []float32, fft []float32, trig []float32
 	buf = buf[:n2]
 	ff := fft[:2*n4]
 	trig = trig[:n2]
-	perm0213 := archsimd.LoadUint64x4Array(&kfBflyPerm0213U64x4)
+	perm0213 := archsimd.LoadUint32x8Array(&kfBflyPerm0213U32x8)
 
 	i := 0
 	for ; i+8 <= limit; i += 8 {
@@ -203,7 +203,7 @@ func imdctPreRotateNoFMAAVX2(fftIn []float32, spectrum []float32, trig []float32
 	spectrum = spectrum[:max(n2, 2*n4)]
 	trig = trig[:n2]
 	outF := fftIn[:2*n4]
-	perm0213 := archsimd.LoadUint64x4Array(&kfBflyPerm0213U64x4)
+	perm0213 := archsimd.LoadUint32x8Array(&kfBflyPerm0213U32x8)
 
 	i := 0
 	for ; i+8 <= n4; i += 8 {

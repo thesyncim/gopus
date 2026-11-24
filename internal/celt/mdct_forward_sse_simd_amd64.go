@@ -26,7 +26,7 @@ func mdctMidRotateSSE(fftStage []float32, bitrev []int, in, trig []float32, i0, 
 	br := bitrev[i0 : i0+4*blocks]
 	b := 0
 	if mdctUseAVX2Forward && blocks >= 2 {
-		perm0213 := archsimd.LoadUint64x4Array(&kfBflyPerm0213U64x4)
+		perm0213 := archsimd.LoadUint32x8Array(&kfBflyPerm0213U32x8)
 		s8 := archsimd.BroadcastFloat32x8(scale)
 		for ; b+2 <= blocks; b += 2 {
 			i := i0 + 4*b
@@ -74,7 +74,7 @@ func mdctPostTwiddleSSE(coeffs []float32, fftStage []float32, trig []float32, n2
 	}
 	b := 0
 	if mdctUseAVX2Forward && pairBlocks >= 2 {
-		perm0213 := archsimd.LoadUint64x4Array(&kfBflyPerm0213U64x4)
+		perm0213 := archsimd.LoadUint32x8Array(&kfBflyPerm0213U32x8)
 		for ; b+2 <= pairBlocks; b += 2 {
 			i := 4 * b
 			m := n4 - 8 - i
@@ -158,17 +158,17 @@ func mdctEvenDesc(s []float32) archsimd.Float32x4 {
 }
 
 // mdctEvenAsc8 returns s[0], s[2], s[4], s[6], s[8], s[10], s[12], s[14].
-func mdctEvenAsc8(s []float32, perm0213 archsimd.Uint64x4) archsimd.Float32x8 {
+func mdctEvenAsc8(s []float32, perm0213 archsimd.Uint32x8) archsimd.Float32x8 {
 	lo := archsimd.LoadFloat32x8Array((*[8]float32)(s[0:]))
 	hi := archsimd.LoadFloat32x8Array((*[8]float32)(s[8:]))
-	return lo.ConcatPermuteScalarsGrouped(0, 2, 4, 6, hi).AsUint64x4().Permute(perm0213).AsFloat32x8()
+	return lo.ConcatPermuteScalarsGrouped(0, 2, 4, 6, hi).Permute(perm0213)
 }
 
 // mdctEvenDesc8 returns s[15], s[13], s[11], s[9], s[7], s[5], s[3], s[1].
-func mdctEvenDesc8(s []float32, perm0213 archsimd.Uint64x4) archsimd.Float32x8 {
+func mdctEvenDesc8(s []float32, perm0213 archsimd.Uint32x8) archsimd.Float32x8 {
 	lo := archsimd.LoadFloat32x8Array((*[8]float32)(s[0:]))
 	hi := archsimd.LoadFloat32x8Array((*[8]float32)(s[8:]))
-	odd := lo.ConcatPermuteScalarsGrouped(1, 3, 5, 7, hi).AsUint64x4().Permute(perm0213).AsFloat32x8()
+	odd := lo.ConcatPermuteScalarsGrouped(1, 3, 5, 7, hi).Permute(perm0213)
 	return reverseF32x8(odd)
 }
 
@@ -222,7 +222,7 @@ func mdctLeadFoldSSE(fftStage []float32, bitrev []int, samples, window, trig []f
 	br := bitrev[i0 : i0+4*blocks]
 	b := 0
 	if mdctUseAVX2Forward && blocks >= 2 {
-		perm0213 := archsimd.LoadUint64x4Array(&kfBflyPerm0213U64x4)
+		perm0213 := archsimd.LoadUint32x8Array(&kfBflyPerm0213U32x8)
 		s8 := archsimd.BroadcastFloat32x8(scale)
 		for ; b+2 <= blocks; b += 2 {
 			d := 8 * b
@@ -279,7 +279,7 @@ func mdctTailFoldSSE(fftStage []float32, bitrev []int, samples, window, trig []f
 	br := bitrev[i0 : i0+4*blocks]
 	b := 0
 	if mdctUseAVX2Forward && blocks >= 2 {
-		perm0213 := archsimd.LoadUint64x4Array(&kfBflyPerm0213U64x4)
+		perm0213 := archsimd.LoadUint32x8Array(&kfBflyPerm0213U32x8)
 		s8 := archsimd.BroadcastFloat32x8(scale)
 		for ; b+2 <= blocks; b += 2 {
 			d := 8 * b

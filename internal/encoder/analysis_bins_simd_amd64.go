@@ -8,8 +8,8 @@ import "simd/archsimd"
 // their API lists AVX (golang/go#81405). Keep this kernel behind AVX2.
 var analysisBinsUseAVX2 = archsimd.X86.AVX2() && (!analysisAvgModFMAEnabled || archsimd.X86.FMA())
 
-var analysisPerm0213U64x4 = [4]uint64{0, 2, 1, 3}
-var analysisPerm2031U64x4 = [4]uint64{2, 0, 3, 1}
+var analysisPerm0213U32x8 = [8]uint32{0, 1, 4, 5, 2, 3, 6, 7}
+var analysisPerm2031U32x8 = [8]uint32{4, 5, 0, 1, 6, 7, 2, 3}
 
 func (s *TonalityAnalysisState) analysisBinsSIMD(out *[960]float32, tonality, tonality2, noisiness []float32) int {
 	if !analysisBinsUseAVX2 {
@@ -30,8 +30,8 @@ func (s *TonalityAnalysisState) analysisBinsAVX2(out *[960]float32, tonality, to
 	tonality2 = tonality2[:240]
 	noisiness = noisiness[:240]
 	of := out[:]
-	perm0213 := archsimd.LoadUint64x4Array(&analysisPerm0213U64x4)
-	perm2031 := archsimd.LoadUint64x4Array(&analysisPerm2031U64x4)
+	perm0213 := archsimd.LoadUint32x8Array(&analysisPerm0213U32x8)
+	perm2031 := archsimd.LoadUint32x8Array(&analysisPerm2031U32x8)
 	scale8 := archsimd.BroadcastFloat32x8(analysisAtanScale)
 	quarter8 := archsimd.BroadcastFloat32x8(0.25)
 	two8 := archsimd.BroadcastFloat32x8(2)
@@ -43,13 +43,13 @@ func (s *TonalityAnalysisState) analysisBinsAVX2(out *[960]float32, tonality, to
 	for ; i+8 <= 237; i += 8 {
 		lo := archsimd.LoadFloat32x8Array((*[8]float32)(of[2*i:]))
 		hi := archsimd.LoadFloat32x8Array((*[8]float32)(of[2*i+8:]))
-		re := lo.ConcatPermuteScalarsGrouped(0, 2, 4, 6, hi).AsUint64x4().Permute(perm0213).AsFloat32x8()
-		im := lo.ConcatPermuteScalarsGrouped(1, 3, 5, 7, hi).AsUint64x4().Permute(perm0213).AsFloat32x8()
+		re := lo.ConcatPermuteScalarsGrouped(0, 2, 4, 6, hi).Permute(perm0213)
+		im := lo.ConcatPermuteScalarsGrouped(1, 3, 5, 7, hi).Permute(perm0213)
 		// Mirror bins 480-i-k for lanes k = 0..7.
 		mlo := archsimd.LoadFloat32x8Array((*[8]float32)(of[2*(473-i):]))
 		mhi := archsimd.LoadFloat32x8Array((*[8]float32)(of[2*(477-i):]))
-		reM := mhi.ConcatPermuteScalarsGrouped(2, 0, 6, 4, mlo).AsUint64x4().Permute(perm2031).AsFloat32x8()
-		imM := mhi.ConcatPermuteScalarsGrouped(3, 1, 7, 5, mlo).AsUint64x4().Permute(perm2031).AsFloat32x8()
+		reM := mhi.ConcatPermuteScalarsGrouped(2, 0, 6, 4, mlo).Permute(perm2031)
+		imM := mhi.ConcatPermuteScalarsGrouped(3, 1, 7, 5, mlo).Permute(perm2031)
 
 		if analysisAvgModFMAEnabled {
 			imM.MulAdd(imM, im.MulAdd(im, re.MulAdd(re, reM.Mul(reM)))).StoreArray((*[8]float32)(s.scratchBinE[i : i+8]))

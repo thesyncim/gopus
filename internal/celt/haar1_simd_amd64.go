@@ -30,7 +30,7 @@ func haar1Stride1AVX2(x []float32, n0 int) {
 	}
 	x = x[:2*n0]
 	scale := archsimd.BroadcastFloat32x8(haar1Scale)
-	perm0213 := archsimd.LoadUint64x4Array(&kfBflyPerm0213U64x4)
+	perm0213 := archsimd.LoadUint32x8Array(&kfBflyPerm0213U32x8)
 	i := 0
 	for ; i+8 <= n0; i += 8 {
 		p := x[2*i : 2*i+16 : 2*i+16]

@@ -5,7 +5,7 @@ package celt
 import "simd/archsimd"
 
 var kfBflyUsesAVX2 = archsimd.X86.AVX2() && (!celtAMD64SIMDUseFMA || archsimd.X86.FMA())
-var kfBflyPerm0213U64x4 = [4]uint64{0, 2, 1, 3}
+var kfBflyPerm0213U32x8 = [8]uint32{0, 1, 4, 5, 2, 3, 6, 7}
 
 // The x86 inner butterflies process eight consecutive j values per block on
 // AVX2 (when m is a multiple of 8) or four on AVX1. The block loop runs
@@ -34,7 +34,7 @@ func kfBfly5InnerAVX2(fout []float32, w []kissCpx, m, N, mm, fstride int) {
 	yb := w[fstride*2*m]
 	yar, yai := archsimd.BroadcastFloat32x8(ya.r), archsimd.BroadcastFloat32x8(ya.i)
 	ybr, ybi := archsimd.BroadcastFloat32x8(yb.r), archsimd.BroadcastFloat32x8(yb.i)
-	perm0213 := archsimd.LoadUint64x4Array(&kfBflyPerm0213U64x4)
+	perm0213 := archsimd.LoadUint32x8Array(&kfBflyPerm0213U32x8)
 	m2 := 2 * m
 
 	for j := 0; j < m; j += 8 {
@@ -154,7 +154,7 @@ func kfBfly4InnerSIMD(fout []float32, w []kissCpx, m, N, mm, fstride int) {
 //go:noinline
 func kfBfly4InnerAVX2(fout []float32, w []kissCpx, m, N, mm, fstride int) {
 	ff := fout[:2*((N-1)*mm+4*m)]
-	perm0213 := archsimd.LoadUint64x4Array(&kfBflyPerm0213U64x4)
+	perm0213 := archsimd.LoadUint32x8Array(&kfBflyPerm0213U32x8)
 	m2 := 2 * m
 	for j := 0; j < m; j += 8 {
 		w1r, w1i := bflyGatherTwiddle8AMD64(w, j*fstride, fstride)
@@ -254,7 +254,7 @@ func kfBfly3InnerAVX2(fout []float32, w []kissCpx, m, N, mm, fstride int) {
 
 	epi3i := archsimd.BroadcastFloat32x8(w[fstride*m].i)
 	half := archsimd.BroadcastFloat32x8(0.5)
-	perm0213 := archsimd.LoadUint64x4Array(&kfBflyPerm0213U64x4)
+	perm0213 := archsimd.LoadUint32x8Array(&kfBflyPerm0213U32x8)
 	m2 := 2 * m
 	for j := 0; j < m; j += 8 {
 		w1r, w1i := bflyGatherTwiddle8AMD64(w, j*fstride, fstride)
@@ -359,11 +359,11 @@ func bflyGatherTwiddle4AMD64(w []kissCpx, start, stride int) (re, im archsimd.Fl
 	return re, im
 }
 
-func bflyLoadCpx8AMD64(s []float32, perm0213 archsimd.Uint64x4) (re, im archsimd.Float32x8) {
+func bflyLoadCpx8AMD64(s []float32, perm0213 archsimd.Uint32x8) (re, im archsimd.Float32x8) {
 	lo := archsimd.LoadFloat32x8Array((*[8]float32)(s[0:]))
 	hi := archsimd.LoadFloat32x8Array((*[8]float32)(s[8:]))
-	re = lo.ConcatPermuteScalarsGrouped(0, 2, 4, 6, hi).AsUint64x4().Permute(perm0213).AsFloat32x8()
-	im = lo.ConcatPermuteScalarsGrouped(1, 3, 5, 7, hi).AsUint64x4().Permute(perm0213).AsFloat32x8()
+	re = lo.ConcatPermuteScalarsGrouped(0, 2, 4, 6, hi).Permute(perm0213)
+	im = lo.ConcatPermuteScalarsGrouped(1, 3, 5, 7, hi).Permute(perm0213)
 	return re, im
 }
 

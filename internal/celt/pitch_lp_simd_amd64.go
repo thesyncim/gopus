@@ -6,7 +6,7 @@ import "simd/archsimd"
 
 var celtFIR5UsesAVX = archsimd.X86.AVX()
 var celtFIR5UsesAVX2 = archsimd.X86.AVX2() && (!celtFIR5UsesFMA || archsimd.X86.FMA())
-var pitchDownsamplePerm0213U64x4 = [4]uint64{0, 2, 1, 3}
+var pitchDownsamplePerm0213U32x8 = [8]uint32{0, 1, 4, 5, 2, 3, 6, 7}
 
 // celtFIR5F32 is libopus celt_fir5() applied in place to x. The filter has no
 // feedback: every output is x[i] plus the five taps on the original inputs
@@ -107,7 +107,7 @@ func pitchDownsample2(dst, x0, x1 []float32) {
 func pitchDownsample2AVX2(dst, x0, x1 []float32) int {
 	n := len(dst)
 	x0 = x0[:2*n]
-	perm0213 := archsimd.LoadUint64x4Array(&pitchDownsamplePerm0213U64x4)
+	perm0213 := archsimd.LoadUint32x8Array(&pitchDownsamplePerm0213U32x8)
 	q := archsimd.BroadcastFloat32x8(0.25)
 	h := archsimd.BroadcastFloat32x8(0.5)
 	decimate8 := func(w []float32) archsimd.Float32x8 {
@@ -116,9 +116,9 @@ func pitchDownsample2AVX2(dst, x0, x1 []float32) int {
 		b := archsimd.LoadFloat32x8Array((*[8]float32)(w[8:16]))
 		ar := archsimd.LoadFloat32x8Array((*[8]float32)(w[2:10]))
 		br := archsimd.LoadFloat32x8Array((*[8]float32)(w[10:18]))
-		left := a.ConcatPermuteScalarsGrouped(0, 2, 4, 6, b).AsUint64x4().Permute(perm0213).AsFloat32x8()
-		center := a.ConcatPermuteScalarsGrouped(1, 3, 5, 7, b).AsUint64x4().Permute(perm0213).AsFloat32x8()
-		right := ar.ConcatPermuteScalarsGrouped(0, 2, 4, 6, br).AsUint64x4().Permute(perm0213).AsFloat32x8()
+		left := a.ConcatPermuteScalarsGrouped(0, 2, 4, 6, b).Permute(perm0213)
+		center := a.ConcatPermuteScalarsGrouped(1, 3, 5, 7, b).Permute(perm0213)
+		right := ar.ConcatPermuteScalarsGrouped(0, 2, 4, 6, br).Permute(perm0213)
 		return q.Mul(left).Add(q.Mul(right)).Add(h.Mul(center))
 	}
 	i := 1
