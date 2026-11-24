@@ -683,7 +683,7 @@ func ConcealSILKWithLTPInto(dec SILKDecoderStateExtended, plcState *SILKPLCState
 	if !haveOutBufQ0 {
 		// Fallback for decoders that don't expose outBuf history.
 		outHistory := dec.OutputHistory()
-		if len(outHistory) > 0 {
+		if len(outHistory) > 0 && startIdx < ltpMemLength {
 			lpcAnalysisFilter(sLTP[startIdx:], outHistory, lpcQ12, ltpMemLength-startIdx, lpcOrder, startIdx)
 		}
 	}
@@ -1094,7 +1094,12 @@ func inverse32VarQ(b, qRes int32) int32 {
 
 	// Port of libopus silk_INVERSE32_varQ() from silk/Inlines.h.
 	bHeadrm := int32(clz32(abs32Int(b)) - 1)
-	bNrm := b << bHeadrm
+	var bNrm int32
+	if bHeadrm < 0 {
+		bNrm = b >> uint(-bHeadrm)
+	} else {
+		bNrm = b << uint(bHeadrm)
+	}
 
 	den := int16(bNrm >> 16)
 	if den == 0 {

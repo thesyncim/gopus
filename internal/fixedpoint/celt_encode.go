@@ -69,8 +69,14 @@ func (e *CELTEncoder) EncodeWithECRes(pcm []int32, frameSize int, enc *rangecodi
 			break
 		}
 	}
+	if LM > e.maxLM {
+		return -1
+	}
 	M := 1 << LM
 	N := M * shortMdctSize
+	if len(pcm) < C*(N/upsample) {
+		return -1
+	}
 
 	sc := e.ensureScratch()
 
@@ -682,8 +688,8 @@ func (e *CELTEncoder) EncodeWithECRes(pcm []int32, frameSize int, enc *rangecodi
 				e.forceIntra, e.complexity >= 4, 0, e.lfe, &qextDelayedIntra, sc)
 		}
 		qextTotalBitsQ3 := int32(qextBytes*(8<<bitRes)) - int32(enc.TellFrac()) - 1
-		computeQEXTExtraAllocationFixed(start, end, qextEnd, qextTotalBitsQ3, C, LM,
-			bandLogE, sc.qextBandLogE, e.logN, qextLogN, qextEdges, qextGeometry,
+		computeQEXTExtraAllocationFixedWithEdges(start, end, qextEnd, qextTotalBitsQ3, C, LM,
+			bandLogE, sc.qextBandLogE, e.eBands, nbEBands, e.logN, qextLogN, qextEdges, qextGeometry,
 			toneFreq, toneishness, qextEnc, qextExtraPulses, qextExtraQuant)
 		copy(qextErrorBackup, errBuf[:C*nbEBands])
 		if qextBytes > 0 {

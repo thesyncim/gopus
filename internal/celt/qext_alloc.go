@@ -140,6 +140,15 @@ func computeQEXTExtraAllocationEncode(start, end, qextEnd, totalQ3 int, channels
 	bandLogE []celtGLog, qextBandLogE []celtGLog, qextMode *qextModeConfig, toneFreq, toneishness float32,
 	enc *rangecoding.Encoder, extraPulses, extraQuant []int32,
 ) {
+	computeQEXTExtraAllocationEncodeWithMode(start, end, qextEnd, totalQ3, channels, lm,
+		bandLogE, qextBandLogE, EBands[:], LogN[:], qextMode, toneFreq, toneishness,
+		enc, extraPulses, extraQuant)
+}
+
+func computeQEXTExtraAllocationEncodeWithMode(start, end, qextEnd, totalQ3 int, channels, lm int,
+	bandLogE []celtGLog, qextBandLogE []celtGLog, mainEdges, mainLogN []int, qextMode *qextModeConfig, toneFreq, toneishness float32,
+	enc *rangecoding.Encoder, extraPulses, extraQuant []int32,
+) {
 	mainBands := len(bandLogE)
 	qextBands := len(qextBandLogE)
 	if channels > 1 {
@@ -147,25 +156,28 @@ func computeQEXTExtraAllocationEncode(start, end, qextEnd, totalQ3 int, channels
 		qextBands /= channels
 	}
 
-	totBands := end
-	totSamples := (EBands[end] - EBands[start]) * channels << lm
-	if qextMode != nil {
-		totBands = end + qextEnd
-		totSamples = qextMode.EBands[qextEnd] * channels << lm
-	}
-
 	limit := min(len(extraPulses), len(extraQuant))
 	for i := start; i < limit; i++ {
 		extraPulses[i] = 0
 		extraQuant[i] = 0
 	}
-	if totalQ3 <= 0 || totSamples <= 0 || end <= start || limit == 0 {
+	if start < 0 || end <= start || end >= len(mainEdges) || end > len(mainLogN) || limit == 0 {
+		return
+	}
+
+	totBands := end
+	totSamples := (mainEdges[end] - mainEdges[start]) * channels << lm
+	if qextMode != nil {
+		totBands = end + qextEnd
+		totSamples = qextMode.EBands[qextEnd] * channels << lm
+	}
+	if totalQ3 <= 0 || totSamples <= 0 || totBands > qextMaxBaseBands+nbQEXTBands {
 		return
 	}
 
 	// libopus keeps these bounded band arrays in the frame's stack storage.
-	var capStorage, depthStorage, ncoefStorage [MaxBands + nbQEXTBands]int32
-	var flatStorage, minStorage, followerStorage [MaxBands + nbQEXTBands]float32
+	var capStorage, depthStorage, ncoefStorage [qextMaxBaseBands + nbQEXTBands]int32
+	var flatStorage, minStorage, followerStorage [qextMaxBaseBands + nbQEXTBands]float32
 	capVals := capStorage[:totBands]
 	depth := depthStorage[:totBands]
 	flatE := flatStorage[:totBands]
@@ -175,8 +187,12 @@ func computeQEXTExtraAllocationEncode(start, end, qextEnd, totalQ3 int, channels
 
 	for i := start; i < end; i++ {
 		capVals[i] = 12
-		ncoef[i] = int32(qextExtraBandWidth(EBands[:], i, lm) * channels)
-		flatE[i] = qextBandLogEGLogMax32(bandLogE, mainBands, channels, i) - 0.0625*float32(LogN[i]) + float32(eMeans[i]) - 0.0062*float32((i+5)*(i+5))
+		ncoef[i] = int32(qextExtraBandWidth(mainEdges, i, lm) * channels)
+		meanVal := float32(0)
+		if i < len(eMeans) {
+			meanVal = float32(eMeans[i])
+		}
+		flatE[i] = qextBandLogEGLogMax32(bandLogE, mainBands, channels, i) - 0.0625*float32(mainLogN[i]) + meanVal - 0.0062*float32((i+5)*(i+5))
 	}
 	if end > start {
 		flatE[end-1] += 2.0
@@ -277,7 +293,7 @@ func computeQEXTExtraAllocationEncode(start, end, qextEnd, totalQ3 int, channels
 
 	for i := start; i < end && i < limit; i++ {
 		extraQuant[i] = (depth[i] + 3) >> 2
-		width := qextExtraBandWidth(EBands[:], i, lm)
+		width := qextExtraBandWidth(mainEdges, i, lm)
 		extraPulses[i] = int32((((width)-1)*channels*int(depth[i])*(1<<bitRes) + 2) >> 2)
 	}
 	if qextMode != nil {

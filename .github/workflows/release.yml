@@ -37,12 +37,15 @@ jobs:
 
       - name: Resolve tag and release notes
         id: meta
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
         shell: bash
         run: |
           set -euo pipefail
 
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            tag="${{ github.event.inputs.tag }}"
+          if [[ "${EVENT_NAME}" == "workflow_dispatch" ]]; then
+            tag="${INPUT_TAG}"
             git fetch --force --tags origin "refs/tags/${tag}:refs/tags/${tag}"
             git checkout "refs/tags/${tag}"
           else
@@ -73,8 +76,8 @@ jobs:
           # fixedpoint), and test-macos/test-windows run the exhaustive tier. They
           # are the authoritative, arch-matched codec gate, so a release publishes
           # only when they are green on the exact commit the tag points at.
-          latest="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${sha}/check-runs?per_page=100" \
-            --jq '[.check_runs[] | {name, conclusion, started_at}] | group_by(.name) | map(max_by(.started_at)) | .[] | [.name, .conclusion] | @tsv')"
+          latest="$(gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/commits/${sha}/check-runs?per_page=100" \
+            --jq '[.[].check_runs[] | {name, conclusion, started_at}] | group_by(.name) | map(max_by(.started_at)) | .[] | [.name, .conclusion] | @tsv')"
           printf '%s\n' "${latest}"
 
           fail=0
@@ -128,6 +131,8 @@ jobs:
 
       - name: Archive release evidence
         id: evidence
+        env:
+          META_TAG: ${{ steps.meta.outputs.tag }}
         shell: bash
         run: |
           set -euo pipefail
@@ -141,8 +146,8 @@ jobs:
             exit 1
           fi
 
-          archive="release-evidence-${{ steps.meta.outputs.tag }}.tar.gz"
-          tagged_summary="release-evidence-${{ steps.meta.outputs.tag }}.md"
+          archive="release-evidence-${META_TAG}.tar.gz"
+          tagged_summary="release-evidence-${META_TAG}.md"
           cp "${summary}" "${tagged_summary}"
           tar -C reports -czf "${archive}" release
           test -s "${archive}" || { echo "release evidence archive is empty" >&2; exit 1; }
@@ -163,14 +168,18 @@ jobs:
       - name: Publish GitHub release
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          META_TAG: ${{ steps.meta.outputs.tag }}
+          META_NOTES_PATH: ${{ steps.meta.outputs.notes_path }}
+          EVIDENCE_ARCHIVE: ${{ steps.evidence.outputs.archive }}
+          EVIDENCE_SUMMARY: ${{ steps.evidence.outputs.summary }}
         shell: bash
         run: |
           set -euo pipefail
 
-          tag="${{ steps.meta.outputs.tag }}"
-          notes_path="${{ steps.meta.outputs.notes_path }}"
-          archive="${{ steps.evidence.outputs.archive }}"
-          summary="${{ steps.evidence.outputs.summary }}"
+          tag="${META_TAG}"
+          notes_path="${META_NOTES_PATH}"
+          archive="${EVIDENCE_ARCHIVE}"
+          summary="${EVIDENCE_SUMMARY}"
 
           if gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
             gh release edit "${tag}" \

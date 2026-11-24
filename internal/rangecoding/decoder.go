@@ -881,6 +881,9 @@ func (d *Decoder) Tell() int {
 func (d *Decoder) TellFrac() int {
 	nbits := int(d.nbitsTotal) << 3
 	l := ilog(d.rng)
+	if l < 16 {
+		return nbits - (l << 3)
+	}
 	r := d.rng >> (l - 16)
 	b := (r >> 12) - 8
 	// b += r > correction[b], without a branch: both are below 1<<16.
@@ -938,6 +941,8 @@ func (d *Decoder) ShrinkStorage(bytes int) {
 	if uint32(bytes) >= d.storage {
 		d.storage = 0
 		d.buf = d.buf[:0]
+		d.endWindow = 0
+		d.nendBits = 0
 		if d.offs > d.storage {
 			d.offs = d.storage
 		}
@@ -945,6 +950,10 @@ func (d *Decoder) ShrinkStorage(bytes int) {
 			d.endOffs = d.storage
 		}
 		return
+	}
+	if d.endOffs > 0 && d.nendBits > 0 {
+		d.endWindow = 0
+		d.nendBits = 0
 	}
 	d.storage -= uint32(bytes)
 	d.buf = d.buf[:int(d.storage)]
@@ -1175,6 +1184,11 @@ func (d *Decoder) DecodeUniformSmall(ft uint32) uint32 {
 }
 
 func (d *Decoder) decode(ft uint32) uint32 {
+	if ft == 0 || ft > d.rng {
+		d.err = 1
+		d.ext = 0
+		return 0
+	}
 	d.ext = d.rng / ft
 	s := d.val / d.ext
 	if s+1 > ft {
@@ -1200,12 +1214,18 @@ func (d *Decoder) Decode(ft uint32) uint32 {
 //
 //go:nosplit
 func (d *Decoder) DecodeBin(bits uint) uint32 {
-	if bits == 0 {
+	if bits == 0 || bits >= 24 {
 		return 0
 	}
 	ft := uint32(1) << bits
-	d.ext = d.rng >> bits
-	s := d.val / d.ext
+	ext := d.rng >> bits
+	if ext == 0 {
+		d.err = 1
+		d.ext = 0
+		return 0
+	}
+	d.ext = ext
+	s := d.val / ext
 	if s+1 > ft {
 		s = ft - 1
 	}
@@ -1214,10 +1234,18 @@ func (d *Decoder) DecodeBin(bits uint) uint32 {
 
 //go:nosplit
 func (d *Decoder) update(fl, fh, ft uint32) {
+	if fl >= fh || fh > ft || d.ext == 0 {
+		d.err = 1
+		return
+	}
 	s := d.ext * (ft - fh)
 	rng := d.rng - s
 	if fl > 0 {
 		rng = d.ext * (fh - fl)
+	}
+	if rng == 0 {
+		d.err = 1
+		return
 	}
 	d.rng, d.val = d.normalized(rng, d.val-s)
 }

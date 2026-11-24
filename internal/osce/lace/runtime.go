@@ -253,7 +253,7 @@ var (
 	errLACEOutLen   = errors.New("osce/lace: output buffer too short (need 320 samples)")
 	errLACEFeatures = errors.New("osce/lace: invalid features length (expected 4 * 93)")
 	errLACEPeriods  = errors.New("osce/lace: invalid periods length (expected 4)")
-	errLACEPeriod   = errors.New("osce/lace: invalid period value (expected 0..300)")
+	errLACEPeriod   = errors.New("osce/lace: invalid period value (expected 7..300)")
 	errLACENumbits  = errors.New("osce/lace: invalid numbits length (expected 2)")
 )
 
@@ -741,7 +741,7 @@ func validatePeriods(periods []int, maxPeriod int) error {
 		return errLACEPeriods
 	}
 	for sf := range subframesPerFrame {
-		if periods[sf] < 0 || periods[sf] > maxPeriod {
+		if periods[sf] < noPitchValue || periods[sf] > maxPeriod {
 			return errLACEPeriod
 		}
 	}

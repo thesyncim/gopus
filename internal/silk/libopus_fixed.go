@@ -217,9 +217,19 @@ func silkDiv32VarQ(a32, b32 int32, q int) int32 {
 
 	// Compute number of bits headroom and normalize inputs
 	aHeadrm := silkCLZ32(silkAbs32(a32)) - 1
-	a32Nrm := silkLSHIFT(a32, int(aHeadrm))
+	var a32Nrm int32
+	if aHeadrm < 0 {
+		a32Nrm = a32 >> uint(-aHeadrm)
+	} else {
+		a32Nrm = silkLSHIFT(a32, int(aHeadrm))
+	}
 	bHeadrm := silkCLZ32(silkAbs32(b32)) - 1
-	b32Nrm := silkLSHIFT(b32, int(bHeadrm))
+	var b32Nrm int32
+	if bHeadrm < 0 {
+		b32Nrm = b32 >> uint(-bHeadrm)
+	} else {
+		b32Nrm = silkLSHIFT(b32, int(bHeadrm))
+	}
 
 	// Inverse of b32, with 14 bits of precision
 	b32Inv := silkDiv32_16(int32(0x7FFFFFFF>>2), int32(b32Nrm>>16))

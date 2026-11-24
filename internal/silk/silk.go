@@ -834,6 +834,9 @@ func BandwidthFromOpus(opusBandwidth int) (Bandwidth, bool) {
 
 // decodePLC generates concealment audio for a lost mono packet.
 func (d *Decoder) decodePLC(bandwidth Bandwidth, frameSizeSamples int) ([]float32, error) {
+	if frameSizeSamples <= 0 {
+		return nil, ErrDecodeFailed
+	}
 	output := make([]float32, frameSizeSamples)
 	n, err := d.DecodePLCInto(bandwidth, frameSizeSamples, output)
 	if err != nil {
@@ -850,7 +853,7 @@ func (d *Decoder) DecodePLCInto(bandwidth Bandwidth, frameSizeSamples int, outpu
 	if bandwidth > BandwidthWideband {
 		return 0, ErrInvalidBandwidth
 	}
-	if len(output) < frameSizeSamples {
+	if frameSizeSamples <= 0 || len(output) < frameSizeSamples {
 		return 0, ErrDecodeFailed
 	}
 	d.preparePLCFrameDecodeState(bandwidth, frameSizeSamples, 1)
@@ -1029,6 +1032,9 @@ func (d *Decoder) plcConcealQ0For(channel, n int) []int16 {
 // output to out and the native int16 resampler output into the armed
 // plcLowbandCapture buffer at outputOffset. It returns the sample count written.
 func (d *Decoder) resamplePLCFrameCaptureInt16(resampler *LibopusResampler, resamplerInput []int16, out []float32, outputOffset int) int {
+	if outputOffset < 0 || outputOffset >= len(d.plcLowbandCapture) {
+		return resampler.ProcessInt16Into(resamplerInput, out)
+	}
 	dst := d.plcLowbandCapture[outputOffset:]
 	return resampler.ProcessInt16IntoBoth(resamplerInput, out, dst)
 }
@@ -1224,6 +1230,9 @@ func (d *Decoder) syncLegacyPLCState(st *decoderState, recent []int16) {
 
 // decodePLCStereo generates concealment audio for a lost stereo packet.
 func (d *Decoder) decodePLCStereo(bandwidth Bandwidth, frameSizeSamples int) ([]float32, error) {
+	if frameSizeSamples <= 0 {
+		return nil, ErrDecodeFailed
+	}
 	output := make([]float32, frameSizeSamples*2)
 	n, err := d.DecodePLCStereoInto(bandwidth, frameSizeSamples, output)
 	if err != nil {
@@ -1233,6 +1242,9 @@ func (d *Decoder) decodePLCStereo(bandwidth Bandwidth, frameSizeSamples int) ([]
 }
 
 func (d *Decoder) decodePLCStereoToMono(bandwidth Bandwidth, frameSizeSamples int) ([]float32, error) {
+	if frameSizeSamples <= 0 {
+		return nil, ErrDecodeFailed
+	}
 	output := make([]float32, frameSizeSamples)
 	n, err := d.DecodePLCStereoToMonoInto(bandwidth, frameSizeSamples, output)
 	if err != nil {
@@ -1247,7 +1259,7 @@ func (d *Decoder) DecodeMonoToStereoPLCInto(bandwidth Bandwidth, frameSizeSample
 	if bandwidth > BandwidthWideband {
 		return 0, ErrInvalidBandwidth
 	}
-	if len(output) < frameSizeSamples*2 {
+	if frameSizeSamples <= 0 || len(output) < frameSizeSamples*2 {
 		return 0, ErrDecodeFailed
 	}
 	useStereoHistory := d.ShouldUseStereoToMonoHistory(bandwidth, stereoToMono)
@@ -1289,20 +1301,19 @@ func (d *Decoder) decodePLCStereoInto(bandwidth Bandwidth, frameSizeSamples int,
 	if apiChannels != 1 && apiChannels != 2 {
 		return 0, ErrDecodeFailed
 	}
-	if len(output) < frameSizeSamples*apiChannels {
+	if frameSizeSamples <= 0 || len(output) < frameSizeSamples*apiChannels {
 		return 0, ErrDecodeFailed
 	}
 
 	// Get native sample count from the API-rate frame size.
 	config := GetBandwidthConfig(bandwidth)
 	nativeSamples := frameSizeSamples * config.SampleRate / d.outputSampleRate()
-	// A frame size that maps to zero native samples (e.g. frameSizeSamples 0)
-	// has nothing to conceal. Return before touching PLC/decoder state: the
-	// stereo MS->LR pass (silkStereoMSToLR) assumes frameLength >= the
-	// interpolation window and would read past the mid/side history otherwise.
-	// Every valid SILK frame size yields nativeSamples >= 80, so this never
-	// fires on real input.
-	if nativeSamples <= 0 {
+	// A frame size shorter than the stereo MS->LR interpolation window
+	// (8 ms = 64/96/128 native samples for NB/MB/WB) cannot be interpolated
+	// safely. Every valid SILK frame size is >= 10 ms, so this never fires on
+	// real input.
+	minStereoSamples := stereoInterpLenMs * (config.SampleRate / 1000)
+	if nativeSamples < minStereoSamples {
 		return 0, nil
 	}
 	d.preparePLCFrameDecodeState(bandwidth, frameSizeSamples, 2)

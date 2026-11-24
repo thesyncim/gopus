@@ -75,6 +75,9 @@ func loadLinearLayer(blob *dnnblob.Blob, spec LinearLayerSpec) (LinearLayer, err
 			return LinearLayer{}, err
 		}
 	}
+	if layer.Weights.Empty() && layer.FloatWeights.Empty() {
+		return LinearLayer{}, errInvalidModel
+	}
 	return layer, nil
 }
 

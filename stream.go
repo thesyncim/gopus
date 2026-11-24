@@ -199,6 +199,9 @@ func (r *Reader) Read(p []byte) (int, error) {
 		} else if err != nil {
 			return 0, err
 		}
+		if nPacket < 0 || nPacket > len(r.packetBuf) {
+			return 0, ErrInvalidPacket
+		}
 		r.lastGranulePos = granulePos
 
 		var packet []byte

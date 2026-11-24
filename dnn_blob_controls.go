@@ -60,6 +60,13 @@ func (d *MultistreamDecoder) SetDNNBlob(data []byte) error {
 	if err != nil {
 		return err
 	}
+	models := blob.DecoderModels()
+	if err := validateOSCEBWEModel(blob, models.OSCEBWE); err != nil {
+		return ErrInvalidArgument
+	}
+	if err := validateOSCELACEModel(blob, models.OSCE); err != nil {
+		return ErrInvalidArgument
+	}
 	d.dnnBlob = blob
 	d.dec.SetDNNBlob(blob)
 	return nil

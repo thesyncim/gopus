@@ -171,7 +171,7 @@ func silkBurgModifiedFixed(
 		num = silkLSHIFT(-num, 1) // Q(1-rshifts)
 
 		// Next reflection (parcor) coefficient.
-		if silkAbs32(num) < nrg {
+		if num != silkInt32Min && silkAbs32(num) < nrg {
 			rcQ31 = silkDiv32VarQ(num, nrg, 31)
 		} else if num > 0 {
 			rcQ31 = silkInt32Max

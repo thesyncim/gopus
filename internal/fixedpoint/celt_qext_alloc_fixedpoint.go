@@ -29,7 +29,17 @@ func computeQEXTExtraAllocationFixed(start, end, qextEnd int, totalQ3 int32, cha
 	mode *celtBandGeometry, toneFreq int16, toneishness int32, enc *rangecoding.Encoder,
 	extraPulses, extraQuant []int32,
 ) {
-	const maxBands = celtNbEBands + 14
+	computeQEXTExtraAllocationFixedWithEdges(start, end, qextEnd, totalQ3, channels, lm,
+		mainLogE, qextLogE, staticMDCT48000EBands[:], celtNbEBands, mainLogN, qextLogN, qextEdges,
+		mode, toneFreq, toneishness, enc, extraPulses, extraQuant)
+}
+
+func computeQEXTExtraAllocationFixedWithEdges(start, end, qextEnd int, totalQ3 int32, channels, lm int,
+	mainLogE, qextLogE []int32, mainEdges []int16, mainNbEBands int, mainLogN []int16, qextLogN []int16, qextEdges []int16,
+	mode *celtBandGeometry, toneFreq int16, toneishness int32, enc *rangecoding.Encoder,
+	extraPulses, extraQuant []int32,
+) {
+	const maxBands = 25 + 14
 	totBands := end
 	totSamples := int32(int16(0))
 	if mode != nil {
@@ -46,11 +56,13 @@ func computeQEXTExtraAllocationFixed(start, end, qextEnd int, totalQ3 int32, cha
 		extraPulses[i] = 0
 		extraQuant[i] = 0
 	}
+	if start < 0 || end <= start || end >= len(mainEdges) || end > len(mainLogN) || limit == 0 {
+		return
+	}
 	if mode == nil {
-		mainEdges := staticMDCT48000EBands
 		totSamples = int32(int(mainEdges[end])-int(mainEdges[start])) * int32(channels) << uint(lm)
 	}
-	if totalQ3 <= 0 || totSamples <= 0 || end <= start || limit == 0 {
+	if totalQ3 <= 0 || totSamples <= 0 {
 		return
 	}
 	if totBands > maxBands {
@@ -61,9 +73,9 @@ func computeQEXTExtraAllocationFixed(start, end, qextEnd int, totalQ3 int32, cha
 	var flat, minimum, follower [maxBands]int16
 	for i := start; i < end; i++ {
 		caps[i] = 12
-		width := int32(staticMDCT48000EBands[i+1] - staticMDCT48000EBands[i])
+		width := int32(mainEdges[i+1] - mainEdges[i])
 		ncoef[i] = width * int32(channels) << uint(lm)
-		flat[i] = qextFlatBandEnergy(mainLogE, celtNbEBands, channels, i, int32(mainLogN[i]))
+		flat[i] = qextFlatBandEnergy(mainLogE, mainNbEBands, channels, i, int32(mainLogN[i]))
 	}
 	if end > start {
 		flat[end-1] = int16(int32(flat[end-1]) + 2*qextDepthScale)

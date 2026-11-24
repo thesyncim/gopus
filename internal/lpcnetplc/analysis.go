@@ -246,7 +246,11 @@ func (a *Analysis) computeFrameFeatures(in []float32) {
 	a.dnnPitch = a.pitch.Compute(a.ifFeatures[:], a.xcorrFeatures[:])
 	// libopus dnn/lpcnet_enc.c:compute_frame_features uses C floor()/pow().
 	pitchExp := (1.0 / 60.0) * ((opusmath.CReal(a.dnnPitch) + 1.5) * 60.0)
-	pitch := int(opusmath.FloorCRealToInt32(0.5 + 256.0/opusmath.PowCReal(2.0, pitchExp)))
+	pitchVal := 0.5 + 256.0/opusmath.PowCReal(2.0, pitchExp)
+	pitch := PitchMaxPeriod
+	if pitchVal == pitchVal {
+		pitch = clampInt(int(opusmath.FloorCRealToInt32(pitchVal)), PitchMinPeriod, PitchMaxPeriod)
+	}
 	xx := innerProdFloat(a.lpBuf[PitchMaxPeriod:PitchMaxPeriod+FrameSize], a.lpBuf[PitchMaxPeriod:PitchMaxPeriod+FrameSize], FrameSize)
 	yy := innerProdFloat(a.lpBuf[PitchMaxPeriod-pitch:PitchMaxPeriod-pitch+FrameSize], a.lpBuf[PitchMaxPeriod-pitch:PitchMaxPeriod-pitch+FrameSize], FrameSize)
 	xy := innerProdFloat(a.lpBuf[PitchMaxPeriod:PitchMaxPeriod+FrameSize], a.lpBuf[PitchMaxPeriod-pitch:PitchMaxPeriod-pitch+FrameSize], FrameSize)

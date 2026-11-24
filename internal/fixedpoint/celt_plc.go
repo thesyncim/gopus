@@ -743,8 +743,14 @@ func (d *CELTDecoder) concealLost(frameSize int) ([][]int32, int) {
 			break
 		}
 	}
+	if LM > d.maxLM || frameSize%d.downsample != 0 {
+		return nil, 0
+	}
 	M := 1 << LM
 	N := M * shortMdctSize
+	if N > celtDecodeBufferSize {
+		return nil, 0
+	}
 
 	decodeMemSize := celtDecodeBufferSize + overlap
 	decodeMem := d.decodeRows[:C]
@@ -784,9 +790,15 @@ func (d *CELTDecoder) concealLost(frameSize int) ([][]int32, int) {
 // per-channel sample count concealed.
 func (d *CELTDecoder) DecodeLost(coreFrameSize int, out []int16) int {
 	outSyn, N := d.concealLost(coreFrameSize)
+	if N <= 0 {
+		return -1
+	}
 	C := d.channels
 
 	outSamples := N / d.downsample
+	if len(out) < C*outSamples {
+		return -1
+	}
 	resPCM := d.resScratch(C * outSamples)
 	d.deemphasisMode(outSyn, resPCM, N, false)
 	for i := range resPCM {
@@ -806,9 +818,16 @@ func (d *CELTDecoder) DecodeLost(coreFrameSize int, out []int16) int {
 // int16 via Res2Int16). It returns the per-channel sample count concealed.
 func (d *CELTDecoder) DecodeLostAccum(coreFrameSize int, accumPCM []int32) int {
 	outSyn, N := d.concealLost(coreFrameSize)
+	if N <= 0 {
+		return -1
+	}
+	outSamples := N / d.downsample
+	if len(accumPCM) < d.channels*outSamples {
+		return -1
+	}
 	// deemphasis(out_syn, pcm, N, CC, st->downsample, preemph, preemph_memD, accum=1).
 	d.deemphasisMode(outSyn, accumPCM, N, true)
-	return N / d.downsample
+	return outSamples
 }
 
 // decodeLostNoise ports the FRAME_PLC_NOISE branch of celt_decode_lost.

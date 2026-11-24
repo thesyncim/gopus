@@ -4922,7 +4922,12 @@ func quantAllBandsEncodeScratchWithMode(re *rangecoding.Encoder, channels, frame
 		norm2 = norm[normLen:]
 	}
 
-	maxBand := max(M*(edges[end]-edges[end-1]), 0)
+	maxBand := 0
+	for i := start; i < end; i++ {
+		if w := M * (edges[i+1] - edges[i]); w > maxBand {
+			maxBand = w
+		}
+	}
 
 	var lowbandScratch []celtNorm
 	if scratch != nil {

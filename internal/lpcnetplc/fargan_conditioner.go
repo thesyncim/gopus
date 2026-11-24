@@ -206,8 +206,11 @@ func PeriodFromFeatures(features []float32) int {
 		return PitchMaxPeriod
 	}
 	periodF := float32(PitchMaxPeriod) / opusmath.Exp2F32(features[NumBands]+1.5)
+	if !(periodF == periodF) {
+		return PitchMaxPeriod
+	}
 	period := int(opusmath.FloorHalfPlusF32ToInt32(periodF))
-	return period
+	return clampInt(period, PitchMinPeriod, PitchMaxPeriod)
 }
 
 func computeFARGANDense(layer *LinearLayer, output, input []float32, activation int, scratch *farganConditionerScratch) {

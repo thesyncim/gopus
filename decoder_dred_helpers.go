@@ -325,6 +325,12 @@ func (d *Decoder) setDNNBlob(blob *dnnblob.Blob) error {
 				return err
 			}
 		}
+		if err := validateOSCEBWEModel(blob, models.OSCEBWE); err != nil {
+			return err
+		}
+		if err := validateOSCELACEModel(blob, models.OSCE); err != nil {
+			return err
+		}
 	}
 
 	d.dnnBlob = blob

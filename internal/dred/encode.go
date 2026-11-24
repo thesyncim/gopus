@@ -73,11 +73,14 @@ func encodeLaplaceP0(enc *rangecoding.Encoder, value int32, p0, decay uint16) {
 	}
 	enc.EncodeICDF16(symbol, signICDF[:], dredLaplaceFTBits)
 
-	if value < 0 {
-		value = -value
-	}
 	if value == 0 {
 		return
+	}
+	var mag uint32
+	if value < 0 {
+		mag = uint32(-int64(value))
+	} else {
+		mag = uint32(value)
 	}
 
 	icdf := [8]uint16{}
@@ -86,14 +89,14 @@ func encodeLaplaceP0(enc *rangecoding.Encoder, value int32, p0, decay uint16) {
 		icdf[i] = uint16(maxInt(7-i, int((uint32(icdf[i-1])*uint32(decay))>>15)))
 	}
 
-	value--
+	rem := mag - 1
 	for {
-		symbol := min(int(value), 7)
+		symbol := int(min(rem, 7))
 		enc.EncodeICDF16(symbol, icdf[:], dredLaplaceFTBits)
-		value -= 7
-		if value < 0 {
+		if rem < 7 || enc.Error() != 0 {
 			return
 		}
+		rem -= 7
 	}
 }
 
@@ -119,6 +122,15 @@ func quantizeDREDLatents(q []int32, x []float32, scale, dzone, rTable, p0Table [
 			continue
 		}
 		xqi := xq[i] - delta[i]*deadzone[i]
+		if !(xqi == xqi) {
+			q[i] = 0
+			continue
+		}
+		if xqi > 1e6 {
+			xqi = 1e6
+		} else if xqi < -1e6 {
+			xqi = -1e6
+		}
 		q[i] = opusmath.FloorF32ToInt32(0.5 + xqi)
 	}
 }

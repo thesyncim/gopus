@@ -32,3 +32,9 @@ func computeQEXTExtraAllocationFixed(start, end, qextEnd int, totalQ3 int32, cha
 	mode *celtBandGeometry, toneFreq int16, toneishness int32, enc *rangecoding.Encoder,
 	extraPulses, extraQuant []int32) {
 }
+
+func computeQEXTExtraAllocationFixedWithEdges(start, end, qextEnd int, totalQ3 int32, channels, lm int,
+	mainLogE, qextLogE []int32, mainEdges []int16, mainNbEBands int, mainLogN, qextLogN []int16, qextEdges []int16,
+	mode *celtBandGeometry, toneFreq int16, toneishness int32, enc *rangecoding.Encoder,
+	extraPulses, extraQuant []int32) {
+}

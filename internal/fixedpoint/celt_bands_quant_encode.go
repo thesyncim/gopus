@@ -837,7 +837,12 @@ func quantAllBandsEncodeMode(geometry celtBandGeometry, enc *rangecoding.Encoder
 	if normLen < 0 {
 		normLen = 0
 	}
-	resynthAlloc := M * (int(eBands[end]) - int(eBands[end-1]))
+	resynthAlloc := 0
+	for i := start; i < end; i++ {
+		if w := M * (int(eBands[i+1]) - int(eBands[i])); w > resynthAlloc {
+			resynthAlloc = w
+		}
+	}
 
 	var norm, lowbandScratch []int32
 	var xSave, ySave, xSave2, ySave2, normSave2 []int32

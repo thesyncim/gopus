@@ -335,6 +335,9 @@ func (p *PitchDNN) Compute(ifFeatures, xcorrFeatures []float32) float32 {
 			count += v
 		}
 	}
+	if !(count > 0) || !(sum == sum) {
+		return noFMA32Mul(float32(1.0)/60, float32(pos)) - 1.5
+	}
 	return pitchDNNInterpolate(sum, count)
 }
 

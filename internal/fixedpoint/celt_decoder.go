@@ -255,9 +255,15 @@ func (d *CELTDecoder) DecodeWithECChannels(data []byte, frameSize, codedChannels
 	dec := &d.rangeDecoder
 	dec.Init(data)
 	outSyn, N := d.decodeReceivedFrame(dec, len(data), frameSize, codedChannels)
+	if N <= 0 {
+		return -1
+	}
 
 	// deemphasis(out_syn, pcm, N, CC, st->downsample, preemph, preemph_memD, accum=0).
 	outSamples := N / d.downsample
+	if len(out) < d.channels*outSamples {
+		return -1
+	}
 	resPCM := d.resScratch(d.channels * outSamples)
 	d.deemphasisMode(outSyn, resPCM, N, false)
 	for i := range resPCM {
@@ -294,10 +300,17 @@ func (d *CELTDecoder) DecodeHybridAccumChannels(dec *rangecoding.Decoder, dataLe
 		return d.DecodeLostAccum(coreFrameSize, accumPCM)
 	}
 	outSyn, N := d.decodeReceivedFrame(dec, dataLen, coreFrameSize, codedChannels)
+	if N <= 0 {
+		return -1
+	}
+	outSamples := N / d.downsample
+	if len(accumPCM) < d.channels*outSamples {
+		return -1
+	}
 
 	// deemphasis(out_syn, pcm, N, CC, st->downsample, preemph, preemph_memD, accum=1).
 	d.deemphasisMode(outSyn, accumPCM, N, true)
-	return N / d.downsample
+	return outSamples
 }
 
 // decodeReceivedFrame ports the body of celt_decode_with_ec_dred for a received
@@ -322,8 +335,14 @@ func (d *CELTDecoder) decodeReceivedFrame(dec *rangecoding.Decoder, dataLen, fra
 			break
 		}
 	}
+	if LM > d.maxLM || frameSize%d.downsample != 0 {
+		return nil, 0
+	}
 	M := 1 << LM
 	N := M * shortMdctSize
+	if N > celtDecodeBufferSize {
+		return nil, 0
+	}
 
 	decodeMemSize := celtDecodeBufferSize + overlap
 	decodeMem := d.decodeRows[:CC]

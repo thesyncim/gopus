@@ -1,5 +1,7 @@
 package dred
 
+import "math"
+
 // FeatureWindow is the payload-bounded DRED feature index window used by
 // libopus's opus_decode_native() concealment path before any model
 // processing. RecoverableFeatureFrames reflects the parsed payload latents
@@ -28,7 +30,7 @@ func (r Result) FeatureWindow(decodeOffsetSamples, frameSizeSamples, initFrames 
 	}
 	featuresPerFrame := max(frameSizeSamples/f10, 1)
 	neededFeatureFrames := initFrames + featuresPerFrame
-	featureOffsetBase := initFrames - 2 + floorDiv(decodeOffsetSamples+r.Availability.OffsetSamples, f10)
+	featureOffsetBase := initFrames - 2 + floorDiv(addSaturatingInt(decodeOffsetSamples, r.Availability.OffsetSamples), f10)
 	maxFeatureIndex := 4*r.Availability.MaxLatents - 1
 
 	recoverable := 0
@@ -63,6 +65,16 @@ func (w FeatureWindow) FillFeatureOffsets(dst []int32) int {
 		dst[i] = int32(w.FeatureOffsetBase - i)
 	}
 	return n
+}
+
+func addSaturatingInt(a, b int) int {
+	if b > 0 && a > math.MaxInt-b {
+		return math.MaxInt
+	}
+	if b < 0 && a < math.MinInt-b {
+		return math.MinInt
+	}
+	return a + b
 }
 
 func floorDiv(num, den int) int {

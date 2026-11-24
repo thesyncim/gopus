@@ -7,9 +7,9 @@ import (
 	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
-// qextMaxPVQDimension matches celtMaxBandWidth. The largest supported
-// standard partition is 22*2^3=176; QEXT mode partitions are at most 10*2^3=80.
-const qextMaxPVQDimension = celtMaxBandWidth
+// qextMaxPVQDimension accommodates both standard partitions (up to 176) and
+// custom mode partitions (up to 240).
+const qextMaxPVQDimension = 240
 
 // AlgUnquantQEXT ports celt/vq.c alg_unquant for FIXED_POINT + ENABLE_QEXT.
 // The main coder supplies the base CWRS vector and extDec supplies the QEXT
