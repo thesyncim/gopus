@@ -11,26 +11,25 @@ func TestRepacketizerResetClearsOwnedPacketReferences(t *testing.T) {
 	if err := rp.Cat(packetWithPadding); err != nil {
 		t.Fatalf("Cat(packet with padding): %v", err)
 	}
-	if len(rp.frames) != 1 || rp.frames[0] == nil {
-		t.Fatalf("Cat retained frames=%d, want one owned frame", len(rp.frames))
+	if rp.NumFrames() != 1 || rp.frames[0].len == 0 {
+		t.Fatalf("Cat retained frames=%d, want one owned frame", rp.NumFrames())
 	}
-	if len(rp.paddings) != 1 || len(rp.paddings[0]) == 0 {
-		t.Fatalf("Cat retained paddings=%d, want one non-empty owned padding block", len(rp.paddings))
+	if rp.paddings[0].len == 0 || !rp.hasPad {
+		t.Fatalf("Cat retained paddings=%d, want one non-empty owned padding block", rp.paddings[0].len)
 	}
 
 	rp.Reset()
 	if rp.NumFrames() != 0 {
 		t.Fatalf("NumFrames after Reset=%d, want 0", rp.NumFrames())
 	}
-	for i, frame := range rp.frames[:cap(rp.frames)] {
-		if frame != nil {
-			t.Fatalf("Reset retained frame reference at slot %d", i)
-		}
+	if len(rp.frameBuf) != 0 {
+		t.Fatalf("Reset retained frameBuf len=%d, want 0", len(rp.frameBuf))
 	}
-	for i, padding := range rp.paddings[:cap(rp.paddings)] {
-		if padding != nil {
-			t.Fatalf("Reset retained padding reference at slot %d", i)
-		}
+	if len(rp.padBuf) != 0 {
+		t.Fatalf("Reset retained padBuf len=%d, want 0", len(rp.padBuf))
+	}
+	if rp.hasPad {
+		t.Fatalf("Reset retained hasPad=true, want false")
 	}
 
 	packetAfterReset := []byte{0x48, 0x44, 0x55, 0x66}
@@ -54,12 +53,13 @@ func TestRepacketizerCatSteadyStateAllocations(t *testing.T) {
 		wantAllocs float64
 	}{
 		{name: "empty frame", packet: []byte{0x48}, wantAllocs: 0},
-		{name: "owned frame", packet: []byte{0x48, 0x44, 0x55, 0x66}, wantAllocs: 1},
+		{name: "owned frame", packet: []byte{0x48, 0x44, 0x55, 0x66}, wantAllocs: 0},
+		{name: "extension", packet: []byte{0x4b, 0x41, 0x06, 0x11, 0x22, 0x33, 0x0b, 0xaa, 0x50, 0xde, 0xad, 0xbe}, wantAllocs: 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			rp := NewRepacketizer()
-			out := make([]byte, len(tt.packet))
+			out := make([]byte, len(tt.packet)+64)
 			run := func() {
 				if err := rp.Cat(tt.packet); err != nil {
 					panic(err)
@@ -72,6 +72,36 @@ func TestRepacketizerCatSteadyStateAllocations(t *testing.T) {
 			run()
 			if got := testing.AllocsPerRun(100, run); got != tt.wantAllocs {
 				t.Fatalf("Cat/Out/Reset allocs/op=%.2f, want %.0f", got, tt.wantAllocs)
+			}
+		})
+	}
+}
+
+func TestPacketPadSteadyStateAllocations(t *testing.T) {
+	tests := []struct {
+		name       string
+		packet     []byte
+		newLen     int
+		wantAllocs float64
+	}{
+		{name: "plain", packet: []byte{0x48, 0x11, 0x22, 0x33}, newLen: 16, wantAllocs: 0},
+		{name: "extension", packet: []byte{0x4b, 0x41, 0x06, 0x11, 0x22, 0x33, 0x0b, 0xaa, 0x50, 0xde, 0xad, 0xbe}, newLen: 20, wantAllocs: 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			buf := make([]byte, tt.newLen)
+			run := func() {
+				copy(buf, tt.packet)
+				if err := PacketPad(buf, len(tt.packet), tt.newLen); err != nil {
+					panic(err)
+				}
+				if _, err := PacketUnpad(buf, tt.newLen); err != nil {
+					panic(err)
+				}
+			}
+			run()
+			if got := testing.AllocsPerRun(100, run); got != tt.wantAllocs {
+				t.Fatalf("PacketPad/PacketUnpad allocs/op=%.2f, want %.0f", got, tt.wantAllocs)
 			}
 		})
 	}

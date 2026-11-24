@@ -43,7 +43,8 @@ func buildPacketFromFramesAndPadding(tocBase byte, frames [][]byte, padding []by
 		return 0, ErrInvalidArgument
 	}
 
-	lengths := make([]int, count)
+	var lengthsBuf [maxRepacketizerFrames]int
+	lengths := lengthsBuf[:count]
 	totalFrameBytes := 0
 	vbr := false
 	for i, frame := range frames {
@@ -120,13 +121,14 @@ func parsePacketExtensionList(padding []byte, nbFrames int) ([]packetExtensionDa
 	return extensions[:parsed], nil
 }
 
-func (r *Repacketizer) collectExtensions(begin, end int) ([]packetExtensionData, error) {
+func (r *Repacketizer) collectExtensionsInto(begin, end int, dst []packetExtensionData) ([]packetExtensionData, error) {
 	total := 0
 	for i := begin; i < end; i++ {
-		if len(r.paddings[i]) == 0 || r.padFrames[i] <= 0 {
+		pad := r.paddings[i]
+		if pad.len == 0 || r.padFrames[i] == 0 {
 			continue
 		}
-		n, err := countPacketExtensions(r.paddings[i], r.padFrames[i])
+		n, err := countPacketExtensions(r.padBuf[pad.off:pad.off+pad.len], int(r.padFrames[i]))
 		if err != nil {
 			return nil, err
 		}
@@ -136,28 +138,27 @@ func (r *Repacketizer) collectExtensions(begin, end int) ([]packetExtensionData,
 		return nil, nil
 	}
 
-	extensions := make([]packetExtensionData, 0, total)
+	var extensions []packetExtensionData
+	if total <= cap(dst) {
+		extensions = dst[:total]
+	} else {
+		extensions = make([]packetExtensionData, total)
+	}
+
+	offset := 0
 	for i := begin; i < end; i++ {
-		if len(r.paddings[i]) == 0 || r.padFrames[i] <= 0 {
+		pad := r.paddings[i]
+		if pad.len == 0 || r.padFrames[i] == 0 {
 			continue
 		}
-		n, err := countPacketExtensions(r.paddings[i], r.padFrames[i])
+		parsed, err := parsePacketExtensions(r.padBuf[pad.off:pad.off+pad.len], int(r.padFrames[i]), extensions[offset:])
 		if err != nil {
 			return nil, err
 		}
-		if n == 0 {
-			continue
-		}
-		offset := len(extensions)
-		extensions = append(extensions, make([]packetExtensionData, n)...)
-		parsed, err := parsePacketExtensions(r.paddings[i], r.padFrames[i], extensions[offset:])
-		if err != nil {
-			return nil, err
-		}
-		extensions = extensions[:offset+parsed]
 		for j := offset; j < offset+parsed; j++ {
 			extensions[j].Frame += i - begin
 		}
+		offset += parsed
 	}
-	return extensions, nil
+	return extensions[:offset], nil
 }
