@@ -122,15 +122,19 @@ func createOggFile(filename string, duration float64, bitrate int) error {
 	fmt.Printf("  Bitrate: %d kbps\n", bitrate/1000)
 	fmt.Printf("  Encoded frames (including lookahead): %d\n", totalFrames)
 
+	pcm := make([]float32, frameSize*channels)
+	packetBuf := make([]byte, 4000)
+
 	for frame := range totalFrames {
 		// Generate a pleasant test tone that varies over time
-		pcm := generateFrame(frame, totalSamples)
+		fillFrame(pcm, frame, totalSamples)
 
 		// Encode
-		packet, err := enc.EncodeFloat32(pcm)
+		pktLen, err := enc.Encode(pcm, packetBuf)
 		if err != nil {
 			return fmt.Errorf("encode frame %d: %w", frame, err)
 		}
+		packet := packetBuf[:pktLen]
 
 		// The final granule retains the requested input and encoder lookahead,
 		// while excluding the zero padding after the final input sample.
@@ -189,12 +193,12 @@ func sampleCountForDuration(duration float64) (int, error) {
 	return int(sampleCount), nil
 }
 
-// generateFrame creates an audio frame with pleasant test tones and pads after the input ends.
-func generateFrame(frameNum, totalSamples int) []float32 {
-	pcm := make([]float32, frameSize*channels)
+// fillFrame fills pcm with pleasant test tones and pads with silence after the input ends.
+func fillFrame(pcm []float32, frameNum, totalSamples int) {
+	clear(pcm)
 
 	// Base frequencies for a C major chord (C, E, G)
-	freqs := []float64{261.63, 329.63, 392.00} // C4, E4, G4
+	freqs := [3]float64{261.63, 329.63, 392.00} // C4, E4, G4
 
 	for i := range frameSize {
 		sampleNum := frameNum*frameSize + i
@@ -224,8 +228,6 @@ func generateFrame(frameNum, totalSamples int) []float32 {
 		pcm[i*2] = left
 		pcm[i*2+1] = right
 	}
-
-	return pcm
 }
 
 // readOggFile reads and analyzes an Ogg Opus file.
@@ -274,6 +276,7 @@ func readOggFile(filename string) error {
 		return fmt.Errorf("create decoder: %w", err)
 	}
 	pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
+	packetBuf := make([]byte, cfg.MaxPacketBytes)
 
 	// Read and decode all packets
 	fmt.Println("\n=== Decoding ===")
@@ -283,13 +286,14 @@ func readOggFile(filename string) error {
 	var lastGranule uint64
 
 	for {
-		packet, granule, err := oggReader.ReadPacket()
+		pktLen, granule, err := oggReader.ReadPacketInto(packetBuf)
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
 			return fmt.Errorf("read packet %d: %w", totalPackets, err)
 		}
+		packet := packetBuf[:pktLen]
 
 		// Decode packet
 		n, err := dec.Decode(packet, pcmOut)

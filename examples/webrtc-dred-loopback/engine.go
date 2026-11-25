@@ -591,14 +591,10 @@ func (e *engine) sendLoop() {
 			continue
 		}
 
-		payloadType := uint8(redOpusPayloadType)
-		if redEnabled {
-			payloadType = redPayloadType
-		}
 		pkt := rtp.Packet{
 			Header: rtp.Header{
 				Version:        2,
-				PayloadType:    payloadType,
+				PayloadType:    redPayloadType,
 				SequenceNumber: seq,
 				Timestamp:      timestamp,
 				SSRC:           ssrc,
@@ -838,7 +834,9 @@ func (e *engine) decodeAndOutput(payload []byte, pcm []float32, kind decodeKind)
 	var err error
 	if kind == decodeFEC {
 		e.stats.FECRecoveryAttempts++
-		samples, err = e.dec.DecodeWithFEC(payload, pcm, true)
+		samples, err = e.dec.DecodeWithFEC(payload, pcm[:frameSamples*audioChannels], true)
+	} else if payload == nil {
+		samples, err = e.dec.Decode(nil, pcm[:frameSamples*audioChannels])
 	} else {
 		samples, err = e.dec.Decode(payload, pcm)
 	}
@@ -1049,13 +1047,13 @@ func (e *engine) close() {
 	if receiver != nil {
 		_ = receiver.Close()
 	}
+	e.done.Wait()
 	if audio != nil {
 		audio.close()
 	}
 	if rec != nil {
 		_ = rec.Close()
 	}
-	e.done.Wait()
 }
 
 func (e *engine) setState(state string) {

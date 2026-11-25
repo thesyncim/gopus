@@ -55,10 +55,10 @@ func streamLayout(streams, coupled int) string {
 // roundtripSurround encodes a multi-frame surround signal with the default
 // mapping and decodes it back, returning the decoded interleaved PCM and the
 // stream layout the encoder chose.
-func roundtripSurround(channels, frames int) (decoded []float32, layout string, err error) {
+func roundtripSurround(numChannels, frames int) (decoded []float32, layout string, err error) {
 	// The default constructors derive the stream count, coupling, and Vorbis
 	// channel mapping from the channel count alone.
-	enc, err := gopus.NewMultistreamEncoderDefault(sampleRate, channels, gopus.ApplicationAudio)
+	enc, err := gopus.NewMultistreamEncoderDefault(sampleRate, numChannels, gopus.ApplicationAudio)
 	if err != nil {
 		return nil, "", fmt.Errorf("new multistream encoder: %w", err)
 	}
@@ -67,7 +67,7 @@ func roundtripSurround(channels, frames int) (decoded []float32, layout string, 
 		return nil, "", fmt.Errorf("set bitrate: %w", err)
 	}
 
-	dec, err := gopus.NewMultistreamDecoderDefault(sampleRate, channels)
+	dec, err := gopus.NewMultistreamDecoderDefault(sampleRate, numChannels)
 	if err != nil {
 		return nil, "", fmt.Errorf("new multistream decoder: %w", err)
 	}
@@ -76,40 +76,41 @@ func roundtripSurround(channels, frames int) (decoded []float32, layout string, 
 	// Multistream PCM is interleaved across all channels, same as stereo just
 	// wider: [c0, c1, ..., c5, c0, c1, ...]. Size the decode buffer to the
 	// largest frame the decoder may emit, times the channel count.
-	cfg := gopus.DefaultDecoderConfig(sampleRate, channels)
-	pcmOut := make([]float32, cfg.MaxPacketSamples*channels)
+	cfg := gopus.DefaultDecoderConfig(sampleRate, numChannels)
+	pcmIn := make([]float32, frameSize*numChannels)
+	packetBuf := make([]byte, cfg.MaxPacketBytes*enc.Streams())
+	pcmOut := make([]float32, cfg.MaxPacketSamples*numChannels)
 
 	for f := range frames {
-		pcm := surroundFrame(f)
+		fillSurroundFrame(pcmIn, numChannels, f)
 
-		packet, err := enc.EncodeFloat32(pcm)
+		pktLen, err := enc.Encode(pcmIn, packetBuf)
 		if err != nil {
 			return nil, "", fmt.Errorf("encode frame %d: %w", f, err)
 		}
 
-		n, err := dec.Decode(packet, pcmOut)
+		n, err := dec.Decode(packetBuf[:pktLen], pcmOut)
 		if err != nil {
 			return nil, "", fmt.Errorf("decode frame %d: %w", f, err)
 		}
-		decoded = append(decoded, pcmOut[:n*channels]...)
+		decoded = append(decoded, pcmOut[:n*numChannels]...)
 	}
 
 	return decoded, layout, nil
 }
 
-// surroundFrame builds one interleaved 5.1 frame, giving each channel a
-// distinct tone so the per-channel routing is audible/measurable.
-func surroundFrame(frame int) []float32 {
+// fillSurroundFrame fills dst with one interleaved surround frame, giving each
+// channel a distinct tone so the per-channel routing is audible/measurable.
+func fillSurroundFrame(dst []float32, numChannels, frame int) {
 	// Distinct frequency per surround channel (FL, C, FR, RL, RR, LFE).
-	freqs := [channels]float64{220, 330, 440, 550, 660, 60}
-	pcm := make([]float32, frameSize*channels)
+	freqs := [6]float64{220, 330, 440, 550, 660, 60}
 	for i := range frameSize {
 		t := float64(frame*frameSize+i) / sampleRate
-		for ch := range channels {
-			pcm[i*channels+ch] = float32(0.25 * math.Sin(2*math.Pi*freqs[ch]*t))
+		for ch := range numChannels {
+			freq := freqs[ch%len(freqs)]
+			dst[i*numChannels+ch] = float32(0.25 * math.Sin(2*math.Pi*freq*t))
 		}
 	}
-	return pcm
 }
 
 func frameCount(seconds float64) int {

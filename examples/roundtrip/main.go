@@ -274,10 +274,14 @@ func roundtrip(original []float32, config TestConfig) (decoded []float32, delay 
 		return nil, 0, fmt.Errorf("create decoder: %w", err)
 	}
 	pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
+	packetBuf := make([]byte, cfg.MaxPacketBytes)
 
 	// Process in frames
 	frameSamples := frameSize * config.Channels
 	numFrames := len(original) / frameSamples
+	if numFrames == 0 {
+		return nil, 0, fmt.Errorf("input duration is shorter than one %d-sample frame", frameSize)
+	}
 	decoded = make([]float32, 0, len(original))
 
 	for i := range numFrames {
@@ -286,13 +290,13 @@ func roundtrip(original []float32, config TestConfig) (decoded []float32, delay 
 		frame := original[start:end]
 
 		// Encode
-		packet, err := enc.EncodeFloat32(frame)
+		pktLen, err := enc.Encode(frame, packetBuf)
 		if err != nil {
 			return nil, 0, fmt.Errorf("encode frame %d: %w", i, err)
 		}
 
 		// Decode
-		n, err := dec.Decode(packet, pcmOut)
+		n, err := dec.Decode(packetBuf[:pktLen], pcmOut)
 		if err != nil {
 			return nil, 0, fmt.Errorf("decode frame %d: %w", i, err)
 		}
@@ -476,6 +480,9 @@ func calculatePeakError(original, decoded []float32) float64 {
 
 // calculateMSE computes Mean Squared Error.
 func calculateMSE(original, decoded []float32) float64 {
+	if len(original) == 0 {
+		return 0
+	}
 	var sum float64
 	for i := range original {
 		diff := float64(original[i] - decoded[i])
@@ -486,6 +493,9 @@ func calculateMSE(original, decoded []float32) float64 {
 
 // calculateEnergy computes signal energy.
 func calculateEnergy(samples []float32) float64 {
+	if len(samples) == 0 {
+		return 0
+	}
 	var sum float64
 	for _, s := range samples {
 		sum += float64(s * s)

@@ -126,9 +126,12 @@ func encodeTestSignal(filename string, duration float64) error {
 	fmt.Printf("  Frame size: %d samples (%.1f ms)\n", frameSize, float64(frameSize)/float64(sampleRate)*1000)
 	fmt.Printf("  Encoded frames (including lookahead): %d\n", totalFrames)
 
+	pcm := make([]float32, frameSize*channels)
+	packetBuf := make([]byte, 4000)
+
 	for frame := range totalFrames {
 		// Generate stereo interleaved samples: [L0, R0, L1, R1, ...]
-		pcm := make([]float32, frameSize*channels)
+		clear(pcm)
 		for i := range frameSize {
 			sampleIndex := frame*frameSize + i
 			if sampleIndex >= totalSamples {
@@ -145,10 +148,11 @@ func encodeTestSignal(filename string, duration float64) error {
 		}
 
 		// Encode frame
-		packet, err := enc.EncodeFloat32(pcm)
+		pktLen, err := enc.Encode(pcm, packetBuf)
 		if err != nil {
 			return fmt.Errorf("encode frame %d: %w", frame, err)
 		}
+		packet := packetBuf[:pktLen]
 
 		// The final granule keeps the requested samples after pre-skip and excludes
 		// zero padding after the last input sample.
