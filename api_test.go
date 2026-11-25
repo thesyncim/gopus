@@ -8,7 +8,6 @@ import (
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	"github.com/thesyncim/gopus/internal/dred/rdovae"
 	"github.com/thesyncim/gopus/internal/encoder"
-	encodercore "github.com/thesyncim/gopus/internal/encoder"
 	"github.com/thesyncim/gopus/internal/extsupport"
 	"github.com/thesyncim/gopus/internal/libopustest"
 	"github.com/thesyncim/gopus/internal/lpcnetplc"
@@ -5421,7 +5420,7 @@ type lookaheadCase struct {
 type restrictedApplicationCase struct {
 	name          string
 	application   Application
-	wantMode      encodercore.Mode
+	wantMode      encoder.Mode
 	wantLowDelay  bool
 	wantBandwidth Bandwidth
 	wantLookahead int
@@ -5826,7 +5825,7 @@ func restrictedApplicationTestCases() []restrictedApplicationCase {
 		{
 			name:         "restricted_silk",
 			application:  ApplicationRestrictedSilk,
-			wantMode:     encodercore.ModeSILK,
+			wantMode:     encoder.ModeSILK,
 			wantLowDelay: false,
 			// Bandwidth() reports st->bandwidth (FULLBAND init default) before any
 			// encode regardless of application; the per-application bandwidth bias
@@ -5837,7 +5836,7 @@ func restrictedApplicationTestCases() []restrictedApplicationCase {
 		{
 			name:          "restricted_celt",
 			application:   ApplicationRestrictedCelt,
-			wantMode:      encodercore.ModeCELT,
+			wantMode:      encoder.ModeCELT,
 			wantLowDelay:  true,
 			wantBandwidth: BandwidthFullband,
 			wantLookahead: 48000 / 400,

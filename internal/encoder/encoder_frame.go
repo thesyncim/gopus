@@ -1387,10 +1387,8 @@ func (e *Encoder) applySilkTransitionPrefillRamp(prefill []opusRes, prefillFrame
 
 	inc := max(48000/sampleRate, 1)
 	window := celt.GetWindowBufferF32(prefillLen * inc)
-	maxByWindow := prefillLen
 	if len(window) > 0 {
-		maxByWindow = len(window) / inc
-		if maxByWindow < prefillLen {
+		if maxByWindow := len(window) / inc; maxByWindow < prefillLen {
 			prefillLen = maxByWindow
 		}
 	}

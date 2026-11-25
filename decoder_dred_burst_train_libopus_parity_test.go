@@ -11,11 +11,9 @@ import (
 	"fmt"
 	"github.com/thesyncim/gopus/internal/celt"
 	"github.com/thesyncim/gopus/internal/dnnblob"
-	"github.com/thesyncim/gopus/internal/dred"
 	internaldred "github.com/thesyncim/gopus/internal/dred"
 	"github.com/thesyncim/gopus/internal/dred/rdovae"
 	encpkg "github.com/thesyncim/gopus/internal/encoder"
-	internalenc "github.com/thesyncim/gopus/internal/encoder"
 	"github.com/thesyncim/gopus/internal/extsupport"
 	"github.com/thesyncim/gopus/internal/libopustest"
 	"github.com/thesyncim/gopus/internal/libopustooling"
@@ -11673,8 +11671,8 @@ func setValidDREDDecoderBlobForTest(t *testing.T, dec *Decoder) {
 func makeValidCELTPacketForDREDTest(t *testing.T) []byte {
 	t.Helper()
 
-	enc := internalenc.NewEncoder(48000, 2)
-	enc.SetMode(internalenc.ModeCELT)
+	enc := encpkg.NewEncoder(48000, 2)
+	enc.SetMode(encpkg.ModeCELT)
 	enc.SetBandwidth(types.BandwidthFullband)
 	enc.SetBitrate(256000)
 
@@ -11706,8 +11704,8 @@ func makeValidMonoCELTPacketForFrameSizeForDREDTest(t *testing.T, frameSize int)
 func makeValidMonoCELTPacketForFrameSizeBandwidthForDREDTest(t *testing.T, frameSize int, bandwidth Bandwidth) []byte {
 	t.Helper()
 
-	enc := internalenc.NewEncoder(48000, 1)
-	enc.SetMode(internalenc.ModeCELT)
+	enc := encpkg.NewEncoder(48000, 1)
+	enc.SetMode(encpkg.ModeCELT)
 	enc.SetBandwidth(types.Bandwidth(bandwidth))
 	enc.SetBitrate(128000)
 
@@ -11730,8 +11728,8 @@ func makeValidMonoCELTPacketForFrameSizeBandwidthForDREDTest(t *testing.T, frame
 func makeValidStereoCELTPacketForFrameSizeBandwidthForDREDTest(t *testing.T, frameSize int, bandwidth Bandwidth) []byte {
 	t.Helper()
 
-	enc := internalenc.NewEncoder(48000, 2)
-	enc.SetMode(internalenc.ModeCELT)
+	enc := encpkg.NewEncoder(48000, 2)
+	enc.SetMode(encpkg.ModeCELT)
 	enc.SetBandwidth(types.Bandwidth(bandwidth))
 	enc.SetBitrate(256000)
 	enc.SetForceChannels(2)
@@ -11767,8 +11765,8 @@ func makeValidMonoHybridPacketForFrameSizeBandwidthForDREDTest(t *testing.T, fra
 		t.Fatalf("hybrid DRED test packet requires SWB/FB bandwidth, got %v", bandwidth)
 	}
 
-	enc := internalenc.NewEncoder(48000, 1)
-	enc.SetMode(internalenc.ModeHybrid)
+	enc := encpkg.NewEncoder(48000, 1)
+	enc.SetMode(encpkg.ModeHybrid)
 	enc.SetBandwidth(types.Bandwidth(bandwidth))
 	enc.SetBitrate(48000)
 
@@ -11804,8 +11802,8 @@ func makeValidStereoHybridPacketForFrameSizeBandwidthForDREDTest(t *testing.T, f
 		t.Fatalf("hybrid DRED test packet requires SWB/FB bandwidth, got %v", bandwidth)
 	}
 
-	enc := internalenc.NewEncoder(48000, 2)
-	enc.SetMode(internalenc.ModeHybrid)
+	enc := encpkg.NewEncoder(48000, 2)
+	enc.SetMode(encpkg.ModeHybrid)
 	enc.SetBandwidth(types.Bandwidth(bandwidth))
 	enc.SetBitrate(96000)
 	enc.SetForceChannels(2)
@@ -11861,8 +11859,8 @@ func makeValidMonoSILKPacketForFrameSizeBandwidthForDREDTest(t *testing.T, frame
 		t.Fatalf("silk DRED test packet requires NB/MB/WB bandwidth, got %v", bandwidth)
 	}
 
-	enc := internalenc.NewEncoder(48000, 1)
-	enc.SetMode(internalenc.ModeSILK)
+	enc := encpkg.NewEncoder(48000, 1)
+	enc.SetMode(encpkg.ModeSILK)
 	enc.SetBandwidth(types.Bandwidth(bandwidth))
 	enc.SetBitrate(32000)
 
@@ -11889,8 +11887,8 @@ func makeValidMonoSILKPacketForFrameSizeBandwidthForDREDTest(t *testing.T, frame
 func makeValidMono16kPacketForDREDTest(t *testing.T) []byte {
 	t.Helper()
 
-	enc := internalenc.NewEncoder(16000, 1)
-	enc.SetMode(internalenc.ModeSILK)
+	enc := encpkg.NewEncoder(16000, 1)
+	enc.SetMode(encpkg.ModeSILK)
 	enc.SetBandwidth(types.BandwidthWideband)
 	enc.SetBitrate(24000)
 
@@ -11917,8 +11915,8 @@ func makeValidMono16kPacketForDREDTest(t *testing.T) []byte {
 func makeValidMono48kSILKPacketForDREDTest(t *testing.T) []byte {
 	t.Helper()
 
-	enc := internalenc.NewEncoder(48000, 1)
-	enc.SetMode(internalenc.ModeSILK)
+	enc := encpkg.NewEncoder(48000, 1)
+	enc.SetMode(encpkg.ModeSILK)
 	enc.SetBandwidth(types.BandwidthWideband)
 	enc.SetBitrate(32000)
 
@@ -13890,17 +13888,17 @@ func addDREDPayloadFuzzSeed(f *testing.F, extensions []packetExtensionData) {
 func FuzzFindDREDPayload_NoPanic(f *testing.F) {
 	validPayload := []byte{0xaa, 0xbb, 0xcc, 0xdd}
 	addDREDPayloadFuzzSeed(f, []packetExtensionData{
-		{ID: dred.ExtensionID, Frame: 1, Data: append([]byte{'D', dred.ExperimentalVersion}, validPayload...)},
+		{ID: internaldred.ExtensionID, Frame: 1, Data: append([]byte{'D', internaldred.ExperimentalVersion}, validPayload...)},
 	})
 	addDREDPayloadFuzzSeed(f, []packetExtensionData{
-		{ID: dred.ExtensionID, Frame: 0, Data: []byte{'X', dred.ExperimentalVersion, 0xaa}},
+		{ID: internaldred.ExtensionID, Frame: 0, Data: []byte{'X', internaldred.ExperimentalVersion, 0xaa}},
 	})
 	addDREDPayloadFuzzSeed(f, []packetExtensionData{
-		{ID: dred.ExtensionID, Frame: 0, Data: []byte{'X', dred.ExperimentalVersion, 0x10}},
-		{ID: dred.ExtensionID, Frame: 0, Data: append([]byte{'D', dred.ExperimentalVersion}, validPayload...)},
+		{ID: internaldred.ExtensionID, Frame: 0, Data: []byte{'X', internaldred.ExperimentalVersion, 0x10}},
+		{ID: internaldred.ExtensionID, Frame: 0, Data: append([]byte{'D', internaldred.ExperimentalVersion}, validPayload...)},
 	})
 	f.Add([]byte{0x7c, 0xc1, 0x03, 0x02, 0xff})
-	f.Add([]byte{0xff, 0xff, 0x00, 'D', dred.ExperimentalVersion})
+	f.Add([]byte{0xff, 0xff, 0x00, 'D', internaldred.ExperimentalVersion})
 	f.Add([]byte{GenerateTOC(31, false, 3), 0xc1, 0x02, 0x01})
 
 	f.Fuzz(func(t *testing.T, packet []byte) {
@@ -13933,7 +13931,7 @@ func TestFindDREDPayload(t *testing.T) {
 	}
 	wantPayload := []byte{0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xf0, 0x12, 0x34}
 	extensions := []packetExtensionData{
-		{ID: dred.ExtensionID, Frame: 1, Data: append([]byte{'D', dred.ExperimentalVersion}, wantPayload...)},
+		{ID: internaldred.ExtensionID, Frame: 1, Data: append([]byte{'D', internaldred.ExperimentalVersion}, wantPayload...)},
 	}
 	packet := make([]byte, 64)
 	n, err := buildPacketWithOptions(GenerateTOC(31, false, 0)&0xFC, frames, packet, 0, false, extensions, false)
@@ -13959,7 +13957,7 @@ func TestFindDREDPayload(t *testing.T) {
 func TestFindDREDPayloadSkipsWrongExperimentalHeader(t *testing.T) {
 	frames := [][]byte{{0x11, 0x22, 0x33}}
 	extensions := []packetExtensionData{
-		{ID: dred.ExtensionID, Frame: 0, Data: []byte{'X', dred.ExperimentalVersion, 0xaa}},
+		{ID: internaldred.ExtensionID, Frame: 0, Data: []byte{'X', internaldred.ExperimentalVersion, 0xaa}},
 	}
 	packet := make([]byte, 64)
 	n, err := buildPacketWithOptions(GenerateTOC(31, false, 0)&0xFC, frames, packet, 0, false, extensions, false)
@@ -13980,8 +13978,8 @@ func TestFindDREDPayloadSkipsEarlierInvalidDREDExtension(t *testing.T) {
 	frames := [][]byte{{0x11, 0x22, 0x33}}
 	wantPayload := []byte{0xaa, 0xbb, 0xcc}
 	extensions := []packetExtensionData{
-		{ID: dred.ExtensionID, Frame: 0, Data: []byte{'X', dred.ExperimentalVersion, 0x10}},
-		{ID: dred.ExtensionID, Frame: 0, Data: append([]byte{'D', dred.ExperimentalVersion}, wantPayload...)},
+		{ID: internaldred.ExtensionID, Frame: 0, Data: []byte{'X', internaldred.ExperimentalVersion, 0x10}},
+		{ID: internaldred.ExtensionID, Frame: 0, Data: append([]byte{'D', internaldred.ExperimentalVersion}, wantPayload...)},
 	}
 	packet := make([]byte, 64)
 	n, err := buildPacketWithOptions(GenerateTOC(31, false, 0)&0xFC, frames, packet, 0, false, extensions, false)
@@ -14002,7 +14000,7 @@ func TestFindDREDPayloadKeepsShortExperimentalPayload(t *testing.T) {
 	frames := [][]byte{{0x11, 0x22, 0x33}}
 	wantPayload := []byte{0xaa, 0xbb}
 	extensions := []packetExtensionData{
-		{ID: dred.ExtensionID, Frame: 0, Data: append([]byte{'D', dred.ExperimentalVersion}, wantPayload...)},
+		{ID: internaldred.ExtensionID, Frame: 0, Data: append([]byte{'D', internaldred.ExperimentalVersion}, wantPayload...)},
 	}
 	packet := make([]byte, 64)
 	n, err := buildPacketWithOptions(GenerateTOC(31, false, 0)&0xFC, frames, packet, 0, false, extensions, false)
