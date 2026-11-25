@@ -2,7 +2,9 @@
 
 package gopus
 
-import "github.com/thesyncim/gopus/internal/celt"
+import (
+	"github.com/thesyncim/gopus/internal/celt"
+)
 
 func (d *Decoder) decodePublicFloat32(data []byte, pcm []float32) (int, error) {
 	return d.decodeFloat32(data, pcm, true)
@@ -88,3 +90,5 @@ func (d *Decoder) finishInt24Output(pcm []int32, scratch []float32, n, channels 
 // default build; the int16/int24 PLC wrappers always use the float fallback.
 func (d *Decoder) fixedInt16PLCOutput(_ []int16, _, _ int) bool { return false }
 func (d *Decoder) fixedInt24PLCOutput(_ []int32, _, _ int) bool { return false }
+
+type decoderFixedFields struct{}

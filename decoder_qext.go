@@ -2,14 +2,59 @@
 
 package gopus
 
-// decoderHD96kFields holds the 96 kHz API-rate state for the Decoder.
-//
-// C ref: opus_decoder.c opus_decoder_init() ENABLE_QEXT gate (Fs == 96000),
-// which runs the native 96 kHz CELT mode (mode96000_1920_240) plus the >20 kHz
-// extension-band decode chain. gopus routes Fs=96000 to the native HD96k CELT
-// decode driver (celt EnableHD96kMode + DecodeFrame at frameSize=1920); the
-// QEXT extension payload reserved in the Opus packet padding is parsed by the
-// existing top-level extension machinery and forwarded to the CELT layer.
+func (d *Decoder) setCELTQEXTPayload(payload []byte) {
+	if d == nil || d.celtDecoder == nil {
+		return
+	}
+	d.celtDecoder.SetQEXTPayload(payload)
+}
+
+type decoderQEXTPayloads struct {
+	payloads [maxRepacketizerFrames][]byte
+}
+
+func (p *decoderQEXTPayloads) frame(frameIndex int) []byte {
+	if p == nil || frameIndex < 0 || frameIndex >= len(p.payloads) {
+		return nil
+	}
+	return p.payloads[frameIndex]
+}
+
+func (p *decoderQEXTPayloads) collect(data []byte, nbFrames, id int) {
+	if p == nil {
+		return
+	}
+	collectQEXTPacketExtensions(data, nbFrames, id, &p.payloads)
+}
+
+func collectQEXTPacketExtensions(data []byte, nbFrames, id int, payloads *[maxRepacketizerFrames][]byte) {
+	if payloads == nil {
+		return
+	}
+	for i := 0; i < maxRepacketizerFrames; i++ {
+		payloads[i] = nil
+	}
+	if len(data) == 0 || nbFrames <= 0 {
+		return
+	}
+
+	var iter packetExtensionIterator
+	initPacketExtensionIterator(&iter, data, nbFrames)
+	for {
+		var ext packetExtensionData
+		ok, err := iter.next(&ext)
+		if err != nil || !ok {
+			return
+		}
+		if ext.ID != id || ext.Frame < 0 || ext.Frame >= nbFrames {
+			continue
+		}
+		if payloads[ext.Frame] == nil {
+			payloads[ext.Frame] = ext.Data
+		}
+	}
+}
+
 type decoderHD96kFields struct {
 	apiIs96kHz bool
 }

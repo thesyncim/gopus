@@ -3,11 +3,11 @@
 package gopus
 
 import (
+	"github.com/thesyncim/gopus/internal/dnnblob"
 	osceLACE "github.com/thesyncim/gopus/internal/osce/lace"
 	"github.com/thesyncim/gopus/internal/silk"
 )
 
-// osceLACEMode picks the decoder-complexity selected OSCE method.
 type osceLACEMode int
 
 const (
@@ -286,4 +286,223 @@ func (d *Decoder) resetOSCELACEChannel(channel int, mode osceLACEMode) {
 	state.laceMethod = mode
 	state.prevLACEActive = true
 	state.laceResetFrames[channel] = 2
+}
+
+func osceLACECrossFade10ms(xEnhanced, xIn []float32, length int) {
+	if length < 160 {
+		return
+	}
+	if len(xEnhanced) < 160 || len(xIn) < 160 {
+		return
+	}
+	for i := 0; i < 160; i++ {
+		w := osceWindow[i]
+		raw := float32((1.0 - w) * xIn[i])
+		xEnhanced[i] = w*xEnhanced[i] + raw
+	}
+}
+
+func validateOSCELACEModel(blob *dnnblob.Blob, supported bool) error {
+	if blob == nil || !supported {
+		return nil
+	}
+	_, err := osceLACE.Load(blob)
+	return err
+}
+
+func (d *Decoder) bindOSCELACEModel(blob *dnnblob.Blob, supported bool) error {
+	if d == nil {
+		return nil
+	}
+	if blob == nil || !supported {
+		if d.osceLACE != nil {
+			for ch := range d.osceLACE.osceLACERuntime {
+				_ = d.osceLACE.osceLACERuntime[ch].SetModelPreservingState(nil)
+				_ = d.osceLACE.osceNoLACERuntime[ch].SetModelPreservingState(nil)
+			}
+			d.osceLACE.osceLACEModel = nil
+		}
+		return nil
+	}
+	model, err := osceLACE.Load(blob)
+	if err != nil {
+		// Keep d.osceModelsLoaded as the blob-level signal (still true) but
+		// drop any prior runtime binding so callers see Loaded()==false.
+		if d.osceLACE != nil {
+			for ch := range d.osceLACE.osceLACERuntime {
+				_ = d.osceLACE.osceLACERuntime[ch].SetModel(nil)
+				_ = d.osceLACE.osceNoLACERuntime[ch].SetModel(nil)
+			}
+			d.osceLACE.osceLACEModel = nil
+			d.osceLACE = nil
+		}
+		return err
+	}
+	if d.osceLACE == nil {
+		d.osceLACE = &decoderOSCELACEState{}
+	}
+	d.osceLACE.osceLACEModel = model
+	// Mirror the OSCE BWE binding: keep all per-channel runtime states in
+	// sync with the loaded model so the forward pass can dispatch on a
+	// per-channel slot without extra plumbing. libopus does the same with a
+	// shared `OSCEModel` and one `LACEState`/`NoLACEState` per channel.
+	for ch := range d.osceLACE.osceLACERuntime {
+		if err := d.osceLACE.osceLACERuntime[ch].SetModelPreservingState(model); err != nil {
+			for j := range d.osceLACE.osceLACERuntime {
+				_ = d.osceLACE.osceLACERuntime[j].SetModel(nil)
+				_ = d.osceLACE.osceNoLACERuntime[j].SetModel(nil)
+			}
+			d.osceLACE.osceLACEModel = nil
+			d.osceLACE = nil
+			return err
+		}
+		if err := d.osceLACE.osceNoLACERuntime[ch].SetModelPreservingState(model); err != nil {
+			for j := range d.osceLACE.osceLACERuntime {
+				_ = d.osceLACE.osceLACERuntime[j].SetModel(nil)
+				_ = d.osceLACE.osceNoLACERuntime[j].SetModel(nil)
+			}
+			d.osceLACE.osceLACEModel = nil
+			d.osceLACE = nil
+			return err
+		}
+	}
+	return nil
+}
+
+// osceLACEModelLoadedRuntime reports whether the decoder currently has a
+// bound OSCE LACE/NoLACE model that the runtime can use. The bool mirrors
+// the OSCE BWE `osceBWEModelLoadedRuntime` accessor and is intended for
+// test parity assertions.
+func (d *Decoder) osceLACEModelLoadedRuntime() bool {
+	if d == nil || d.osceLACE == nil {
+		return false
+	}
+	return d.osceLACE.osceLACEModel != nil && d.osceLACE.osceLACEModel.Loaded()
+}
+
+// Compile-time sanity: keep the model alias visible so we don't drop the
+// dependency when refactoring.
+var _ = (*osceLACE.Model)(nil)
+
+const (
+	// osceLACEFrameSamples is the int16 sample count one libopus
+	// `osce_enhance_frame` invocation consumes / produces (20 ms @ 16
+	// kHz). Both LACE and NoLACE share this footprint.
+	osceLACEFrameSamples = 320
+	// osceLACEFeatureDim mirrors libopus dnn/osce_config.h
+	// `OSCE_FEATURE_DIM = 93`. Features are emitted at the SILK
+	// sub-frame cadence (4 sub-frames per 20 ms frame).
+	osceLACEFeatureDim = 93
+	// osceLACESubframesPerFrame matches libopus `psDec->nb_subfr` when
+	// the postfilter is enabled (the LACE/NoLACE path is only valid
+	// for 4-subframe frames at 16 kHz; see dnn/osce.c::osce_enhance_frame).
+	osceLACESubframesPerFrame = 4
+)
+
+type decoderOSCELACEState struct {
+	osceLACEModel *osceLACE.Model
+
+	// Per-channel forward-pass runtime state mirroring libopus
+	// `silk_channel_state.osce.state.{lace,nolace}`. The decoder keeps both
+	// LACE and NoLACE state slots per channel because `pickOSCELACEMode`
+	// can switch between the two modes from one packet to the next (e.g.
+	// SILK NB -> SILK WB transition). libopus calls `osce_reset` on a mode
+	// change; here we keep the inactive runtime's history zeroed via
+	// Reset() so a return to that mode starts from a clean state.
+	//
+	// Slot 0 carries the mid/left channel, slot 1 the side/right channel
+	// when a stereo packet is decoded on a stereo decoder. Mono decode
+	// paths only use slot 0.
+	osceLACERuntime   [2]osceLACE.LACEState
+	osceNoLACERuntime [2]osceLACE.NoLACEState
+
+	// Per-channel OSCE feature extractor state mirroring libopus
+	// `silk_channel_state.osce.features` (the `OSCEFeatureState` struct):
+	// the rolling 350-sample signal history, smoothed bit count and
+	// pitch-hangover bookkeeping. Both LACE and NoLACE share one feature
+	// extractor per channel because libopus emits a single 4 * 93 feature
+	// vector per 20 ms frame independent of the postfilter method.
+	osceLACEFeatures [2]osceLACE.FeatureState
+
+	// Pre-allocated working buffers for the post-SILK LACE/NoLACE forward
+	// pass so the decoder hot path does not allocate per-frame. The buffers
+	// are sized for one channel; stereo runs the forward pass sequentially
+	// on each channel re-using the same scratch.
+	//
+	// applyIn16 holds the int16 SILK lowband samples read from
+	// `silk.Decoder.LatestNativeMono()` / `LatestNativeStereo()` before any
+	// scaling. applyInFloat is the float32 view consumed by the LACE /
+	// NoLACE forward pass (libopus scales by 1/32768.f at the start of
+	// `osce_enhance_frame`). applyOutFloat is the enhanced float32 output
+	// the network writes. applyOutInt16 is the requantised int16 view that
+	// downstream consumers (e.g. the silk_resampler PCM path or OSCE BWE
+	// when both are active) read from.
+	applyIn16     [osceLACEFrameSamples]int16
+	applyInFloat  [osceLACEFrameSamples]float32
+	applyOutFloat [osceLACEFrameSamples]float32
+	applyOutInt16 [osceLACEFrameSamples]int16
+
+	// Per-frame conditioning features consumed by the LACE / NoLACE
+	// pitch / feature embedding net. Sized for the maximum 4-subframe
+	// invocation libopus supports.
+	applyFeatures [osceLACESubframesPerFrame * osceLACEFeatureDim]float32
+	applyNumBits  [2]float32
+	applyPeriods  [osceLACESubframesPerFrame]int
+
+	// prevLACEActive tracks whether the previous decoded frame ran LACE /
+	// NoLACE. laceMethod and laceResetFrames mirror libopus osce.method and
+	// features.reset: after a reset, the first eligible frame passes raw and
+	// the second eligible frame cross-fades before steady enhancement resumes.
+	prevLACEActive  bool
+	laceMethod      osceLACEMode
+	laceResetFrames [2]int
+}
+
+func (d *Decoder) initOSCELossHook() {
+	d.silkDecoder.SetNativeLossHook(d.resetOSCELACELostChannel)
+}
+
+// resetOSCELACELostChannel mirrors osce_reset in silk/decode_frame.c. A lost
+// channel resets its selected filter and two-frame fade without changing the
+// other channel's state or the selected method.
+func (d *Decoder) resetOSCELACELostChannel(channel int) {
+	s := d.osceLACE
+	if s == nil || channel < 0 || channel >= len(s.laceResetFrames) {
+		return
+	}
+	s.osceLACEFeatures[channel].Reset()
+	switch s.laceMethod {
+	case osceLACEModeLACE:
+		s.osceLACERuntime[channel].Reset()
+	case osceLACEModeNoLACE:
+		s.osceNoLACERuntime[channel].Reset()
+	}
+	s.laceResetFrames[channel] = 2
+}
+
+type decoderOSCEFields struct {
+	// The callback is bound once; per-packet context stays decoder-owned.
+	osceLACEHook         silk.NativePostfilterHook
+	osceLACEHookChannels int
+	osceLACEHookStereo   bool
+	osceLACEHookMode     osceLACEMode
+
+	osceModelsLoaded    bool
+	osceLACEModelLoaded bool
+	osceBWEModelLoaded  bool
+	osceBWEEnabled      bool
+	osceBWE             *decoderOSCEBWEState
+	osceLACEEnabled     bool
+	osceLACEOverrideSet bool
+	osceLACE            *decoderOSCELACEState
+}
+
+func (d *Decoder) setOSCEModelState(models dnnblob.DecoderModelState) {
+	d.osceModelsLoaded = models.OSCE
+	d.osceLACEModelLoaded = models.OSCE
+	d.osceBWEModelLoaded = models.OSCEBWE
+}
+
+func (d *Decoder) osceBWEActive() bool {
+	return d != nil && d.osceBWEEnabled
 }

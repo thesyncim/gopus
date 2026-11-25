@@ -1,64 +1,17 @@
 //go:build gopus_libopus_oracle
 
-// encode_decode_longstream_soak_test.go — LONG-STREAM SOAK differential parity
-// vs the SAME-ARCH libopus, targeting CROSS-FRAME STATE DRIFT that the existing
-// short (<=40-frame) differential fuzzers cannot reach.
-//
-// Why a separate soak: TestEncodeDifferentialFuzz / TestDecodeDifferential* drive
-// only a handful of frames per config. A divergence that accumulates slowly —
-// energy/analysis memory, the VBR bit reservoir, prev-frame LPC/pitch predictors,
-// the PLC loss_duration counter, redundancy/DTX run counters, or a range-coder
-// carry that only desyncs after thousands of renormalisations — stays invisible
-// at 8 frames. This harness drives ONE persistent gopus encoder/decoder and the
-// SAME persistent libopus encoder/decoder over a LONG (hundreds to thousands of
-// 20 ms frames = tens of seconds) varied signal and asserts byte/sample parity at
-// EVERY frame, recording the FIRST divergence index. A late first divergence is
-// the signature of slow state drift; frame 0 would be an ordinary single-frame
-// bug already caught elsewhere.
-//
-// Three phases per config (all share the same persistent-state contract):
-//
-//   (1) ENCODE soak: feed identical float PCM to the gopus Encoder and the
-//       persistent libopus opus_encode_float oracle; assert every emitted packet
-//       is byte-identical and the post-encode final_range matches the selected
-//       same-ISA libopus reference.
-//
-//   (2) DECODE soak of the gopus-encoded stream: decode the WHOLE gopus packet
-//       stream through one persistent gopus Decoder AND one persistent libopus
-//       decoder (libopus_refdecode_single.c v6, which also reports per-frame
-//       OPUS_GET_FINAL_RANGE); assert per-frame PCM and decoder final_range
-//       parity. This locks decoder cross-frame state (CELT overlap/energy memory,
-//       SILK LPC/LTP history, PLC loss_duration, stereo predictor) over the run.
-//
-//   (3) DECODE soak of a libopus-encoded stream: the same persistent-decoder PCM
-//       comparison, but on the libopus-encoded packets (phase 1's oracle output),
-//       so the gopus decoder is exercised on a bitstream it did not produce.
-//
-// The build tag matches decoder_api_rate_test.go because the persistent-decoder
-// oracle wrapper (decodeWithLibopusReferenceAPIRateFloat32StepsRanges) lives
-// there. The encode helpers (configureEncDiff, encDiffEncodeOneFrame) are reused
-// from the untagged encode_differential_fuzz_test.go.
-//
-// Run the full sweep with:
-//   GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
-//     go test -tags gopus_libopus_oracle -timeout 3600s -run TestEncodeDecodeLongStreamSoak .
-
 package gopus
 
 import (
 	"bytes"
 	"fmt"
+	"github.com/thesyncim/gopus/internal/libopustest"
+	"github.com/thesyncim/gopus/internal/testsignal"
 	"math"
 	"runtime"
 	"testing"
-
-	"github.com/thesyncim/gopus/internal/libopustest"
-	"github.com/thesyncim/gopus/internal/testsignal"
 )
 
-// soakFrames returns the per-config frame count: a long stream by default
-// (cross-frame drift needs depth), shrunk under -short so CI stays fast. At
-// 20 ms/frame, 2500 frames = 50 s of audio; 300 frames = 6 s.
 func soakFrames() int {
 	if testing.Short() {
 		return 300
@@ -535,4 +488,138 @@ func TestEncodeDecodeLongStreamSoak(t *testing.T) {
 	}
 	t.Logf("long-stream soak: %d configs x %d frames (%d ms each) at %d Hz; arch=%s",
 		len(specs), frames, encMsOf(ExpertFrameDuration20Ms), sampleRate, runtime.GOARCH)
+}
+
+func reportPacketByteDiff(t *testing.T, packetIdx int, got, want []byte) {
+	t.Helper()
+	limit := len(got)
+	if len(want) < limit {
+		limit = len(want)
+	}
+	first := -1
+	for i := 0; i < limit; i++ {
+		if got[i] != want[i] {
+			first = i
+			break
+		}
+	}
+	if first < 0 && len(got) != len(want) {
+		first = limit
+	}
+	t.Fatalf("packet %d DIVERGES (len got=%d want=%d first=%d)\n got=%x\nwant=%x",
+		packetIdx, len(got), len(want), first, got, want)
+}
+
+func assertEncoderFECPacketSequenceByteExact(t *testing.T, cfg libopusFECPacketConfig, frames int) {
+	t.Helper()
+	pcm := fecParityPCMSequence(cfg.FrameSize, cfg.Channels, frames)
+	wantPackets, err := emitLibopusFECPackets(cfg, pcm)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "libopus FEC packets", err)
+	}
+	gotPackets, err := encodeGopusFECPackets(cfg, frames)
+	if err != nil {
+		t.Fatalf("encode gopus: %v", err)
+	}
+	if len(gotPackets) != len(wantPackets) {
+		t.Fatalf("packet count=%d want %d", len(gotPackets), len(wantPackets))
+	}
+	const warmupPackets = 2 // LBRR payload in packet matches libopus cadence (first at index 2).
+	lbrrSeen := false
+	for i := range wantPackets {
+		if packetHasInBandFEC(t, wantPackets[i]) {
+			lbrrSeen = true
+		}
+		if i < warmupPackets {
+			continue
+		}
+		if !bytes.Equal(gotPackets[i], wantPackets[i]) {
+			reportPacketByteDiff(t, i, gotPackets[i], wantPackets[i])
+		}
+	}
+	if !lbrrSeen {
+		t.Fatal("libopus reference sequence produced no in-band LBRR packet")
+	}
+}
+
+func TestEncoderSilkMonoFirstPacketByteExactWithFECMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	cfg := libopusFECPacketConfig{
+		FrameSize: 960,
+		Channels:  1,
+		Bitrate:   fecParityBitrateForFrameSize(960),
+		InBandFEC: true,
+	}
+	pcm := fecParityPCMSequence(cfg.FrameSize, cfg.Channels, 1)
+	wantPackets, err := emitLibopusFECPackets(cfg, pcm)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "libopus packet", err)
+	}
+	gotPackets, err := encodeGopusFECPackets(cfg, 1)
+	if err != nil {
+		t.Fatalf("encode gopus: %v", err)
+	}
+	if !bytes.Equal(gotPackets[0], wantPackets[0]) {
+		reportPacketByteDiff(t, 0, gotPackets[0], wantPackets[0])
+	}
+}
+
+func TestEncoderFECPacketSequenceByteExactMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+
+	for _, tc := range []struct {
+		name string
+		cfg  libopusFECPacketConfig
+	}{
+		{
+			name: "mono_20ms_dred_settings",
+			cfg: libopusFECPacketConfig{
+				FrameSize: 960, Channels: 1,
+				Bitrate:   fecParityBitrateForFrameSize(960),
+				InBandFEC: true,
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assertEncoderFECPacketSequenceByteExact(t, tc.cfg, 24)
+		})
+	}
+}
+
+func TestEncoderFECMono20msPacket1ByteExactMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	cfg := libopusFECPacketConfig{
+		FrameSize: 960, Channels: 1, Bitrate: fecParityBitrateForFrameSize(960), InBandFEC: true,
+	}
+	pcm := fecParityPCMSequence(cfg.FrameSize, cfg.Channels, 2)
+	want, _ := emitLibopusFECPackets(cfg, pcm)
+	got, _ := encodeGopusFECPackets(cfg, 2)
+	if !bytes.Equal(got[0], want[0]) {
+		reportPacketByteDiff(t, 0, got[0], want[0])
+	}
+	if !bytes.Equal(got[1], want[1]) {
+		reportPacketByteDiff(t, 1, got[1], want[1])
+	}
+}
+
+func TestEncoderFECStereo20msPacket2ByteExactMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	cfg := libopusFECPacketConfig{
+		FrameSize: 960, Channels: 2, Bitrate: fecParityBitrateForFrameSize(960), InBandFEC: true,
+	}
+	pcm := fecParityPCMSequence(cfg.FrameSize, cfg.Channels, 3)
+	want, err := emitLibopusFECPackets(cfg, pcm)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "libopus FEC packets", err)
+	}
+	got, err := encodeGopusFECPackets(cfg, 3)
+	if err != nil {
+		t.Fatalf("encode gopus: %v", err)
+	}
+	if !packetHasInBandFEC(t, want[2]) {
+		t.Fatal("libopus packet 2 missing LBRR")
+	}
+	if !bytes.Equal(got[2], want[2]) {
+		reportPacketByteDiff(t, 2, got[2], want[2])
+	}
 }

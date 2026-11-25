@@ -2,6 +2,16 @@
 
 package gopus
 
+func (d *Decoder) setCELTQEXTPayload(_ []byte) {}
+
+type decoderQEXTPayloads struct{}
+
+func (p *decoderQEXTPayloads) frame(_ int) []byte {
+	return nil
+}
+
+func (p *decoderQEXTPayloads) collect(_ []byte, _, _ int) {}
+
 type decoderHD96kFields struct{}
 
 func (d *Decoder) is96kHz() bool { return false }

@@ -4,11 +4,14 @@ package gopus
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"github.com/thesyncim/gopus/internal/celt"
 	"github.com/thesyncim/gopus/internal/dnnblob"
+	"github.com/thesyncim/gopus/internal/dred"
 	internaldred "github.com/thesyncim/gopus/internal/dred"
 	"github.com/thesyncim/gopus/internal/dred/rdovae"
 	encpkg "github.com/thesyncim/gopus/internal/encoder"
@@ -21,11 +24,14 @@ import (
 	"github.com/thesyncim/gopus/internal/rangecoding"
 	silkpkg "github.com/thesyncim/gopus/internal/silk"
 	"github.com/thesyncim/gopus/types"
+	"io"
 	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -12341,5 +12347,4175 @@ func assertFloat32BitsEqual(t *testing.T, got, want []float32, label string) {
 		if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
 			t.Fatalf("%s[%d]=%g want %g", label, i, got[i], want[i])
 		}
+	}
+}
+
+func TestEncoderSetDNNBlobRejectsNameOnlyModelBlob(t *testing.T) {
+	enc := mustNewTestEncoder(t, 48000, 2, ApplicationAudio)
+
+	if err := enc.SetDNNBlob(makeNameCompleteEncoderTestDNNBlob()); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("SetDNNBlob(name-only encoder blob) error=%v want %v", err, ErrInvalidArgument)
+	}
+	if enc.dnnBlob != nil || enc.enc.DNNBlobLoaded() {
+		t.Fatal("encoder retained name-only DNN blob")
+	}
+}
+
+func TestDecoderSetDNNBlobRejectsNameOnlyModelBlob(t *testing.T) {
+	dec := mustNewTestDecoder(t, 48000, 1)
+
+	if err := dec.SetDNNBlob(makeNameCompleteDecoderTestDNNBlob()); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("SetDNNBlob(name-only decoder blob) error=%v want %v", err, ErrInvalidArgument)
+	}
+	if dec.dnnBlob != nil || dec.pitchDNNLoaded || dec.plcModelLoaded || dec.farganModelLoaded {
+		t.Fatal("decoder retained name-only DNN blob")
+	}
+}
+
+func TestDecoderSetDNNBlobIgnoresNameOnlyDREDDecoderFamily(t *testing.T) {
+	dec := mustNewTestDecoder(t, 48000, 1)
+	blob := append([]byte(nil), makeValidDecoderTestDNNBlob()...)
+	blob = append(blob, makeNameCompleteDREDDecoderTestDNNBlob()...)
+
+	if err := dec.SetDNNBlob(blob); err != nil {
+		t.Fatalf("SetDNNBlob(core blob with name-only DRED decoder family) error=%v want nil", err)
+	}
+	if dec.dnnBlob == nil || !dec.pitchDNNLoaded || !dec.plcModelLoaded || !dec.farganModelLoaded {
+		t.Fatal("decoder did not retain valid core DNN blob with ignored DRED decoder extras")
+	}
+	if dec.dredPayloadScannerActive() || dec.dredCachedPayloadActive() {
+		t.Fatal("decoder armed standalone DRED payload state from ignored DRED decoder extras")
+	}
+	if state := dec.dredState(); state != nil {
+		t.Fatalf("decoder allocated DRED sidecar from ignored DRED decoder extras: %+v", state)
+	}
+}
+
+func TestEncoderSetDNNBlobRetainedAcrossReset(t *testing.T) {
+	enc := mustNewTestEncoder(t, 48000, 2, ApplicationAudio)
+
+	if err := enc.SetDNNBlob(makeValidEncoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+	if enc.dnnBlob == nil {
+		t.Fatal("wrapper dnnBlob=nil want non-nil")
+	}
+
+	enc.Reset()
+	if enc.dnnBlob == nil {
+		t.Fatal("wrapper dnnBlob cleared by Reset")
+	}
+}
+
+func TestDecoderSetDNNBlobRetainedAcrossReset(t *testing.T) {
+	dec := mustNewTestDecoder(t, 16000, 1)
+
+	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+	if dec.dnnBlob == nil {
+		t.Fatal("wrapper dnnBlob=nil want non-nil")
+	}
+	if !dec.pitchDNNLoaded || !dec.plcModelLoaded || !dec.farganModelLoaded {
+		t.Fatal("decoder retained DNN model flags not armed from validated blob")
+	}
+	if dec.dredState() != nil {
+		t.Fatalf("decoder eagerly allocated DRED sidecar on SetDNNBlob: %+v", dec.dredState())
+	}
+	if extsupport.DREDRuntime {
+		if !dec.dredNeuralConcealmentReady() {
+			t.Fatal("decoder failed to lazily materialize neural concealment runtime")
+		}
+		assertDecoderDREDRuntimeLoadedForTest(t, dec, "lazy materialization")
+	}
+
+	dec.Reset()
+	if dec.dnnBlob == nil {
+		t.Fatal("wrapper dnnBlob cleared by Reset")
+	}
+	if !dec.pitchDNNLoaded || !dec.plcModelLoaded || !dec.farganModelLoaded {
+		t.Fatal("decoder retained DNN model flags cleared by Reset")
+	}
+	if extsupport.DREDRuntime {
+		if !dec.dredNeuralConcealmentReady() {
+			t.Fatal("decoder failed to rematerialize neural concealment runtime after Reset")
+		}
+		assertDecoderDREDRuntimeLoadedForTest(t, dec, "Reset rematerialization")
+	}
+}
+
+func TestDecoderSetDNNBlobStereoRuntimeRetainedAcrossReset(t *testing.T) {
+	dec := mustNewTestDecoder(t, 48000, 2)
+
+	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+	if dec.dnnBlob == nil {
+		t.Fatal("wrapper dnnBlob=nil want non-nil")
+	}
+	if !dec.pitchDNNLoaded || !dec.plcModelLoaded || !dec.farganModelLoaded {
+		t.Fatal("decoder retained DNN model flags not armed from validated blob")
+	}
+	if dec.dredState() != nil {
+		t.Fatalf("stereo decoder eagerly allocated DRED sidecar on SetDNNBlob: %+v", dec.dredState())
+	}
+	if extsupport.DREDRuntime {
+		if !dec.dredNeuralConcealmentReady() {
+			t.Fatal("stereo decoder failed to lazily materialize neural concealment runtime")
+		}
+		assertDecoderDREDRuntimeLoadedForTest(t, dec, "stereo lazy materialization")
+	}
+
+	dec.Reset()
+	if dec.dnnBlob == nil {
+		t.Fatal("wrapper dnnBlob cleared by Reset")
+	}
+	if !dec.pitchDNNLoaded || !dec.plcModelLoaded || !dec.farganModelLoaded {
+		t.Fatal("decoder retained DNN model flags cleared by Reset")
+	}
+	if extsupport.DREDRuntime {
+		if !dec.dredNeuralConcealmentReady() {
+			t.Fatal("stereo decoder failed to rematerialize neural concealment runtime after Reset")
+		}
+		assertDecoderDREDRuntimeLoadedForTest(t, dec, "stereo Reset rematerialization")
+	}
+}
+
+func TestMultistreamEncoderSetDNNBlobRetainedAcrossReset(t *testing.T) {
+	enc := mustNewDefaultMultistreamEncoder(t, 48000, 2, ApplicationAudio)
+
+	if err := enc.SetDNNBlob(makeValidEncoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+	if enc.dnnBlob == nil {
+		t.Fatal("wrapper dnnBlob=nil want non-nil")
+	}
+
+	enc.Reset()
+	if enc.dnnBlob == nil {
+		t.Fatal("wrapper dnnBlob cleared by Reset")
+	}
+}
+
+func TestMultistreamDecoderSetDNNBlobRetainedAcrossReset(t *testing.T) {
+	dec := mustNewDefaultMultistreamDecoder(t, 48000, 2)
+
+	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+	if dec.dnnBlob == nil {
+		t.Fatal("wrapper dnnBlob=nil want non-nil")
+	}
+	if !dec.dec.PitchDNNLoaded() || !dec.dec.PLCModelLoaded() || !dec.dec.FARGANModelLoaded() {
+		t.Fatal("multistream decoder runtime models not loaded from retained DNN blob")
+	}
+
+	dec.Reset()
+	if dec.dnnBlob == nil {
+		t.Fatal("wrapper dnnBlob cleared by Reset")
+	}
+	if !dec.dec.PitchDNNLoaded() || !dec.dec.PLCModelLoaded() || !dec.dec.FARGANModelLoaded() {
+		t.Fatal("multistream decoder runtime models cleared by Reset")
+	}
+}
+
+func TestHotPathAllocsDecodePLCDNNReadyAtMostBaseline(t *testing.T) {
+	baseline, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder: %v", err)
+	}
+	armed, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder: %v", err)
+	}
+	if err := armed.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob: %v", err)
+	}
+	packet := testCELTPacket()
+	baselinePCM := make([]float32, 960)
+	armedPCM := make([]float32, 960)
+
+	if _, err := baseline.Decode(packet, baselinePCM); err != nil {
+		t.Fatalf("baseline warmup Decode: %v", err)
+	}
+	if _, err := baseline.Decode(nil, baselinePCM); err != nil {
+		t.Fatalf("baseline warmup Decode PLC: %v", err)
+	}
+	if _, err := armed.Decode(packet, armedPCM); err != nil {
+		t.Fatalf("armed warmup Decode: %v", err)
+	}
+	if _, err := armed.Decode(nil, armedPCM); err != nil {
+		t.Fatalf("armed warmup Decode PLC: %v", err)
+	}
+
+	baselineAllocs := testing.AllocsPerRun(100, func() {
+		if _, err := baseline.Decode(nil, baselinePCM); err != nil {
+			t.Fatalf("baseline Decode PLC: %v", err)
+		}
+	})
+	armedAllocs := testing.AllocsPerRun(100, func() {
+		if _, err := armed.Decode(nil, armedPCM); err != nil {
+			t.Fatalf("armed Decode PLC: %v", err)
+		}
+	})
+	if armedAllocs > baselineAllocs {
+		t.Fatalf("Decode(PLC, DNN ready) allocs/op = %.2f, want at most baseline %.2f", armedAllocs, baselineAllocs)
+	}
+}
+
+var (
+	defaultLibopusPitchDNNBlobHelper    libopustest.HelperCache
+	defaultLibopusPLCBlobHelper         libopustest.HelperCache
+	defaultLibopusFARGANBlobHelper      libopustest.HelperCache
+	defaultLibopusDREDEncoderBlobHelper libopustest.HelperCache
+)
+
+func TestDNNBlobControlAcceptsLibopusModelBlobs(t *testing.T) {
+	if !libopustest.StrictRefRequired() {
+		t.Skip("requires GOPUS_STRICT_LIBOPUS_REF=1")
+	}
+
+	encoderBlob := requireDefaultLibopusEncoderDNNBlob(t)
+	decoderBlob := requireDefaultLibopusDecoderDNNBlob(t)
+
+	encoderParsed, err := dnnblob.Clone(encoderBlob)
+	if err != nil {
+		t.Fatalf("Clone(libopus encoder blob) error: %v", err)
+	}
+	if err := encoderParsed.ValidateEncoderControl(); err != nil {
+		t.Fatalf("ValidateEncoderControl(libopus encoder blob) error: %v", err)
+	}
+	if !encoderParsed.SupportsPitchDNN() || !encoderParsed.SupportsDREDEncoder() {
+		t.Fatal("libopus encoder blob missing expected PitchDNN or DRED encoder families")
+	}
+
+	decoderParsed, err := dnnblob.Clone(decoderBlob)
+	if err != nil {
+		t.Fatalf("Clone(libopus decoder blob) error: %v", err)
+	}
+	if err := decoderParsed.ValidateDecoderControl(false); err != nil {
+		t.Fatalf("ValidateDecoderControl(libopus decoder blob) error: %v", err)
+	}
+	models := decoderParsed.DecoderModels()
+	if !models.PitchDNN || !models.PLC || !models.FARGAN {
+		t.Fatalf("libopus decoder blob model families=%+v, want PitchDNN/PLC/FARGAN", models)
+	}
+	if models.DRED || models.OSCE || models.OSCEBWE {
+		t.Fatalf("default libopus decoder blob unexpectedly reports extra-control-only families: %+v", models)
+	}
+
+	enc := mustNewTestEncoder(t, 48000, 2, ApplicationAudio)
+	if err := enc.SetDNNBlob(encoderBlob); err != nil {
+		t.Fatalf("Encoder.SetDNNBlob(libopus encoder blob) error: %v", err)
+	}
+	if enc.dnnBlob == nil || !enc.enc.DNNBlobLoaded() {
+		t.Fatal("encoder did not retain libopus encoder DNN blob")
+	}
+	rejectEnc := mustNewTestEncoder(t, 48000, 2, ApplicationAudio)
+	if err := rejectEnc.SetDNNBlob(decoderBlob); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("Encoder.SetDNNBlob(libopus decoder blob) error=%v want %v", err, ErrInvalidArgument)
+	}
+
+	dec := newMonoTestDecoder(t)
+	if err := dec.SetDNNBlob(decoderBlob); err != nil {
+		t.Fatalf("Decoder.SetDNNBlob(libopus decoder blob) error: %v", err)
+	}
+	if dec.dnnBlob == nil || !dec.pitchDNNLoaded || !dec.plcModelLoaded || !dec.farganModelLoaded {
+		t.Fatal("decoder did not retain libopus decoder DNN blob model state")
+	}
+	if dec.dredState() != nil {
+		t.Fatalf("default decoder SetDNNBlob allocated DRED sidecar: %+v", dec.dredState())
+	}
+	rejectDec := newMonoTestDecoder(t)
+	if err := rejectDec.SetDNNBlob(encoderBlob); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("Decoder.SetDNNBlob(libopus encoder blob) error=%v want %v", err, ErrInvalidArgument)
+	}
+
+	msEnc := mustNewDefaultMultistreamEncoder(t, 48000, 2, ApplicationAudio)
+	if err := msEnc.SetDNNBlob(encoderBlob); err != nil {
+		t.Fatalf("MultistreamEncoder.SetDNNBlob(libopus encoder blob) error: %v", err)
+	}
+	if msEnc.dnnBlob == nil || !msEnc.enc.DNNBlobLoaded() {
+		t.Fatal("multistream encoder did not retain libopus encoder DNN blob")
+	}
+	rejectMSEnc := mustNewDefaultMultistreamEncoder(t, 48000, 2, ApplicationAudio)
+	if err := rejectMSEnc.SetDNNBlob(decoderBlob); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("MultistreamEncoder.SetDNNBlob(libopus decoder blob) error=%v want %v", err, ErrInvalidArgument)
+	}
+
+	msDec := mustNewDefaultMultistreamDecoder(t, 48000, 2)
+	if err := msDec.SetDNNBlob(decoderBlob); err != nil {
+		t.Fatalf("MultistreamDecoder.SetDNNBlob(libopus decoder blob) error: %v", err)
+	}
+	if msDec.dnnBlob == nil || !msDec.dec.PitchDNNLoaded() || !msDec.dec.PLCModelLoaded() || !msDec.dec.FARGANModelLoaded() {
+		t.Fatal("multistream decoder did not retain libopus decoder DNN blob model state")
+	}
+	rejectMSDec := mustNewDefaultMultistreamDecoder(t, 48000, 2)
+	if err := rejectMSDec.SetDNNBlob(encoderBlob); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("MultistreamDecoder.SetDNNBlob(libopus encoder blob) error=%v want %v", err, ErrInvalidArgument)
+	}
+}
+
+func requireDefaultLibopusEncoderDNNBlob(t *testing.T) []byte {
+	t.Helper()
+	blob, err := probeDefaultLibopusEncoderDNNBlob()
+	if err != nil {
+		t.Fatalf("libopus encoder DNN blob helper unavailable: %v", err)
+	}
+	return blob
+}
+
+func requireDefaultLibopusDecoderDNNBlob(t *testing.T) []byte {
+	t.Helper()
+	blob, err := probeDefaultLibopusDecoderDNNBlob()
+	if err != nil {
+		t.Fatalf("libopus decoder DNN blob helper unavailable: %v", err)
+	}
+	return blob
+}
+
+func probeDefaultLibopusEncoderDNNBlob() ([]byte, error) {
+	pitchBlob, err := runDefaultLibopusPitchDNNBlobHelper()
+	if err != nil {
+		return nil, err
+	}
+	dredEncoderBlob, err := runDefaultLibopusDREDEncoderBlobHelper()
+	if err != nil {
+		return nil, err
+	}
+	blob := make([]byte, 0, len(pitchBlob)+len(dredEncoderBlob))
+	blob = append(blob, pitchBlob...)
+	blob = append(blob, dredEncoderBlob...)
+	return blob, nil
+}
+
+func probeDefaultLibopusDecoderDNNBlob() ([]byte, error) {
+	pitchBlob, err := runDefaultLibopusPitchDNNBlobHelper()
+	if err != nil {
+		return nil, err
+	}
+	plcBlob, err := runDefaultLibopusPLCBlobHelper()
+	if err != nil {
+		return nil, err
+	}
+	farganBlob, err := runDefaultLibopusFARGANBlobHelper()
+	if err != nil {
+		return nil, err
+	}
+	blob := make([]byte, 0, len(pitchBlob)+len(plcBlob)+len(farganBlob))
+	blob = append(blob, pitchBlob...)
+	blob = append(blob, plcBlob...)
+	blob = append(blob, farganBlob...)
+	return blob, nil
+}
+
+func runDefaultLibopusPitchDNNBlobHelper() ([]byte, error) {
+	return runCachedDefaultLibopusDNNBlobHelper(&defaultLibopusPitchDNNBlobHelper, "libopus_pitchdnn_model_blob.c", "gopus_default_libopus_pitchdnn_model_blob")
+}
+
+func runDefaultLibopusPLCBlobHelper() ([]byte, error) {
+	return runCachedDefaultLibopusDNNBlobHelper(&defaultLibopusPLCBlobHelper, "libopus_plc_model_blob.c", "gopus_default_libopus_plc_model_blob")
+}
+
+func runDefaultLibopusFARGANBlobHelper() ([]byte, error) {
+	return runCachedDefaultLibopusDNNBlobHelper(&defaultLibopusFARGANBlobHelper, "libopus_fargan_model_blob.c", "gopus_default_libopus_fargan_model_blob")
+}
+
+func runDefaultLibopusDREDEncoderBlobHelper() ([]byte, error) {
+	return runCachedDefaultLibopusDNNBlobHelper(&defaultLibopusDREDEncoderBlobHelper, "libopus_dred_encoder_model_blob.c", "gopus_default_libopus_dred_encoder_model_blob")
+}
+
+func runCachedDefaultLibopusDNNBlobHelper(cache *libopustest.HelperCache, sourceFile, outputBase string) ([]byte, error) {
+	binPath, err := cache.Path(func() (string, error) {
+		return buildDefaultLibopusDNNHelper(sourceFile, outputBase)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return runDefaultLibopusDNNBlobHelper(binPath)
+}
+
+func runDefaultLibopusDNNBlobHelper(binPath string) ([]byte, error) {
+	out, err := libopustest.RunHelper(binPath, nil)
+	if err != nil {
+		return nil, fmt.Errorf("run model blob helper: %w", err)
+	}
+	return out, nil
+}
+
+func buildDefaultLibopusDNNHelper(sourceFile, outputBase string) (string, error) {
+	repoRoot, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("getwd: %w", err)
+	}
+	return libopustest.BuildDREDHelper(repoRoot, sourceFile, outputBase, true)
+}
+
+func TestDecodeDREDInt24NoOverflowOrPrematureAlloc(t *testing.T) {
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 2))
+	if err != nil {
+		t.Fatalf("NewDecoder: %v", err)
+	}
+	initialCap := cap(dec.scratchPCM)
+
+	// Overflowing frameSizeSamples * channels must return an error, never panic.
+	pcm24 := make([]int32, 960*2)
+	if _, err := dec.DecodeDREDInt24(NewDRED(), 0, pcm24, math.MaxInt/2+1); err == nil {
+		t.Fatal("DecodeDREDInt24 accepted overflowing frameSizeSamples")
+	}
+	if cap(dec.scratchPCM) != initialCap {
+		t.Fatalf("DecodeDREDInt24 grew scratchPCM cap from %d to %d on invalid call", initialCap, cap(dec.scratchPCM))
+	}
+
+	pcmF32 := make([]float32, 960*2)
+	if _, err := dec.DecodeDRED(NewDRED(), 0, pcmF32, math.MaxInt/2+1); err == nil {
+		t.Fatal("DecodeDRED accepted overflowing frameSizeSamples")
+	}
+}
+
+func TestDREDDecoderParseAndProcessRetainsMetadata(t *testing.T) {
+	libopustest.RequireOracle(t)
+	dec := NewDREDDecoder()
+	if err := dec.SetDNNBlob(makeValidDREDDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+	packet := makeTwoFramePacketWithDREDForStandaloneTest(t, 8, -4)
+	dred := NewDRED()
+
+	available, dredEnd, err := dec.Parse(dred, packet, 960, 48000, true)
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	if available != 480 || dredEnd != 480 {
+		t.Fatalf("Parse=(available=%d,dredEnd=%d) want (480,480)", available, dredEnd)
+	}
+	if dred.ProcessStage() != DREDProcessStageDeferred || !dred.NeedsProcessing() || dred.Processed() {
+		t.Fatalf("stage after deferred parse = (%d, needs=%v, processed=%v) want (%d,true,false)", dred.ProcessStage(), dred.NeedsProcessing(), dred.Processed(), DREDProcessStageDeferred)
+	}
+	if dred.RawProcessStage() != 1 {
+		t.Fatalf("RawProcessStage()=%d want 1", dred.RawProcessStage())
+	}
+	if dred.Len() == 0 {
+		t.Fatal("deferred parse did not retain DRED payload")
+	}
+	if got := dred.Parsed().Header.DredOffset; got != -4 {
+		t.Fatalf("Parsed().Header.DredOffset=%d want -4", got)
+	}
+	if got := dred.Parsed().Header.DredFrameOffset; got != 8 {
+		t.Fatalf("Parsed().Header.DredFrameOffset=%d want 8", got)
+	}
+	decodeWant, err := probeLibopusDREDDecode(packet, 960, 48000)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "dred decode", err)
+	}
+	if decodeWant.availableSamples < 0 {
+		t.Fatalf("libopus dred decode returned error %d", decodeWant.availableSamples)
+	}
+	if got := dred.LatentCount(); got != decodeWant.nbLatents {
+		t.Fatalf("LatentCount()=%d want %d", got, decodeWant.nbLatents)
+	}
+	state := make([]float32, internaldred.StateDim)
+	if n := dred.FillState(state); n != internaldred.StateDim {
+		t.Fatalf("FillState count=%d want %d", n, internaldred.StateDim)
+	}
+	assertFloat32BitsEqual(t, state, decodeWant.state[:], "state")
+	latents := make([]float32, internaldred.MaxLatents*internaldred.LatentStride)
+	wantLatents := decodeWant.nbLatents * internaldred.LatentStride
+	if n := dred.FillLatents(latents); n != wantLatents {
+		t.Fatalf("FillLatents count=%d want %d", n, wantLatents)
+	}
+	assertFloat32BitsEqual(t, latents[:wantLatents], decodeWant.latents, "latents")
+
+	processed := NewDRED()
+	if err := dec.Process(dred, processed); err != nil {
+		t.Fatalf("Process error: %v", err)
+	}
+	if processed.ProcessStage() != DREDProcessStageProcessed || processed.NeedsProcessing() || !processed.Processed() {
+		t.Fatalf("processed stage = (%d, needs=%v, processed=%v) want (%d,false,true)", processed.ProcessStage(), processed.NeedsProcessing(), processed.Processed(), DREDProcessStageProcessed)
+	}
+	if processed.RawProcessStage() != 2 {
+		t.Fatalf("RawProcessStage()=%d want 2", processed.RawProcessStage())
+	}
+	result := processed.Result(960, 48000)
+	if result.Availability.FeatureFrames != 4 || result.Availability.MaxLatents != 0 || result.Availability.OffsetSamples != -480 || result.Availability.EndSamples != 480 || result.Availability.AvailableSamples != 480 {
+		t.Fatalf("Result=%+v want availability {FeatureFrames:4 MaxLatents:0 OffsetSamples:-480 EndSamples:480 AvailableSamples:480}", result)
+	}
+	if got := processed.Availability(960, 48000); got != result.Availability {
+		t.Fatalf("Availability()=%+v want %+v", got, result.Availability)
+	}
+	if got := processed.MaxAvailableSamples(960, 48000); got != 480 {
+		t.Fatalf("MaxAvailableSamples()=%d want 480", got)
+	}
+	quant := make([]int32, 6)
+	if n := processed.FillQuantizerLevels(quant, 10080, 48000); n != 0 {
+		t.Fatalf("FillQuantizerLevels count=%d want 0", n)
+	}
+	window := result.FeatureWindow(3840, 960, 0)
+	if window.FeatureOffsetBase != 5 || window.RecoverableFeatureFrames != 0 || window.MissingPositiveFrames != 2 {
+		t.Fatalf("FeatureWindow=%+v want base=5 recoverable=0 missing=2", window)
+	}
+	if got := processed.FeatureWindow(960, 48000, 3840, 960, 0); got != window {
+		t.Fatalf("FeatureWindow()=%+v want %+v", got, window)
+	}
+	if err := dec.Process(processed, processed); err != nil {
+		t.Fatalf("Process(processed, processed) error: %v", err)
+	}
+	processedState := make([]float32, internaldred.StateDim)
+	if n := processed.FillState(processedState); n != internaldred.StateDim {
+		t.Fatalf("processed FillState count=%d want %d", n, internaldred.StateDim)
+	}
+	assertFloat32BitsEqual(t, processedState, state, "processed state")
+	processedLatents := make([]float32, internaldred.MaxLatents*internaldred.LatentStride)
+	if n := processed.FillLatents(processedLatents); n != wantLatents {
+		t.Fatalf("processed FillLatents count=%d want %d", n, wantLatents)
+	}
+	assertFloat32BitsEqual(t, processedLatents[:wantLatents], latents[:wantLatents], "processed latents")
+	if got, want := processed.FeatureCount(), decodeWant.nbLatents*4*internaldred.NumFeatures; got != want {
+		t.Fatalf("FeatureCount()=%d want %d", got, want)
+	}
+	features := make([]float32, processed.FeatureCount())
+	if n := processed.FillFeatures(features); n != len(features) {
+		t.Fatalf("FillFeatures count=%d want %d", n, len(features))
+	}
+	for i, v := range features {
+		if v != 0 {
+			t.Fatalf("FillFeatures[%d]=%v want 0 for zeroed synthetic model", i, v)
+		}
+	}
+}
+
+func TestStandaloneDREDParseMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	dec := NewDREDDecoder()
+	if err := dec.SetDNNBlob(makeValidDREDDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+
+	base := makeValidCELTPacketForDREDTest(t)
+	tests := []struct {
+		name           string
+		packet         []byte
+		maxDREDSamples int
+	}{
+		{
+			name: "valid_payload",
+			packet: buildSingleFramePacketWithExtensionsForDREDTest(t, base, []packetExtensionData{
+				{ID: internaldred.ExtensionID, Frame: 0, Data: append([]byte{'D', internaldred.ExperimentalVersion}, makeExperimentalDREDPayloadBodyForTest(t, 0, 4)...)},
+			}),
+			maxDREDSamples: 960,
+		},
+		{
+			name: "first_extension_invalid_second_valid",
+			packet: buildSingleFramePacketWithExtensionsForDREDTest(t, base, []packetExtensionData{
+				{ID: internaldred.ExtensionID, Frame: 0, Data: []byte{'X', internaldred.ExperimentalVersion, 0x10}},
+				{ID: internaldred.ExtensionID, Frame: 0, Data: append([]byte{'D', internaldred.ExperimentalVersion}, makeExperimentalDREDPayloadBodyForTest(t, 0, 4)...)},
+			}),
+			maxDREDSamples: 960,
+		},
+		{
+			name: "short_experimental_payload",
+			packet: buildSingleFramePacketWithExtensionsForDREDTest(t, base, []packetExtensionData{
+				{ID: internaldred.ExtensionID, Frame: 0, Data: []byte{'D', internaldred.ExperimentalVersion, 0xaa, 0xbb}},
+			}),
+			maxDREDSamples: 960,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dred := NewDRED()
+			available, dredEnd, err := dec.Parse(dred, tc.packet, tc.maxDREDSamples, 48000, true)
+			if err != nil {
+				t.Fatalf("Parse error: %v", err)
+			}
+			if dred.ProcessStage() != DREDProcessStageDeferred || !dred.NeedsProcessing() || dred.Processed() {
+				t.Fatalf("stage after deferred Parse = (%d, needs=%v, processed=%v) want (%d,true,false)", dred.ProcessStage(), dred.NeedsProcessing(), dred.Processed(), DREDProcessStageDeferred)
+			}
+
+			want, err := probeLibopusDREDParse(tc.packet, tc.maxDREDSamples, 48000)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "dred parse", err)
+			}
+			if want.availableSamples < 0 {
+				t.Fatalf("libopus dred parse returned error %d", want.availableSamples)
+			}
+			if available != want.availableSamples {
+				t.Fatalf("available=%d want %d", available, want.availableSamples)
+			}
+			if dredEnd != want.dredEndSamples {
+				t.Fatalf("dredEnd=%d want %d", dredEnd, want.dredEndSamples)
+			}
+
+			decodeWant, err := probeLibopusDREDDecode(tc.packet, tc.maxDREDSamples, 48000)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "dred decode", err)
+			}
+			if decodeWant.availableSamples < 0 {
+				t.Fatalf("libopus dred decode returned error %d", decodeWant.availableSamples)
+			}
+			if dred.RawProcessStage() != decodeWant.processStage {
+				t.Fatalf("RawProcessStage()=%d want %d", dred.RawProcessStage(), decodeWant.processStage)
+			}
+			if got := dred.Parsed().Header.DredOffset; got != int32(decodeWant.dredOffset) {
+				t.Fatalf("Parsed().Header.DredOffset=%d want %d", got, decodeWant.dredOffset)
+			}
+			if got := dred.LatentCount(); got != decodeWant.nbLatents {
+				t.Fatalf("LatentCount()=%d want %d", got, decodeWant.nbLatents)
+			}
+
+			state := make([]float32, internaldred.StateDim)
+			if n := dred.FillState(state); n != internaldred.StateDim {
+				t.Fatalf("FillState count=%d want %d", n, internaldred.StateDim)
+			}
+			assertFloat32BitsEqual(t, state, decodeWant.state[:], "state")
+
+			latents := make([]float32, internaldred.MaxLatents*internaldred.LatentStride)
+			wantLatents := decodeWant.nbLatents * internaldred.LatentStride
+			if n := dred.FillLatents(latents); n != wantLatents {
+				t.Fatalf("FillLatents count=%d want %d", n, wantLatents)
+			}
+			assertFloat32BitsEqual(t, latents[:wantLatents], decodeWant.latents, "latents")
+		})
+	}
+}
+
+func makeTwoFramePacketWithDREDForStandaloneTest(t *testing.T, dredFrameOffset, dredOffset int) []byte {
+	t.Helper()
+
+	base := makeValidCELTPacketForDREDTest(t)
+	if len(base) < 2 {
+		t.Fatal("base packet too short")
+	}
+	body := makeExperimentalDREDPayloadBodyForTest(t, dredFrameOffset, dredOffset)
+	packet := make([]byte, len(base)*2+16)
+	n, err := buildPacketWithOptions(base[0]&0xFC, [][]byte{base[1:], base[1:]}, packet, 0, false, []packetExtensionData{
+		{ID: internaldred.ExtensionID, Frame: 1, Data: append([]byte{'D', internaldred.ExperimentalVersion}, body...)},
+	}, false)
+	if err != nil {
+		t.Fatalf("buildPacketWithOptions error: %v", err)
+	}
+	return packet[:n]
+}
+
+func TestDREDDecoderParseRequiresModel(t *testing.T) {
+	dec := NewDREDDecoder()
+	dred := NewDRED()
+	packet := makeTwoFramePacketWithDREDForStandaloneTest(t, 8, -4)
+
+	if _, _, err := dec.Parse(dred, packet, 960, 48000, true); !errors.Is(err, ErrDREDModelNotLoaded) {
+		t.Fatalf("Parse without model error=%v want=%v", err, ErrDREDModelNotLoaded)
+	}
+	if dred.RawProcessStage() != -1 {
+		t.Fatalf("RawProcessStage()=%d want -1", dred.RawProcessStage())
+	}
+	if dred.ProcessStage() != DREDProcessStageEmpty || !dred.Empty() || dred.NeedsProcessing() || dred.Processed() {
+		t.Fatalf("Parse without model mutated dred state: stage=%d empty=%v needs=%v processed=%v", dred.ProcessStage(), dred.Empty(), dred.NeedsProcessing(), dred.Processed())
+	}
+}
+
+func TestDREDDecoderSetDNNBlobRejectsNameOnlyModelBlob(t *testing.T) {
+	dec := NewDREDDecoder()
+
+	if err := dec.SetDNNBlob(makeNameCompleteDREDDecoderTestDNNBlob()); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("SetDNNBlob(name-only DRED decoder blob) error=%v want %v", err, ErrInvalidArgument)
+	}
+	if dec.ModelLoaded() {
+		t.Fatal("DRED decoder retained name-only model blob")
+	}
+}
+
+func TestDREDDecoderParseClearsStateWhenPacketHasNoDRED(t *testing.T) {
+	dec := NewDREDDecoder()
+	if err := dec.SetDNNBlob(makeValidDREDDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+	dred := NewDRED()
+	withDRED := makeTwoFramePacketWithDREDForStandaloneTest(t, 8, -4)
+	if _, _, err := dec.Parse(dred, withDRED, 960, 48000, false); err != nil {
+		t.Fatalf("Parse(withDRED) error: %v", err)
+	}
+	if dred.Empty() {
+		t.Fatal("expected retained DRED payload after Parse(withDRED)")
+	}
+
+	withoutDRED := makeValidCELTPacketForDREDTest(t)
+	available, dredEnd, err := dec.Parse(dred, withoutDRED, 960, 48000, false)
+	if err != nil {
+		t.Fatalf("Parse(withoutDRED) error: %v", err)
+	}
+	if available != 0 || dredEnd != 0 {
+		t.Fatalf("Parse(withoutDRED)=(available=%d,dredEnd=%d) want (0,0)", available, dredEnd)
+	}
+	if !dred.Empty() || dred.ProcessStage() != DREDProcessStageEmpty || dred.NeedsProcessing() || dred.Processed() {
+		t.Fatalf("Parse(withoutDRED) left dred state stage=%d empty=%v needs=%v processed=%v", dred.ProcessStage(), dred.Empty(), dred.NeedsProcessing(), dred.Processed())
+	}
+}
+
+func TestDREDDecoderProcessRejectsEmptyState(t *testing.T) {
+	dec := NewDREDDecoder()
+	if err := dec.SetDNNBlob(makeValidDREDDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+	dred := NewDRED()
+	if err := dec.Process(dred, dred); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("Process(empty, empty) error=%v want=%v", err, ErrInvalidArgument)
+	}
+}
+
+func TestDREDDecoderProcessDoesNotAllocate(t *testing.T) {
+	dec := NewDREDDecoder()
+	if err := dec.SetDNNBlob(makeValidDREDDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+	src := NewDRED()
+	packet := makeTwoFramePacketWithDREDForStandaloneTest(t, 8, -4)
+	if _, _, err := dec.Parse(src, packet, 960, 48000, true); err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	dst := NewDRED()
+
+	allocs := testing.AllocsPerRun(1000, func() {
+		if err := dec.Process(src, dst); err != nil {
+			t.Fatalf("Process error: %v", err)
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("AllocsPerRun=%v want 0", allocs)
+	}
+}
+
+func TestDREDDecoderParseAndProcessDoesNotAllocate(t *testing.T) {
+	dec := NewDREDDecoder()
+	if err := dec.SetDNNBlob(makeValidDREDDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+	packet := makeTwoFramePacketWithDREDForStandaloneTest(t, 8, -4)
+	dred := NewDRED()
+
+	allocs := testing.AllocsPerRun(1000, func() {
+		if _, _, err := dec.Parse(dred, packet, 960, 48000, false); err != nil {
+			t.Fatalf("Parse error: %v", err)
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("AllocsPerRun=%v want 0", allocs)
+	}
+}
+
+func TestDREDDecoderParseClearsStateOnMalformedPacket(t *testing.T) {
+	dec := NewDREDDecoder()
+	if err := dec.SetDNNBlob(makeValidDREDDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+	dred := NewDRED()
+	valid := makeTwoFramePacketWithDREDForStandaloneTest(t, 8, -4)
+	if _, _, err := dec.Parse(dred, valid, 960, 48000, false); err != nil {
+		t.Fatalf("Parse(valid) error: %v", err)
+	}
+	if dred.Empty() || !dred.Processed() {
+		t.Fatal("expected processed retained DRED state after valid parse")
+	}
+
+	malformed := buildMalformedSingleFrameExtensionPacketForTest(t, makeValidCELTPacketForDREDTest(t))
+	if _, _, err := dec.Parse(dred, malformed, 960, 48000, false); !errors.Is(err, ErrInvalidPacket) {
+		t.Fatalf("Parse(malformed) error=%v want=%v", err, ErrInvalidPacket)
+	}
+	if !dred.Empty() || dred.Len() != 0 || dred.ProcessStage() != DREDProcessStageEmpty || dred.NeedsProcessing() || dred.Processed() {
+		t.Fatalf("Parse(malformed) left stale dred state: len=%d stage=%d needs=%v processed=%v", dred.Len(), dred.ProcessStage(), dred.NeedsProcessing(), dred.Processed())
+	}
+}
+
+func buildLibopusDREDHelper(sourceFile, outputBase string, includeInternal bool) (string, error) {
+	repoRoot, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("getwd: %w", err)
+	}
+	return libopustest.BuildDREDHelper(repoRoot, sourceFile, outputBase, includeInternal)
+}
+
+func cachedLibopusDREDHelperPath(cache *libopustest.HelperCache, sourceFile, outputBase string, includeInternal bool) (string, error) {
+	return cache.Path(func() (string, error) {
+		return buildLibopusDREDHelper(sourceFile, outputBase, includeInternal)
+	})
+}
+
+var (
+	libopusPitchDNNModelBlobHelper libopustest.HelperCache
+	libopusPLCModelBlobHelper      libopustest.HelperCache
+	libopusFARGANModelBlobHelper   libopustest.HelperCache
+)
+
+func getLibopusPitchDNNModelBlobHelperPath() (string, error) {
+	return cachedLibopusDREDHelperPath(&libopusPitchDNNModelBlobHelper, "libopus_pitchdnn_model_blob.c", "gopus_libopus_pitchdnn_model_blob", true)
+}
+
+func getLibopusPLCModelBlobHelperPath() (string, error) {
+	return cachedLibopusDREDHelperPath(&libopusPLCModelBlobHelper, "libopus_plc_model_blob.c", "gopus_libopus_plc_model_blob", true)
+}
+
+func getLibopusFARGANModelBlobHelperPath() (string, error) {
+	return cachedLibopusDREDHelperPath(&libopusFARGANModelBlobHelper, "libopus_fargan_model_blob.c", "gopus_libopus_fargan_model_blob", true)
+}
+
+func runModelBlobHelper(binPath string) ([]byte, error) {
+	out, err := libopustest.RunHelper(binPath, nil)
+	if err != nil {
+		return nil, fmt.Errorf("run model blob helper: %w", err)
+	}
+	return out, nil
+}
+
+func probeLibopusDecoderNeuralModelBlob() ([]byte, error) {
+	pitchPath, err := getLibopusPitchDNNModelBlobHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	plcPath, err := getLibopusPLCModelBlobHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	farganPath, err := getLibopusFARGANModelBlobHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	pitchBlob, err := runModelBlobHelper(pitchPath)
+	if err != nil {
+		return nil, err
+	}
+	plcBlob, err := runModelBlobHelper(plcPath)
+	if err != nil {
+		return nil, err
+	}
+	farganBlob, err := runModelBlobHelper(farganPath)
+	if err != nil {
+		return nil, err
+	}
+	blob := make([]byte, 0, len(pitchBlob)+len(plcBlob)+len(farganBlob))
+	blob = append(blob, pitchBlob...)
+	blob = append(blob, plcBlob...)
+	blob = append(blob, farganBlob...)
+	return blob, nil
+}
+
+func requireLibopusDecoderNeuralModelBlob(t *testing.T) []byte {
+	t.Helper()
+	blob, err := probeLibopusDecoderNeuralModelBlob()
+	if err != nil {
+		libopustest.HelperUnavailable(t, "decoder neural model", err)
+	}
+	return blob
+}
+
+const libopusDREDPacketOutputMagic = "GODP"
+const libopusDREDPacketMaxFramesToTry = 640
+
+type libopusDREDPacket struct {
+	sampleRate     int
+	maxDREDSamples int
+	frameIndex     int
+	packet         []byte
+}
+
+func scaleDREDSampleCount(samples, fromRate, toRate int) int {
+	if samples <= 0 || fromRate <= 0 || toRate <= 0 || fromRate == toRate {
+		return samples
+	}
+	return samples * toRate / fromRate
+}
+
+func scaleDREDSampleOffset(samples, fromRate, toRate int) int {
+	if samples == 0 || fromRate <= 0 || toRate <= 0 || fromRate == toRate {
+		return samples
+	}
+	return samples * toRate / fromRate
+}
+
+func libopusDREDRequestForDecoder(packetInfo libopusDREDPacket, decoderSampleRate int) (maxDREDSamples, sampleRate int) {
+	sampleRate = decoderSampleRate
+	if sampleRate <= 0 {
+		sampleRate = packetInfo.sampleRate
+	}
+	maxDREDSamples = packetInfo.maxDREDSamples
+	if packetInfo.sampleRate > 0 && sampleRate > 0 {
+		maxDREDSamples = scaleDREDSampleCount(maxDREDSamples, packetInfo.sampleRate, sampleRate)
+	}
+	return maxDREDSamples, sampleRate
+}
+
+type libopusDREDPacketConfig struct {
+	FrameSize     int
+	ForceMode     Mode
+	Bandwidth     Bandwidth
+	Channels      int
+	ForceChannels int
+	Bitrate       int
+	CBR           bool
+	Multistream   bool
+	// DREDDuration is the OPUS_SET_DRED_DURATION value passed to libopus. Zero
+	// selects the helper default (80).
+	DREDDuration int
+}
+
+var libopusDREDEmitPacketHelper libopustest.HelperCache
+
+func getLibopusDREDEmitPacketHelperPath() (string, error) {
+	return cachedLibopusDREDHelperPath(&libopusDREDEmitPacketHelper, "libopus_dred_emit_packet.c", "gopus_libopus_dred_emit_packet", true)
+}
+
+func emitLibopusDREDPacket() (libopusDREDPacket, error) {
+	return emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize: 960,
+		ForceMode: ModeCELT,
+		Bandwidth: BandwidthFullband,
+	})
+}
+
+func emitLibopusDREDPacketWithFrameSize(frameSize int) (libopusDREDPacket, error) {
+	return emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize: frameSize,
+		ForceMode: ModeCELT,
+		Bandwidth: BandwidthFullband,
+	})
+}
+
+func emitLibopusDREDPacketWithConfig(cfg libopusDREDPacketConfig) (libopusDREDPacket, error) {
+	return emitLibopusDREDPacketWithConfigRecord(cfg, false)
+}
+
+// The record variant returns frameIndex=640 and an empty packet when the
+// selected libopus encoder emitted no DRED across the complete search window.
+func emitLibopusDREDPacketWithConfigRecord(cfg libopusDREDPacketConfig, recordAbsence bool) (libopusDREDPacket, error) {
+	binPath, err := getLibopusDREDEmitPacketHelperPath()
+	if err != nil {
+		return libopusDREDPacket{}, err
+	}
+	if cfg.FrameSize <= 0 {
+		cfg.FrameSize = 960
+	}
+	if cfg.Channels <= 0 {
+		cfg.Channels = 1
+	}
+	if cfg.Bitrate <= 0 {
+		cfg.Bitrate = encoderDREDBitrateForFrameSize(cfg.FrameSize)
+	}
+	forceModeEnv, err := libopusDREDForceModeEnv(cfg.ForceMode)
+	if err != nil {
+		return libopusDREDPacket{}, err
+	}
+	bandwidthEnv, err := libopusDREDBandwidthEnv(cfg.Bandwidth)
+	if err != nil {
+		return libopusDREDPacket{}, err
+	}
+	env := []string{
+		fmt.Sprintf("GOPUS_DRED_FRAME_SIZE=%d", cfg.FrameSize),
+		fmt.Sprintf("GOPUS_DRED_CHANNELS=%d", cfg.Channels),
+		fmt.Sprintf("GOPUS_DRED_FORCE_MODE=%s", forceModeEnv),
+		fmt.Sprintf("GOPUS_DRED_BANDWIDTH=%s", bandwidthEnv),
+		fmt.Sprintf("GOPUS_DRED_BITRATE=%d", cfg.Bitrate),
+		"GOPUS_DRED_PCM_STDIN=1",
+	}
+	if cfg.CBR {
+		env = append(env, "GOPUS_DRED_CBR=1")
+	}
+	if cfg.ForceChannels != 0 {
+		env = append(env, fmt.Sprintf("GOPUS_DRED_FORCE_CHANNELS=%d", cfg.ForceChannels))
+	}
+	if cfg.Multistream {
+		env = append(env, "GOPUS_DRED_MULTISTREAM=1")
+	}
+	if cfg.DREDDuration != 0 {
+		env = append(env, fmt.Sprintf("GOPUS_DRED_DURATION=%d", cfg.DREDDuration))
+	}
+	if recordAbsence {
+		env = append(env, "GOPUS_DRED_EMISSION_RECORD=1")
+	}
+	out, err := libopustest.RunHelperEnv(binPath, libopusDREDPacketPCMInput(cfg, libopusDREDPacketMaxFramesToTry), env)
+	if err != nil {
+		return libopusDREDPacket{}, fmt.Errorf("run dred emit helper: %w", err)
+	}
+
+	reader, version, err := libopustest.NewOracleReaderVersion("dred emit", libopusDREDPacketOutputMagic, out)
+	if err != nil {
+		return libopusDREDPacket{}, err
+	}
+	if recordAbsence && version != 3 || !recordAbsence && version != 1 && version != 2 {
+		return libopusDREDPacket{}, fmt.Errorf("dred emit helper version=%d recordAbsence=%t", version, recordAbsence)
+	}
+	info := libopusDREDPacket{
+		sampleRate:     int(reader.U32()),
+		maxDREDSamples: int(reader.U32()),
+	}
+	packetLen := int(reader.U32())
+	if version >= 2 {
+		info.frameIndex = int(reader.U32())
+	}
+	packet := reader.Bytes(packetLen)
+	if err := reader.ExpectConsumed(); err != nil {
+		return libopusDREDPacket{}, err
+	}
+	info.packet = append([]byte(nil), packet...)
+	if len(info.packet) == 0 && recordAbsence && info.frameIndex == libopusDREDPacketMaxFramesToTry {
+		return info, nil
+	}
+	if len(info.packet) == 0 {
+		return libopusDREDPacket{}, fmt.Errorf("dred emit helper returned an empty packet")
+	}
+	toc := ParseTOC(info.packet[0])
+	if toc.Mode != cfg.ForceMode {
+		return libopusDREDPacket{}, fmt.Errorf("dred emit helper mode=%v want %v", toc.Mode, cfg.ForceMode)
+	}
+	if toc.Bandwidth != cfg.Bandwidth {
+		return libopusDREDPacket{}, fmt.Errorf("dred emit helper bandwidth=%v want %v", toc.Bandwidth, cfg.Bandwidth)
+	}
+	if cfg.ForceChannels != 0 && toc.Stereo != (cfg.ForceChannels == 2) {
+		gotChannels := 1
+		if toc.Stereo {
+			gotChannels = 2
+		}
+		return libopusDREDPacket{}, fmt.Errorf("dred emit helper channels=%d want %d", gotChannels, cfg.ForceChannels)
+	}
+	packetDuration, err := opusPacketDurationSamples(info.packet)
+	if err != nil {
+		return libopusDREDPacket{}, fmt.Errorf("parse dred emit helper packet duration: %w", err)
+	}
+	if packetDuration != cfg.FrameSize {
+		return libopusDREDPacket{}, fmt.Errorf("dred emit helper packet duration=%d want %d", packetDuration, cfg.FrameSize)
+	}
+	return info, nil
+}
+
+func libopusDREDPacketPCMInput(cfg libopusDREDPacketConfig, maxFrames int) []byte {
+	if cfg.FrameSize <= 0 {
+		cfg.FrameSize = 960
+	}
+	if cfg.Channels <= 0 {
+		cfg.Channels = 1
+	}
+	out := make([]byte, 0, maxFrames*cfg.FrameSize*cfg.Channels*4)
+	var tmp [4]byte
+	for frameIdx := 0; frameIdx < maxFrames; frameIdx++ {
+		for sampleIdx := 0; sampleIdx < cfg.FrameSize; sampleIdx++ {
+			bits := math.Float32bits(encoderDREDVoicedSample(frameIdx, sampleIdx, cfg.FrameSize, 48000))
+			binary.LittleEndian.PutUint32(tmp[:], bits)
+			for ch := 0; ch < cfg.Channels; ch++ {
+				out = append(out, tmp[:]...)
+			}
+		}
+	}
+	return out
+}
+
+func opusPacketDurationSamples(packet []byte) (int, error) {
+	info, err := ParsePacket(packet)
+	if err != nil {
+		return 0, err
+	}
+	return info.TOC.FrameSize * info.FrameCount, nil
+}
+
+func libopusDREDForceModeEnv(mode Mode) (string, error) {
+	switch mode {
+	case ModeCELT:
+		return "celt", nil
+	case ModeHybrid:
+		return "hybrid", nil
+	case ModeSILK:
+		return "silk", nil
+	default:
+		return "", fmt.Errorf("extra libopus dred packet force mode %v", mode)
+	}
+}
+
+func libopusDREDBandwidthEnv(bandwidth Bandwidth) (string, error) {
+	switch bandwidth {
+	case BandwidthWideband:
+		return "wb", nil
+	case BandwidthSuperwideband:
+		return "swb", nil
+	case BandwidthFullband:
+		return "fb", nil
+	default:
+		return "", fmt.Errorf("extra libopus dred packet bandwidth %v", bandwidth)
+	}
+}
+
+func TestParsedDREDAvailabilityMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	base := makeValidCELTPacketForDREDTest(t)
+	if len(base) < 2 {
+		t.Fatal("base packet too short")
+	}
+
+	twoFramePacket := make([]byte, len(base)*2+16)
+	n, err := buildPacketWithOptions(base[0]&0xFC, [][]byte{base[1:], base[1:]}, twoFramePacket, 0, false, []packetExtensionData{
+		{ID: internaldred.ExtensionID, Frame: 1, Data: append([]byte{'D', internaldred.ExperimentalVersion}, makeExperimentalDREDPayloadBodyForTest(t, 8, -4)...)},
+	}, false)
+	if err != nil {
+		t.Fatalf("buildPacketWithOptions error: %v", err)
+	}
+	twoFramePacket = twoFramePacket[:n]
+
+	tests := []struct {
+		name           string
+		packet         []byte
+		maxDREDSamples int
+	}{
+		{
+			name: "single_frame_offset_positive",
+			packet: buildSingleFramePacketWithExtensionsForDREDTest(t, base, []packetExtensionData{
+				{ID: internaldred.ExtensionID, Frame: 0, Data: append([]byte{'D', internaldred.ExperimentalVersion}, makeExperimentalDREDPayloadBodyForTest(t, 0, 4)...)},
+			}),
+			maxDREDSamples: 960,
+		},
+		{
+			name:           "single_frame_offset_positive_large_request",
+			packet:         buildSingleFramePacketWithExtensionsForDREDTest(t, base, []packetExtensionData{{ID: internaldred.ExtensionID, Frame: 0, Data: append([]byte{'D', internaldred.ExperimentalVersion}, makeExperimentalDREDPayloadBodyForTest(t, 0, 4)...)}}),
+			maxDREDSamples: 10080,
+		},
+		{
+			name:           "second_frame_negative_offset",
+			packet:         twoFramePacket,
+			maxDREDSamples: 960,
+		},
+		{
+			name: "first_dred_extension_invalid_second_valid",
+			packet: buildSingleFramePacketWithExtensionsForDREDTest(t, base, []packetExtensionData{
+				{ID: internaldred.ExtensionID, Frame: 0, Data: []byte{'X', internaldred.ExperimentalVersion, 0x10}},
+				{ID: internaldred.ExtensionID, Frame: 0, Data: append([]byte{'D', internaldred.ExperimentalVersion}, makeExperimentalDREDPayloadBodyForTest(t, 0, 4)...)},
+			}),
+			maxDREDSamples: 960,
+		},
+		{
+			name: "short_experimental_payload",
+			packet: buildSingleFramePacketWithExtensionsForDREDTest(t, base, []packetExtensionData{
+				{ID: internaldred.ExtensionID, Frame: 0, Data: []byte{'D', internaldred.ExperimentalVersion, 0xaa, 0xbb}},
+			}),
+			maxDREDSamples: 960,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			payload, frameOffset, ok, err := findDREDPayload(tc.packet)
+			if err != nil {
+				t.Fatalf("findDREDPayload error: %v", err)
+			}
+			if !ok {
+				t.Fatal("findDREDPayload returned ok=false")
+			}
+
+			parsed, err := internaldred.ParsePayload(payload, frameOffset)
+			if err != nil {
+				t.Fatalf("ParsePayload error: %v", err)
+			}
+			got := parsed.Availability(tc.maxDREDSamples, 48000)
+
+			want, err := probeLibopusDREDParse(tc.packet, tc.maxDREDSamples, 48000)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "dred parse", err)
+			}
+			if want.availableSamples < 0 {
+				t.Fatalf("libopus dred parse returned error %d", want.availableSamples)
+			}
+
+			if got.AvailableSamples != want.availableSamples {
+				t.Fatalf("AvailableSamples=%d want %d", got.AvailableSamples, want.availableSamples)
+			}
+			if got.EndSamples != want.dredEndSamples {
+				t.Fatalf("EndSamples=%d want %d", got.EndSamples, want.dredEndSamples)
+			}
+
+			span := internaldred.LatentSpanSamples(48000)
+			if span <= 0 {
+				t.Fatal("invalid latent span")
+			}
+			wantLatents := (want.availableSamples + got.OffsetSamples) / span
+			if wantLatents < 0 {
+				wantLatents = 0
+			}
+			if got.MaxLatents != wantLatents {
+				t.Fatalf("MaxLatents=%d want %d", got.MaxLatents, wantLatents)
+			}
+		})
+	}
+}
+
+const (
+	libopusDREDParseInputMagic  = "GODI"
+	libopusDREDParseOutputMagic = "GODO"
+)
+
+type libopusDREDParseInfo struct {
+	availableSamples int
+	dredEndSamples   int
+}
+
+type libopusDREDDecodeInfo struct {
+	availableSamples int
+	dredEndSamples   int
+	processStage     int
+	nbLatents        int
+	dredOffset       int
+	state            [internaldred.StateDim]float32
+	latents          []float32
+}
+
+var (
+	libopusDREDParseHelper  libopustest.HelperCache
+	libopusDREDDecodeHelper libopustest.HelperCache
+)
+
+func getLibopusDREDParseHelperPath() (string, error) {
+	return cachedLibopusDREDHelperPath(&libopusDREDParseHelper, "libopus_dred_parse_info.c", "gopus_libopus_dred_parse", false)
+}
+
+func getLibopusDREDDecodeHelperPath() (string, error) {
+	return cachedLibopusDREDHelperPath(&libopusDREDDecodeHelper, "libopus_dred_decode_info.c", "gopus_libopus_dred_decode", true)
+}
+
+func probeLibopusDREDParse(packet []byte, maxDREDSamples, sampleRate int) (libopusDREDParseInfo, error) {
+	binPath, err := getLibopusDREDParseHelperPath()
+	if err != nil {
+		return libopusDREDParseInfo{}, err
+	}
+
+	payload := libopustest.NewOraclePayload(libopusDREDParseInputMagic, uint32(sampleRate), uint32(maxDREDSamples), uint32(len(packet)))
+	payload.Raw(packet)
+
+	out, err := libopustest.RunHelper(binPath, payload.Bytes())
+	if err != nil {
+		return libopusDREDParseInfo{}, fmt.Errorf("run dred helper: %w", err)
+	}
+	reader, err := libopustest.NewOracleReader("dred parse", libopusDREDParseOutputMagic, out)
+	if err != nil {
+		return libopusDREDParseInfo{}, err
+	}
+	reader.ExpectRemaining(8)
+	ret := int(reader.I32())
+	dredEnd := int(reader.I32())
+	if err := reader.ExpectConsumed(); err != nil {
+		return libopusDREDParseInfo{}, err
+	}
+	return libopusDREDParseInfo{
+		availableSamples: ret,
+		dredEndSamples:   dredEnd,
+	}, nil
+}
+
+func probeLibopusDREDDecode(packet []byte, maxDREDSamples, sampleRate int) (libopusDREDDecodeInfo, error) {
+	binPath, err := getLibopusDREDDecodeHelperPath()
+	if err != nil {
+		return libopusDREDDecodeInfo{}, err
+	}
+
+	payload := libopustest.NewOraclePayload(libopusDREDParseInputMagic, uint32(sampleRate), uint32(maxDREDSamples), uint32(len(packet)))
+	payload.Raw(packet)
+
+	out, err := libopustest.RunHelper(binPath, payload.Bytes())
+	if err != nil {
+		return libopusDREDDecodeInfo{}, fmt.Errorf("run dred decode helper: %w", err)
+	}
+	reader, err := libopustest.NewOracleReader("dred decode", libopusDREDParseOutputMagic, out)
+	if err != nil {
+		return libopusDREDDecodeInfo{}, err
+	}
+
+	info := libopusDREDDecodeInfo{
+		availableSamples: int(reader.I32()),
+		dredEndSamples:   int(reader.I32()),
+		processStage:     int(reader.I32()),
+		nbLatents:        int(reader.I32()),
+		dredOffset:       int(reader.I32()),
+	}
+
+	for i := range info.state {
+		info.state[i] = reader.Float32()
+	}
+
+	latentValues := info.nbLatents * internaldred.LatentStride
+	info.latents = make([]float32, latentValues)
+	for i := 0; i < latentValues; i++ {
+		info.latents[i] = reader.Float32()
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return libopusDREDDecodeInfo{}, err
+	}
+	return info, nil
+}
+
+type libopusDREDProcessInfo struct {
+	availableSamples  int
+	dredEndSamples    int
+	processRet        int
+	processStage      int
+	nbLatents         int
+	dredOffset        int
+	secondProcessRet  int
+	secondStage       int
+	cloneProcessRet   int
+	cloneStage        int
+	secondStateHash   uint32
+	secondLatentHash  uint32
+	secondFeatureHash uint32
+	cloneStateHash    uint32
+	cloneLatentHash   uint32
+	cloneFeatureHash  uint32
+	state             [internaldred.StateDim]float32
+	latents           []float32
+	features          []float32
+}
+
+type libopusDREDRecoveryWindowInfo struct {
+	availableSamples         int
+	dredEndSamples           int
+	processRet               int
+	processStage             int
+	nbLatents                int
+	dredOffset               int
+	featuresPerFrame         int
+	neededFeatureFrames      int
+	featureOffsetBase        int
+	maxFeatureIndex          int
+	recoverableFeatureFrames int
+	missingPositiveFrames    int
+	featureOffsets           []int
+}
+
+var (
+	libopusDREDModelBlobHelper      libopustest.HelperCache
+	libopusDREDProcessHelper        libopustest.HelperCache
+	libopusDREDRecoveryWindowHelper libopustest.HelperCache
+)
+
+func getLibopusDREDModelBlobHelperPath() (string, error) {
+	return cachedLibopusDREDHelperPath(&libopusDREDModelBlobHelper, "libopus_dred_model_blob.c", "gopus_libopus_dred_model_blob", true)
+}
+
+func getLibopusDREDProcessHelperPath() (string, error) {
+	return cachedLibopusDREDHelperPath(&libopusDREDProcessHelper, "libopus_dred_process_info.c", "gopus_libopus_dred_process", true)
+}
+
+func getLibopusDREDRecoveryWindowHelperPath() (string, error) {
+	return cachedLibopusDREDHelperPath(&libopusDREDRecoveryWindowHelper, "libopus_dred_recovery_window_info.c", "gopus_libopus_dred_recovery_window", true)
+}
+
+func probeLibopusDREDModelBlob() ([]byte, error) {
+	binPath, err := getLibopusDREDModelBlobHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	out, err := libopustest.RunHelper(binPath, nil)
+	if err != nil {
+		return nil, fmt.Errorf("run dred model blob helper: %w", err)
+	}
+	return out, nil
+}
+
+func probeLibopusDREDProcess(packet []byte, maxDREDSamples, sampleRate int) (libopusDREDProcessInfo, error) {
+	binPath, err := getLibopusDREDProcessHelperPath()
+	if err != nil {
+		return libopusDREDProcessInfo{}, err
+	}
+
+	payload := libopustest.NewOraclePayload(libopusDREDParseInputMagic, uint32(sampleRate), uint32(maxDREDSamples), uint32(len(packet)))
+	payload.Raw(packet)
+
+	out, err := libopustest.RunHelper(binPath, payload.Bytes())
+	if err != nil {
+		return libopusDREDProcessInfo{}, fmt.Errorf("run dred process helper: %w", err)
+	}
+	reader, err := libopustest.NewOracleReader("dred process", libopusDREDParseOutputMagic, out)
+	if err != nil {
+		return libopusDREDProcessInfo{}, err
+	}
+
+	info := libopusDREDProcessInfo{
+		availableSamples:  int(reader.I32()),
+		dredEndSamples:    int(reader.I32()),
+		processRet:        int(reader.I32()),
+		processStage:      int(reader.I32()),
+		nbLatents:         int(reader.I32()),
+		dredOffset:        int(reader.I32()),
+		secondProcessRet:  int(reader.I32()),
+		secondStage:       int(reader.I32()),
+		cloneProcessRet:   int(reader.I32()),
+		cloneStage:        int(reader.I32()),
+		secondStateHash:   reader.U32(),
+		secondLatentHash:  reader.U32(),
+		secondFeatureHash: reader.U32(),
+		cloneStateHash:    reader.U32(),
+		cloneLatentHash:   reader.U32(),
+		cloneFeatureHash:  reader.U32(),
+	}
+
+	for i := range info.state {
+		info.state[i] = reader.Float32()
+	}
+
+	latentValues := info.nbLatents * internaldred.LatentStride
+	info.latents = make([]float32, latentValues)
+	for i := 0; i < latentValues; i++ {
+		info.latents[i] = reader.Float32()
+	}
+
+	featureValues := info.nbLatents * 4 * internaldred.NumFeatures
+	info.features = make([]float32, featureValues)
+	for i := 0; i < featureValues; i++ {
+		info.features[i] = reader.Float32()
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return libopusDREDProcessInfo{}, err
+	}
+	return info, nil
+}
+
+func probeLibopusDREDRecoveryWindow(packet []byte, maxDREDSamples, sampleRate, frameSizeSamples, decodeOffsetSamples int, blend bool) (libopusDREDRecoveryWindowInfo, error) {
+	binPath, err := getLibopusDREDRecoveryWindowHelperPath()
+	if err != nil {
+		return libopusDREDRecoveryWindowInfo{}, err
+	}
+
+	var blendFlag uint32
+	if blend {
+		blendFlag = 1
+	}
+	payload := libopustest.NewOraclePayload(
+		libopusDREDParseInputMagic,
+		uint32(sampleRate),
+		uint32(maxDREDSamples),
+		uint32(frameSizeSamples),
+		uint32(int32(decodeOffsetSamples)),
+		blendFlag,
+		uint32(len(packet)),
+	)
+	payload.Raw(packet)
+
+	out, err := libopustest.RunHelper(binPath, payload.Bytes())
+	if err != nil {
+		return libopusDREDRecoveryWindowInfo{}, fmt.Errorf("run dred recovery helper: %w", err)
+	}
+	reader, err := libopustest.NewOracleReader("dred recovery", libopusDREDParseOutputMagic, out)
+	if err != nil {
+		return libopusDREDRecoveryWindowInfo{}, err
+	}
+
+	info := libopusDREDRecoveryWindowInfo{
+		availableSamples:         int(reader.I32()),
+		dredEndSamples:           int(reader.I32()),
+		processRet:               int(reader.I32()),
+		processStage:             int(reader.I32()),
+		nbLatents:                int(reader.I32()),
+		dredOffset:               int(reader.I32()),
+		featuresPerFrame:         int(reader.I32()),
+		neededFeatureFrames:      int(reader.I32()),
+		featureOffsetBase:        int(reader.I32()),
+		maxFeatureIndex:          int(reader.I32()),
+		recoverableFeatureFrames: int(reader.I32()),
+		missingPositiveFrames:    int(reader.I32()),
+	}
+
+	info.featureOffsets = make([]int, info.neededFeatureFrames)
+	for i := range info.featureOffsets {
+		info.featureOffsets[i] = int(reader.I32())
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return libopusDREDRecoveryWindowInfo{}, err
+	}
+	return info, nil
+}
+
+func TestDREDControlModelBlobsMatchPinnedLibopusDigests(t *testing.T) {
+	libopustest.RequireOracle(t)
+	for _, tc := range []struct {
+		name        string
+		probe       func() ([]byte, error)
+		validate    func(*dnnblob.Blob) error
+		wantRecords int
+		wantBytes   int
+		wantSHA256  string
+	}{
+		{
+			name:        "encoder",
+			probe:       probeLibopusEncoderNeuralModelBlob,
+			validate:    func(blob *dnnblob.Blob) error { return blob.ValidateEncoderControl() },
+			wantRecords: 133,
+			wantBytes:   317696,
+			wantSHA256:  "164bfeab6f7d20932b006e9cdcaa1d26f2fd2f02d5e33cafee4fbb580be4c0b2",
+		},
+		{
+			name:        "decoder",
+			probe:       probeLibopusDecoderNeuralModelBlob,
+			validate:    func(blob *dnnblob.Blob) error { return blob.ValidateDecoderControl(false) },
+			wantRecords: 114,
+			wantBytes:   1432768,
+			wantSHA256:  "42d935199c9d86519ccd7be3bc8df0090553319d3e23b2e93cdfdf7a06c9ab95",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			raw, err := tc.probe()
+			if err != nil {
+				libopustest.HelperUnavailable(t, tc.name+" control model", err)
+			}
+			blob, err := dnnblob.Clone(raw)
+			if err != nil {
+				t.Fatalf("Clone(%s control model blob) error: %v", tc.name, err)
+			}
+			if err := tc.validate(blob); err != nil {
+				t.Fatalf("Validate(%s control model blob) error: %v", tc.name, err)
+			}
+			if len(blob.Records) != tc.wantRecords {
+				t.Fatalf("%s DRED control model records=%d want %d", tc.name, len(blob.Records), tc.wantRecords)
+			}
+			if len(raw) != tc.wantBytes {
+				t.Fatalf("%s DRED control model bytes=%d want %d", tc.name, len(raw), tc.wantBytes)
+			}
+			sum := sha256.Sum256(raw)
+			got := hex.EncodeToString(sum[:])
+			if got != tc.wantSHA256 {
+				t.Fatalf("%s DRED control model blob sha256=%s want %s", tc.name, got, tc.wantSHA256)
+			}
+		})
+	}
+}
+
+func addDREDPayloadFuzzSeed(f *testing.F, extensions []packetExtensionData) {
+	frames := [][]byte{{0x11, 0x22, 0x33}, {0x44, 0x55}}
+	packet := make([]byte, 128)
+	n, err := buildPacketWithOptions(GenerateTOC(31, false, 0)&0xFC, frames, packet, 0, false, extensions, false)
+	if err == nil {
+		f.Add(append([]byte(nil), packet[:n]...))
+	}
+}
+
+func FuzzFindDREDPayload_NoPanic(f *testing.F) {
+	validPayload := []byte{0xaa, 0xbb, 0xcc, 0xdd}
+	addDREDPayloadFuzzSeed(f, []packetExtensionData{
+		{ID: dred.ExtensionID, Frame: 1, Data: append([]byte{'D', dred.ExperimentalVersion}, validPayload...)},
+	})
+	addDREDPayloadFuzzSeed(f, []packetExtensionData{
+		{ID: dred.ExtensionID, Frame: 0, Data: []byte{'X', dred.ExperimentalVersion, 0xaa}},
+	})
+	addDREDPayloadFuzzSeed(f, []packetExtensionData{
+		{ID: dred.ExtensionID, Frame: 0, Data: []byte{'X', dred.ExperimentalVersion, 0x10}},
+		{ID: dred.ExtensionID, Frame: 0, Data: append([]byte{'D', dred.ExperimentalVersion}, validPayload...)},
+	})
+	f.Add([]byte{0x7c, 0xc1, 0x03, 0x02, 0xff})
+	f.Add([]byte{0xff, 0xff, 0x00, 'D', dred.ExperimentalVersion})
+	f.Add([]byte{GenerateTOC(31, false, 3), 0xc1, 0x02, 0x01})
+
+	f.Fuzz(func(t *testing.T, packet []byte) {
+		if len(packet) > 4096 {
+			packet = packet[:4096]
+		}
+		payload, frameOffset, ok, err := findDREDPayload(packet)
+		if err != nil {
+			return
+		}
+		if !ok {
+			if payload != nil || frameOffset != 0 {
+				t.Fatalf("findDREDPayload returned stale data with ok=false: payload=%x frameOffset=%d", payload, frameOffset)
+			}
+			return
+		}
+		if frameOffset < 0 {
+			t.Fatalf("negative DRED frame offset: %d", frameOffset)
+		}
+		if len(payload) > len(packet) {
+			t.Fatalf("DRED payload length=%d exceeds packet length=%d", len(payload), len(packet))
+		}
+	})
+}
+
+func TestFindDREDPayload(t *testing.T) {
+	frames := [][]byte{
+		{0x11, 0x22, 0x33},
+		{0x44, 0x55, 0x66},
+	}
+	wantPayload := []byte{0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xf0, 0x12, 0x34}
+	extensions := []packetExtensionData{
+		{ID: dred.ExtensionID, Frame: 1, Data: append([]byte{'D', dred.ExperimentalVersion}, wantPayload...)},
+	}
+	packet := make([]byte, 64)
+	n, err := buildPacketWithOptions(GenerateTOC(31, false, 0)&0xFC, frames, packet, 0, false, extensions, false)
+	if err != nil {
+		t.Fatalf("buildPacketWithOptions error: %v", err)
+	}
+
+	payload, frameOffset, ok, err := findDREDPayload(packet[:n])
+	if err != nil {
+		t.Fatalf("findDREDPayload error: %v", err)
+	}
+	if !ok {
+		t.Fatal("findDREDPayload ok=false want true")
+	}
+	if frameOffset != 8 {
+		t.Fatalf("frameOffset=%d want 8", frameOffset)
+	}
+	if !bytes.Equal(payload, wantPayload) {
+		t.Fatalf("payload=%x want %x", payload, wantPayload)
+	}
+}
+
+func TestFindDREDPayloadSkipsWrongExperimentalHeader(t *testing.T) {
+	frames := [][]byte{{0x11, 0x22, 0x33}}
+	extensions := []packetExtensionData{
+		{ID: dred.ExtensionID, Frame: 0, Data: []byte{'X', dred.ExperimentalVersion, 0xaa}},
+	}
+	packet := make([]byte, 64)
+	n, err := buildPacketWithOptions(GenerateTOC(31, false, 0)&0xFC, frames, packet, 0, false, extensions, false)
+	if err != nil {
+		t.Fatalf("buildPacketWithOptions error: %v", err)
+	}
+
+	payload, frameOffset, ok, err := findDREDPayload(packet[:n])
+	if err != nil {
+		t.Fatalf("findDREDPayload error: %v", err)
+	}
+	if ok || payload != nil || frameOffset != 0 {
+		t.Fatalf("findDREDPayload=(%x,%d,%v) want (nil,0,false)", payload, frameOffset, ok)
+	}
+}
+
+func TestFindDREDPayloadSkipsEarlierInvalidDREDExtension(t *testing.T) {
+	frames := [][]byte{{0x11, 0x22, 0x33}}
+	wantPayload := []byte{0xaa, 0xbb, 0xcc}
+	extensions := []packetExtensionData{
+		{ID: dred.ExtensionID, Frame: 0, Data: []byte{'X', dred.ExperimentalVersion, 0x10}},
+		{ID: dred.ExtensionID, Frame: 0, Data: append([]byte{'D', dred.ExperimentalVersion}, wantPayload...)},
+	}
+	packet := make([]byte, 64)
+	n, err := buildPacketWithOptions(GenerateTOC(31, false, 0)&0xFC, frames, packet, 0, false, extensions, false)
+	if err != nil {
+		t.Fatalf("buildPacketWithOptions error: %v", err)
+	}
+
+	payload, frameOffset, ok, err := findDREDPayload(packet[:n])
+	if err != nil {
+		t.Fatalf("findDREDPayload error: %v", err)
+	}
+	if !ok || frameOffset != 0 || !bytes.Equal(payload, wantPayload) {
+		t.Fatalf("findDREDPayload=(%x,%d,%v) want (%x,0,true)", payload, frameOffset, ok, wantPayload)
+	}
+}
+
+func TestFindDREDPayloadKeepsShortExperimentalPayload(t *testing.T) {
+	frames := [][]byte{{0x11, 0x22, 0x33}}
+	wantPayload := []byte{0xaa, 0xbb}
+	extensions := []packetExtensionData{
+		{ID: dred.ExtensionID, Frame: 0, Data: append([]byte{'D', dred.ExperimentalVersion}, wantPayload...)},
+	}
+	packet := make([]byte, 64)
+	n, err := buildPacketWithOptions(GenerateTOC(31, false, 0)&0xFC, frames, packet, 0, false, extensions, false)
+	if err != nil {
+		t.Fatalf("buildPacketWithOptions error: %v", err)
+	}
+
+	payload, frameOffset, ok, err := findDREDPayload(packet[:n])
+	if err != nil {
+		t.Fatalf("findDREDPayload error: %v", err)
+	}
+	if !ok || frameOffset != 0 || !bytes.Equal(payload, wantPayload) {
+		t.Fatalf("findDREDPayload=(%x,%d,%v) want (%x,0,true)", payload, frameOffset, ok, wantPayload)
+	}
+}
+
+func TestStandaloneDREDProcessMatchesLibopusOnRealPacket(t *testing.T) {
+	libopustest.RequireOracle(t)
+	modelBlob, err := probeLibopusDREDModelBlob()
+	if err != nil {
+		libopustest.HelperUnavailable(t, "dred model", err)
+	}
+	packetInfo, err := emitLibopusDREDPacket()
+	if err != nil {
+		libopustest.HelperUnavailable(t, "dred packet", err)
+	}
+	want, err := probeLibopusDREDProcess(packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "dred process", err)
+	}
+	if want.availableSamples < 0 {
+		t.Fatalf("libopus dred parse returned error %d", want.availableSamples)
+	}
+	if want.processRet != 0 {
+		t.Fatalf("libopus dred process returned error %d", want.processRet)
+	}
+	if want.processStage != 2 {
+		t.Fatalf("libopus processStage=%d want 2", want.processStage)
+	}
+
+	dec := NewDREDDecoder()
+	blob, err := dnnblob.Clone(modelBlob)
+	if err != nil {
+		t.Fatalf("dnnblob.Clone(real model) error: %v", err)
+	}
+	if err := blob.ValidateDREDDecoderControl(); err != nil {
+		for _, name := range dnnblob.RequiredDREDDecoderRecordNames() {
+			if !blob.HasRecord(name) {
+				t.Fatalf("ValidateDREDDecoderControl(real model) error: %v (missing record %q)", err, name)
+			}
+		}
+		t.Fatalf("ValidateDREDDecoderControl(real model) error: %v", err)
+	}
+	if _, err := rdovae.LoadDecoder(blob); err != nil {
+		t.Fatalf("rdovae.LoadDecoder(real model) error: %v", err)
+	}
+	if err := dec.SetDNNBlob(modelBlob); err != nil {
+		t.Fatalf("SetDNNBlob(real model) error: %v", err)
+	}
+	dred := NewDRED()
+	available, dredEnd, err := dec.Parse(dred, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, true)
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	if available != want.availableSamples {
+		t.Fatalf("available=%d want %d", available, want.availableSamples)
+	}
+	if dredEnd != want.dredEndSamples {
+		t.Fatalf("dredEnd=%d want %d", dredEnd, want.dredEndSamples)
+	}
+	if got := dred.LatentCount(); got != want.nbLatents {
+		t.Fatalf("LatentCount()=%d want %d", got, want.nbLatents)
+	}
+	state := make([]float32, len(want.state))
+	if n := dred.FillState(state); n != len(want.state) {
+		t.Fatalf("FillState count=%d want %d", n, len(want.state))
+	}
+	assertFloat32BitsEqual(t, state, want.state[:], "state")
+	latents := make([]float32, want.nbLatents*internaldred.LatentStride)
+	if n := dred.FillLatents(latents); n != len(latents) {
+		t.Fatalf("FillLatents count=%d want %d", n, len(latents))
+	}
+	assertFloat32BitsEqual(t, latents, want.latents, "latents")
+
+	if err := dec.Process(dred, dred); err != nil {
+		t.Fatalf("Process error: %v", err)
+	}
+	if got := dred.ProcessStage(); got != DREDProcessStageProcessed {
+		t.Fatalf("ProcessStage()=%d want %d", got, DREDProcessStageProcessed)
+	}
+	if got := dred.FeatureCount(); got != len(want.features) {
+		t.Fatalf("FeatureCount()=%d want %d", got, len(want.features))
+	}
+	features := make([]float32, dred.FeatureCount())
+	if n := dred.FillFeatures(features); n != len(features) {
+		t.Fatalf("FillFeatures count=%d want %d", n, len(features))
+	}
+	assertFloat32BitsEqual(t, features, want.features, "features")
+}
+
+func TestStandaloneDREDProcessMatchesLibopusOnQualityPacket(t *testing.T) {
+	libopustest.RequireOracle(t)
+	encoderBlob := requireLibopusEncoderNeuralModelBlob(t)
+	modelBlob, err := probeLibopusDREDModelBlob()
+	if err != nil {
+		libopustest.HelperUnavailable(t, "dred model", err)
+	}
+	_, packets := encodeDREDQualityPackets(t, encoderBlob)
+
+	expected := 0
+	haveExpected := false
+	for frame, packet := range packets {
+		if !dredQualityPacketDelivered(frame) {
+			continue
+		}
+		if haveExpected {
+			missing := frame - expected
+			if missing > 0 {
+				want, err := probeLibopusDREDProcess(packet, missing*dredQualityFrameSize, dredQualitySampleRate)
+				if err != nil {
+					libopustest.HelperUnavailable(t, "quality dred process", err)
+				}
+				if want.availableSamples <= 0 || want.processRet != 0 || want.processStage != 2 {
+					t.Fatalf("libopus quality DRED process=(available=%d ret=%d stage=%d)", want.availableSamples, want.processRet, want.processStage)
+				}
+
+				dec := NewDREDDecoder()
+				if err := dec.SetDNNBlob(modelBlob); err != nil {
+					t.Fatalf("SetDNNBlob(real model): %v", err)
+				}
+				dred := NewDRED()
+				available, dredEnd, err := dec.Parse(dred, packet, missing*dredQualityFrameSize, dredQualitySampleRate, true)
+				if err != nil {
+					t.Fatalf("Parse quality packet frame=%d: %v", frame, err)
+				}
+				if available != want.availableSamples || dredEnd != want.dredEndSamples {
+					t.Fatalf("quality availability=(%d,%d) want (%d,%d)", available, dredEnd, want.availableSamples, want.dredEndSamples)
+				}
+				if err := dec.Process(dred, dred); err != nil {
+					t.Fatalf("Process quality packet frame=%d: %v", frame, err)
+				}
+				features := make([]float32, dred.FeatureCount())
+				if n := dred.FillFeatures(features); n != len(features) {
+					t.Fatalf("FillFeatures count=%d want %d", n, len(features))
+				}
+				assertFloat32BitsEqual(t, features, want.features, "quality features")
+				return
+			}
+		}
+		expected = frame + 1
+		haveExpected = true
+	}
+	t.Fatal("no delivered quality packet with preceding loss")
+}
+
+func TestStandaloneDREDProcessLifecycleMatchesLibopusOnRealPacket(t *testing.T) {
+	libopustest.RequireOracle(t)
+	modelBlob, err := probeLibopusDREDModelBlob()
+	if err != nil {
+		libopustest.HelperUnavailable(t, "dred model", err)
+	}
+	packetInfo, err := emitLibopusDREDPacket()
+	if err != nil {
+		libopustest.HelperUnavailable(t, "dred packet", err)
+	}
+	want, err := probeLibopusDREDProcess(packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "dred process", err)
+	}
+	if want.processRet != 0 || want.processStage != 2 {
+		t.Fatalf("libopus process=(ret=%d, stage=%d) want (0,2)", want.processRet, want.processStage)
+	}
+	if want.secondProcessRet != 0 || want.secondStage != 2 {
+		t.Fatalf("libopus second process=(ret=%d, stage=%d) want (0,2)", want.secondProcessRet, want.secondStage)
+	}
+	if want.cloneProcessRet != 0 || want.cloneStage != 2 {
+		t.Fatalf("libopus clone process=(ret=%d, stage=%d) want (0,2)", want.cloneProcessRet, want.cloneStage)
+	}
+
+	dec := NewDREDDecoder()
+	if err := dec.SetDNNBlob(modelBlob); err != nil {
+		t.Fatalf("SetDNNBlob(real model) error: %v", err)
+	}
+	dred := NewDRED()
+	if _, _, err := dec.Parse(dred, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, true); err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	if err := dec.Process(dred, dred); err != nil {
+		t.Fatalf("first Process error: %v", err)
+	}
+	firstState := append([]float32(nil), dred.decoded.State[:]...)
+	firstLatents := append([]float32(nil), dred.decoded.Latents[:dred.decoded.NbLatents*internaldred.LatentStride]...)
+	firstFeatures := append([]float32(nil), dred.decoded.Features[:dred.decoded.NbLatents*4*internaldred.NumFeatures]...)
+	if err := dec.Process(dred, dred); err != nil {
+		t.Fatalf("second Process error: %v", err)
+	}
+	if got := dred.ProcessStage(); got != DREDProcessStageProcessed {
+		t.Fatalf("ProcessStage()=%d want %d", got, DREDProcessStageProcessed)
+	}
+	if got := dred.decoded.NbLatents; got != want.nbLatents {
+		t.Fatalf("second NbLatents=%d want %d", got, want.nbLatents)
+	}
+	secondLatents := dred.decoded.Latents[:dred.decoded.NbLatents*internaldred.LatentStride]
+	secondFeatures := dred.decoded.Features[:dred.decoded.NbLatents*4*internaldred.NumFeatures]
+	assertLibopusDREDFloat32Hash(t, "second state", dred.decoded.State[:], want.secondStateHash)
+	assertLibopusDREDFloat32Hash(t, "second latents", secondLatents, want.secondLatentHash)
+	assertLibopusDREDFloat32Hash(t, "second features", secondFeatures, want.secondFeatureHash)
+	assertFloat32BitsEqual(t, dred.decoded.State[:], firstState, "second state")
+	assertFloat32BitsEqual(t, secondLatents, firstLatents, "second latents")
+	assertFloat32BitsEqual(t, secondFeatures, firstFeatures, "second features")
+
+	clone := NewDRED()
+	if err := dec.Process(dred, clone); err != nil {
+		t.Fatalf("clone Process error: %v", err)
+	}
+	if got := clone.ProcessStage(); got != DREDProcessStageProcessed {
+		t.Fatalf("clone ProcessStage()=%d want %d", got, DREDProcessStageProcessed)
+	}
+	if got := clone.decoded.NbLatents; got != want.nbLatents {
+		t.Fatalf("clone NbLatents=%d want %d", got, want.nbLatents)
+	}
+	cloneLatents := clone.decoded.Latents[:clone.decoded.NbLatents*internaldred.LatentStride]
+	cloneFeatures := clone.decoded.Features[:clone.decoded.NbLatents*4*internaldred.NumFeatures]
+	assertLibopusDREDFloat32Hash(t, "clone state", clone.decoded.State[:], want.cloneStateHash)
+	assertLibopusDREDFloat32Hash(t, "clone latents", cloneLatents, want.cloneLatentHash)
+	assertLibopusDREDFloat32Hash(t, "clone features", cloneFeatures, want.cloneFeatureHash)
+	assertFloat32BitsEqual(t, clone.decoded.State[:], firstState, "clone state")
+	assertFloat32BitsEqual(t, cloneLatents, firstLatents, "clone latents")
+	assertFloat32BitsEqual(t, cloneFeatures, firstFeatures, "clone features")
+}
+
+func assertLibopusDREDFloat32Hash(t *testing.T, label string, data []float32, want uint32) {
+	t.Helper()
+	if got := libopusDREDFloat32Hash(data); got != want {
+		t.Fatalf("%s hash=0x%08x want 0x%08x", label, got, want)
+	}
+}
+
+func libopusDREDFloat32Hash(data []float32) uint32 {
+	h := uint32(2166136261)
+	for _, sample := range data {
+		h ^= math.Float32bits(sample)
+		h *= 16777619
+	}
+	return h
+}
+
+func TestStandaloneDREDRecoveryQueueMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	modelBlob, err := probeLibopusDREDModelBlob()
+	if err != nil {
+		libopustest.HelperUnavailable(t, "dred model", err)
+	}
+	packetInfo, err := emitLibopusDREDPacket()
+	if err != nil {
+		libopustest.HelperUnavailable(t, "dred packet", err)
+	}
+
+	type queueCase struct {
+		name                string
+		decodeOffsetSamples int
+		frameSizeSamples    int
+		blend               bool
+	}
+	scenarios := []struct {
+		name           string
+		decoderRate    int
+		maxDREDSamples int
+		sampleRate     int
+		tests          []queueCase
+	}{
+		{
+			name:           "48k",
+			decoderRate:    48000,
+			maxDREDSamples: packetInfo.maxDREDSamples,
+			sampleRate:     packetInfo.sampleRate,
+			tests: []queueCase{
+				{name: "blend_off_negative_full_frame", decodeOffsetSamples: -960, frameSizeSamples: 960, blend: false},
+				{name: "blend_off_current_frame", decodeOffsetSamples: 0, frameSizeSamples: 960, blend: false},
+				{name: "blend_off_current_10ms", decodeOffsetSamples: 0, frameSizeSamples: 480, blend: false},
+				{name: "blend_off_current_60ms", decodeOffsetSamples: 0, frameSizeSamples: 2880, blend: false},
+				{name: "blend_on_current_frame", decodeOffsetSamples: 0, frameSizeSamples: 960, blend: true},
+				{name: "blend_off_late_recovery", decodeOffsetSamples: 3840, frameSizeSamples: 960, blend: false},
+				{name: "blend_off_beyond_payload", decodeOffsetSamples: 9600, frameSizeSamples: 960, blend: false},
+				{name: "blend_on_half_frame", decodeOffsetSamples: 960, frameSizeSamples: 480, blend: true},
+				{name: "blend_on_late_10ms", decodeOffsetSamples: 1920, frameSizeSamples: 480, blend: true},
+			},
+		},
+		{
+			name:        "16k",
+			decoderRate: 16000,
+			tests: []queueCase{
+				{name: "blend_off_negative_full_frame", decodeOffsetSamples: -320, frameSizeSamples: 320, blend: false},
+				{name: "blend_off_current_frame", decodeOffsetSamples: 0, frameSizeSamples: 320, blend: false},
+				{name: "blend_off_current_10ms", decodeOffsetSamples: 0, frameSizeSamples: 160, blend: false},
+				{name: "blend_off_current_60ms", decodeOffsetSamples: 0, frameSizeSamples: 960, blend: false},
+				{name: "blend_on_current_frame", decodeOffsetSamples: 0, frameSizeSamples: 320, blend: true},
+				{name: "blend_off_late_recovery", decodeOffsetSamples: 1280, frameSizeSamples: 320, blend: false},
+				{name: "blend_on_half_frame", decodeOffsetSamples: 320, frameSizeSamples: 160, blend: true},
+			},
+		},
+	}
+	for i := range scenarios {
+		if scenarios[i].maxDREDSamples == 0 || scenarios[i].sampleRate == 0 {
+			scenarios[i].maxDREDSamples, scenarios[i].sampleRate = libopusDREDRequestForDecoder(packetInfo, scenarios[i].decoderRate)
+		}
+	}
+
+	for _, scenario := range scenarios {
+		scenario := scenario
+		t.Run(scenario.name, func(t *testing.T) {
+			dec := NewDREDDecoder()
+			if err := dec.SetDNNBlob(modelBlob); err != nil {
+				t.Fatalf("SetDNNBlob(real model) error: %v", err)
+			}
+
+			dred := NewDRED()
+			available, dredEnd, err := dec.Parse(dred, packetInfo.packet, scenario.maxDREDSamples, scenario.sampleRate, true)
+			if err != nil {
+				t.Fatalf("Parse error: %v", err)
+			}
+			if err := dec.Process(dred, dred); err != nil {
+				t.Fatalf("Process error: %v", err)
+			}
+			result := dred.Result(scenario.maxDREDSamples, scenario.sampleRate)
+
+			for _, tc := range scenario.tests {
+				tc := tc
+				t.Run(tc.name, func(t *testing.T) {
+					want, err := probeLibopusDREDRecoveryWindow(packetInfo.packet, scenario.maxDREDSamples, scenario.sampleRate, tc.frameSizeSamples, tc.decodeOffsetSamples, tc.blend)
+					if err != nil {
+						libopustest.HelperUnavailable(t, "dred recovery", err)
+					}
+					if want.availableSamples != available {
+						t.Fatalf("available=%d want %d", available, want.availableSamples)
+					}
+					if want.dredEndSamples != dredEnd {
+						t.Fatalf("dredEnd=%d want %d", dredEnd, want.dredEndSamples)
+					}
+
+					var plc lpcnetplc.State
+					allocs := testing.AllocsPerRun(1000, func() {
+						if tc.blend {
+							plc.MarkConcealed()
+						} else {
+							plc.MarkUpdated()
+						}
+						internaldred.QueueProcessedFeatures(&plc, result, &dred.decoded, tc.decodeOffsetSamples, tc.frameSizeSamples)
+					})
+					if allocs != 0 {
+						t.Fatalf("AllocsPerRun=%v want 0", allocs)
+					}
+
+					if tc.blend {
+						plc.MarkConcealed()
+					} else {
+						plc.MarkUpdated()
+					}
+					got := internaldred.QueueProcessedFeatures(&plc, result, &dred.decoded, tc.decodeOffsetSamples, tc.frameSizeSamples)
+					if got.FeaturesPerFrame != want.featuresPerFrame ||
+						got.NeededFeatureFrames != want.neededFeatureFrames ||
+						got.FeatureOffsetBase != want.featureOffsetBase ||
+						got.MaxFeatureIndex != want.maxFeatureIndex ||
+						got.RecoverableFeatureFrames != want.recoverableFeatureFrames ||
+						got.MissingPositiveFrames != want.missingPositiveFrames {
+						t.Fatalf("QueueProcessedFeatures window=%+v want %+v", got, want)
+					}
+					if plc.FECFillPos() != want.recoverableFeatureFrames {
+						t.Fatalf("FECFillPos()=%d want %d", plc.FECFillPos(), want.recoverableFeatureFrames)
+					}
+					if plc.FECSkip() != want.missingPositiveFrames {
+						t.Fatalf("FECSkip()=%d want %d", plc.FECSkip(), want.missingPositiveFrames)
+					}
+
+					queued := 0
+					var gotFeatures [lpcnetplc.NumFeatures]float32
+					for _, featureOffset := range want.featureOffsets {
+						if featureOffset < 0 || featureOffset > want.maxFeatureIndex {
+							continue
+						}
+						if n := plc.FillQueuedFeatures(queued, gotFeatures[:]); n != lpcnetplc.NumFeatures {
+							t.Fatalf("FillQueuedFeatures(%d) count=%d want %d", queued, n, lpcnetplc.NumFeatures)
+						}
+						start := featureOffset * internaldred.NumFeatures
+						assertFloat32BitsEqual(t, gotFeatures[:], dred.decoded.Features[start:start+internaldred.NumFeatures], "queued features")
+						queued++
+					}
+					if queued != plc.FECFillPos() {
+						t.Fatalf("queued=%d want fill=%d", queued, plc.FECFillPos())
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestStandaloneDREDRecoveryWindowMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	modelBlob, err := probeLibopusDREDModelBlob()
+	if err != nil {
+		libopustest.HelperUnavailable(t, "dred model", err)
+	}
+	packetInfo, err := emitLibopusDREDPacket()
+	if err != nil {
+		libopustest.HelperUnavailable(t, "dred packet", err)
+	}
+
+	dec := NewDREDDecoder()
+	if err := dec.SetDNNBlob(modelBlob); err != nil {
+		t.Fatalf("SetDNNBlob(real model) error: %v", err)
+	}
+
+	dred := NewDRED()
+	available, dredEnd, err := dec.Parse(dred, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, true)
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	if err := dec.Process(dred, dred); err != nil {
+		t.Fatalf("Process error: %v", err)
+	}
+
+	tests := []struct {
+		name                string
+		decodeOffsetSamples int
+		frameSizeSamples    int
+		blend               bool
+	}{
+		{name: "blend_off_negative_offset", decodeOffsetSamples: -480, frameSizeSamples: 960, blend: false},
+		{name: "blend_off_negative_full_frame", decodeOffsetSamples: -960, frameSizeSamples: 960, blend: false},
+		{name: "blend_off_current_frame", decodeOffsetSamples: 0, frameSizeSamples: 960, blend: false},
+		{name: "blend_off_current_10ms", decodeOffsetSamples: 0, frameSizeSamples: 480, blend: false},
+		{name: "blend_off_current_60ms", decodeOffsetSamples: 0, frameSizeSamples: 2880, blend: false},
+		{name: "blend_on_current_frame", decodeOffsetSamples: 0, frameSizeSamples: 960, blend: true},
+		{name: "blend_off_late_recovery", decodeOffsetSamples: 3840, frameSizeSamples: 960, blend: false},
+		{name: "blend_off_beyond_payload", decodeOffsetSamples: 9600, frameSizeSamples: 960, blend: false},
+		{name: "blend_on_half_frame", decodeOffsetSamples: 960, frameSizeSamples: 480, blend: true},
+		{name: "blend_on_late_10ms", decodeOffsetSamples: 1920, frameSizeSamples: 480, blend: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			want, err := probeLibopusDREDRecoveryWindow(packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, tc.frameSizeSamples, tc.decodeOffsetSamples, tc.blend)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "dred recovery", err)
+			}
+			if want.availableSamples != available {
+				t.Fatalf("available=%d want %d", available, want.availableSamples)
+			}
+			if want.dredEndSamples != dredEnd {
+				t.Fatalf("dredEnd=%d want %d", dredEnd, want.dredEndSamples)
+			}
+			if want.processRet != 0 {
+				t.Fatalf("libopus processRet=%d want 0", want.processRet)
+			}
+			if want.processStage != 2 {
+				t.Fatalf("libopus processStage=%d want 2", want.processStage)
+			}
+
+			initFrames := 2
+			if tc.blend {
+				initFrames = 0
+			}
+			got := dred.FeatureWindow(packetInfo.maxDREDSamples, packetInfo.sampleRate, tc.decodeOffsetSamples, tc.frameSizeSamples, initFrames)
+			if got.FeaturesPerFrame != want.featuresPerFrame ||
+				got.NeededFeatureFrames != want.neededFeatureFrames ||
+				got.FeatureOffsetBase != want.featureOffsetBase ||
+				got.MaxFeatureIndex != want.maxFeatureIndex ||
+				got.RecoverableFeatureFrames != want.recoverableFeatureFrames ||
+				got.MissingPositiveFrames != want.missingPositiveFrames {
+				t.Fatalf("FeatureWindow=%+v want %+v", got, want)
+			}
+
+			offsets := make([]int32, got.NeededFeatureFrames)
+			if n := got.FillFeatureOffsets(offsets); n != len(want.featureOffsets) {
+				t.Fatalf("FillFeatureOffsets count=%d want %d", n, len(want.featureOffsets))
+			}
+			for i, wantOffset := range want.featureOffsets {
+				if offsets[i] != int32(wantOffset) {
+					t.Fatalf("featureOffsets[%d]=%d want %d", i, offsets[i], wantOffset)
+				}
+			}
+		})
+	}
+}
+
+func TestStandaloneDREDRecoveryWindow16kMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	modelBlob, err := probeLibopusDREDModelBlob()
+	if err != nil {
+		libopustest.HelperUnavailable(t, "dred model", err)
+	}
+	packetInfo, err := emitLibopusDREDPacket()
+	if err != nil {
+		libopustest.HelperUnavailable(t, "dred packet", err)
+	}
+	maxDREDSamples, sampleRate := libopusDREDRequestForDecoder(packetInfo, 16000)
+
+	dec := NewDREDDecoder()
+	if err := dec.SetDNNBlob(modelBlob); err != nil {
+		t.Fatalf("SetDNNBlob(real model) error: %v", err)
+	}
+
+	dred := NewDRED()
+	available, dredEnd, err := dec.Parse(dred, packetInfo.packet, maxDREDSamples, sampleRate, true)
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	if err := dec.Process(dred, dred); err != nil {
+		t.Fatalf("Process error: %v", err)
+	}
+
+	tests := []struct {
+		name                string
+		decodeOffsetSamples int
+		frameSizeSamples    int
+		blend               bool
+	}{
+		{name: "blend_off_negative_offset", decodeOffsetSamples: -160, frameSizeSamples: 320, blend: false},
+		{name: "blend_off_current_frame", decodeOffsetSamples: 0, frameSizeSamples: 320, blend: false},
+		{name: "blend_off_current_10ms", decodeOffsetSamples: 0, frameSizeSamples: 160, blend: false},
+		{name: "blend_off_current_60ms", decodeOffsetSamples: 0, frameSizeSamples: 960, blend: false},
+		{name: "blend_on_current_frame", decodeOffsetSamples: 0, frameSizeSamples: 320, blend: true},
+		{name: "blend_off_late_recovery", decodeOffsetSamples: 1280, frameSizeSamples: 320, blend: false},
+		{name: "blend_on_half_frame", decodeOffsetSamples: 320, frameSizeSamples: 160, blend: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			want, err := probeLibopusDREDRecoveryWindow(packetInfo.packet, maxDREDSamples, sampleRate, tc.frameSizeSamples, tc.decodeOffsetSamples, tc.blend)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "dred recovery", err)
+			}
+			if want.availableSamples != available {
+				t.Fatalf("available=%d want %d", available, want.availableSamples)
+			}
+			if want.dredEndSamples != dredEnd {
+				t.Fatalf("dredEnd=%d want %d", dredEnd, want.dredEndSamples)
+			}
+			if want.processRet != 0 {
+				t.Fatalf("libopus processRet=%d want 0", want.processRet)
+			}
+			if want.processStage != 2 {
+				t.Fatalf("libopus processStage=%d want 2", want.processStage)
+			}
+
+			initFrames := 2
+			if tc.blend {
+				initFrames = 0
+			}
+			got := dred.FeatureWindow(maxDREDSamples, sampleRate, tc.decodeOffsetSamples, tc.frameSizeSamples, initFrames)
+			if got.FeaturesPerFrame != want.featuresPerFrame ||
+				got.NeededFeatureFrames != want.neededFeatureFrames ||
+				got.FeatureOffsetBase != want.featureOffsetBase ||
+				got.MaxFeatureIndex != want.maxFeatureIndex ||
+				got.RecoverableFeatureFrames != want.recoverableFeatureFrames ||
+				got.MissingPositiveFrames != want.missingPositiveFrames {
+				t.Fatalf("FeatureWindow=%+v want %+v", got, want)
+			}
+
+			offsets := make([]int32, got.NeededFeatureFrames)
+			if n := got.FillFeatureOffsets(offsets); n != len(want.featureOffsets) {
+				t.Fatalf("FillFeatureOffsets count=%d want %d", n, len(want.featureOffsets))
+			}
+			for i, wantOffset := range want.featureOffsets {
+				if offsets[i] != int32(wantOffset) {
+					t.Fatalf("featureOffsets[%d]=%d want %d", i, offsets[i], wantOffset)
+				}
+			}
+		})
+	}
+}
+
+func TestEncoderDREDDurationDifferentialFuzz(t *testing.T) {
+	libopustest.RequireOracle(t)
+
+	// DRED durations in 10 ms units. libopus clamps to [0,104]; the high end
+	// exercises the maximum 104-unit redundancy window. 0 means "no DRED" and is
+	// excluded — this sweep targets the carried payload across the active range.
+	//
+	// The full active range includes short CBR durations. If no DRED fits in
+	// the 640-frame window, both encoders must agree on that absence.
+	durations := []int{8, 16, 32, 48, 64, 80, 96, 104}
+
+	modes := []struct {
+		name      string
+		mode      encpkg.Mode
+		public    Mode
+		bandwidth Bandwidth
+		channels  int
+	}{
+		{"silk_wb_mono", encpkg.ModeSILK, ModeSILK, BandwidthWideband, 1},
+		{"silk_wb_stereo", encpkg.ModeSILK, ModeSILK, BandwidthWideband, 2},
+		{"hybrid_fb_mono", encpkg.ModeHybrid, ModeHybrid, BandwidthFullband, 1},
+		{"celt_fb_mono", encpkg.ModeCELT, ModeCELT, BandwidthFullband, 1},
+		{"celt_fb_stereo", encpkg.ModeCELT, ModeCELT, BandwidthFullband, 2},
+	}
+
+	rcModes := []struct {
+		name string
+		cbr  bool
+	}{
+		{"vbr", false},
+		{"cbr", true},
+	}
+
+	const frameSize = 960 // 20 ms at 48 kHz
+	var (
+		tested        int
+		payloadOK     int
+		indexMismatch int
+		offsetMismat  int
+		payloadFails  int
+		absentOK      int
+	)
+
+	for _, m := range modes {
+		for _, rc := range rcModes {
+			for _, dur := range durations {
+				name := fmt.Sprintf("%s/%s/dur%d", m.name, rc.name, dur)
+				t.Run(name, func(t *testing.T) {
+					tested++
+					cfg := libopusDREDPacketConfig{
+						FrameSize:    frameSize,
+						ForceMode:    m.public,
+						Bandwidth:    m.bandwidth,
+						Channels:     m.channels,
+						CBR:          rc.cbr,
+						DREDDuration: dur,
+					}
+					if rc.cbr {
+						cfg.Bitrate = 64000
+						if m.public == ModeSILK {
+							cfg.Bitrate = 32000
+						}
+					}
+					packetInfo, err := emitLibopusDREDPacketWithConfigRecord(cfg, true)
+					if err != nil {
+						t.Fatalf("DRED duration packet oracle: %v", err)
+					}
+					bitrate := 0
+					if rc.cbr {
+						bitrate = cfg.Bitrate
+					}
+					settings := encoderDREDPacketSettings{
+						mode: m.mode, bandwidth: m.bandwidth, frameSize: frameSize,
+						channels: m.channels, bitrate: bitrate, cbr: rc.cbr, dredDuration: dur,
+					}
+					if len(packetInfo.packet) == 0 {
+						gotPacket, gotPayload, _, gotFrameIndex := scanDREDEmissionWithSettings(t, settings, false)
+						if gotPacket != nil || gotPayload != nil || gotFrameIndex != packetInfo.frameIndex {
+							t.Fatalf("DRED absence mismatch: Go packet=%d payload=%d frame=%d C frame=%d",
+								len(gotPacket), len(gotPayload), gotFrameIndex, packetInfo.frameIndex)
+						}
+						absentOK++
+						return
+					}
+					wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
+					if err != nil {
+						t.Fatalf("findDREDPayload(libopus) error: %v", err)
+					}
+					if !ok {
+						t.Fatalf("libopus %s packet missing DRED payload at duration %d", m.name, dur)
+					}
+
+					gotPacket, gotPayload, gotOffset, gotFrameIndex := encodeUntilDREDPacketWithSettings(t, settings)
+					if ParseTOC(gotPacket[0]).Mode != m.public {
+						t.Fatalf("got packet mode=%v want %v", ParseTOC(gotPacket[0]).Mode, m.public)
+					}
+					if gotFrameIndex != packetInfo.frameIndex {
+						indexMismatch++
+						t.Fatalf("DRED emission frame index=%d want %d (dur=%d)", gotFrameIndex, packetInfo.frameIndex, dur)
+					}
+					if gotOffset != wantOffset {
+						offsetMismat++
+						t.Fatalf("DRED frameOffset=%d want %d (dur=%d)", gotOffset, wantOffset, dur)
+					}
+					if !bytes.Equal(gotPayload, wantPayload) {
+						payloadFails++
+						t.Fatalf("DRED payload mismatch at duration %d\n got=%x\nwant=%x", dur, gotPayload, wantPayload)
+					}
+					payloadOK++
+				})
+			}
+		}
+	}
+	t.Logf("DRED duration differential sweep: %d specs; payload-exact=%d absent-exact=%d index-mismatch=%d offset-mismatch=%d payload-fails=%d",
+		tested, payloadOK, absentOK, indexMismatch, offsetMismat, payloadFails)
+}
+
+const (
+	dredEncoderSequenceFrameSize = 960
+	dredEncoderSequenceFrames    = 220
+)
+
+var libopusDREDFullEncoderSequenceHelper libopustest.HelperCache
+
+type libopusDREDFullEncoderFrame struct {
+	index      int
+	finalRange uint32
+	packet     []byte
+}
+
+func TestDREDLowDelayFullSequenceEncoderMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	for _, channels := range []int{1, 2} {
+		t.Run(fmt.Sprintf("%dch", channels), func(t *testing.T) {
+			pcm := dredEncoderSequencePCM(t, channels)
+			want := runLibopusDREDFullEncoderSequence(t, channels, pcm)
+			got, enc := encodeDREDFullSequenceGo(t, channels, pcm)
+			if len(got) != len(want) {
+				t.Fatalf("frame records=%d want %d", len(got), len(want))
+			}
+
+			carriedDRED := 0
+			for frame := range want {
+				if got[frame].index != frame || want[frame].index != frame {
+					t.Fatalf("record %d indices Go=%d C=%d", frame, got[frame].index, want[frame].index)
+				}
+				if got[frame].finalRange != want[frame].finalRange {
+					limit := min(len(got[frame].packet), len(want[frame].packet))
+					diff := 0
+					for diff < limit && got[frame].packet[diff] == want[frame].packet[diff] {
+						diff++
+					}
+					t.Fatalf("frame %d final range Go=%08x C=%08x; packet lens Go=%d C=%d TOCs Go=%02x C=%02x first diff=%d prefixes Go=%x C=%x",
+						frame, got[frame].finalRange, want[frame].finalRange, len(got[frame].packet), len(want[frame].packet),
+						got[frame].packet[0], want[frame].packet[0], diff,
+						got[frame].packet[:min(len(got[frame].packet), 32)], want[frame].packet[:min(len(want[frame].packet), 32)])
+				}
+				if !bytes.Equal(got[frame].packet, want[frame].packet) {
+					limit := min(len(got[frame].packet), len(want[frame].packet))
+					diff := 0
+					for diff < limit && got[frame].packet[diff] == want[frame].packet[diff] {
+						diff++
+					}
+					gotDRED, gotOffset, gotOK, gotErr := findDREDPayload(got[frame].packet)
+					wantDRED, wantOffset, wantOK, wantErr := findDREDPayload(want[frame].packet)
+					t.Fatalf("frame %d packet mismatch at byte %d: Go len=%d C len=%d Go=%x C=%x; DRED Go=(%t,%d,%x,%v) C=(%t,%d,%x,%v)",
+						frame, diff, len(got[frame].packet), len(want[frame].packet),
+						got[frame].packet[:min(len(got[frame].packet), 32)],
+						want[frame].packet[:min(len(want[frame].packet), 32)],
+						gotOK, gotOffset, gotDRED, gotErr, wantOK, wantOffset, wantDRED, wantErr)
+				}
+				_, _, ok, err := findDREDPayload(got[frame].packet)
+				if err != nil {
+					t.Fatalf("frame %d findDREDPayload: %v", frame, err)
+				}
+				if ok {
+					carriedDRED++
+				}
+			}
+			if carriedDRED == 0 {
+				t.Fatal("full low-delay sequence carries no DRED payloads")
+			}
+			t.Logf("matched %d/%d packets and final ranges; %d carry DRED", len(got), len(want), carriedDRED)
+			assertDREDFullSequenceEncodeZeroAlloc(t, enc, channels, pcm)
+		})
+	}
+}
+
+func dredEncoderSequencePCM(t *testing.T, channels int) []float32 {
+	t.Helper()
+	pcm := make([]float32, dredEncoderSequenceFrames*dredEncoderSequenceFrameSize*channels)
+	mono := make([]float32, dredEncoderSequenceFrameSize)
+	for frame := 0; frame < dredEncoderSequenceFrames; frame++ {
+		fillDREDQualitySpeechFrame(mono, frame)
+		for sample, value := range mono {
+			for channel := 0; channel < channels; channel++ {
+				pcm[(frame*dredEncoderSequenceFrameSize+sample)*channels+channel] = value
+			}
+		}
+	}
+	return pcm
+}
+
+func encodeDREDFullSequenceGo(t *testing.T, channels int, pcm []float32) ([]libopusDREDFullEncoderFrame, *Encoder) {
+	t.Helper()
+	enc, err := NewEncoder(EncoderConfig{
+		SampleRate:  48000,
+		Channels:    channels,
+		Application: ApplicationLowDelay,
+	})
+	if err != nil {
+		t.Fatalf("NewEncoder: %v", err)
+	}
+	if err := enc.SetDNNBlob(requireLibopusEncoderNeuralModelBlob(t)); err != nil {
+		t.Fatalf("SetDNNBlob: %v", err)
+	}
+	controls := []struct {
+		name string
+		set  func() error
+	}{
+		{"bitrate", func() error { return enc.SetBitrate(48000) }},
+		{"complexity", func() error { return enc.SetComplexity(10) }},
+		{"bandwidth", func() error { return enc.SetBandwidth(BandwidthFullband) }},
+		{"max bandwidth", func() error { return enc.SetMaxBandwidth(BandwidthFullband) }},
+		{"signal", func() error { return enc.SetSignal(SignalVoice) }},
+		{"packet loss", func() error { return enc.SetPacketLoss(60) }},
+		{"force channels", func() error { return enc.SetForceChannels(-1) }},
+		{"LSB depth", func() error { enc.SetLSBDepth(24); return nil }},
+		{"VBR", func() error { enc.SetVBR(true); return nil }},
+		{"VBR constraint", func() error { enc.SetVBRConstraint(true); return nil }},
+		{"DRED duration", func() error { return enc.SetDREDDuration(80) }},
+	}
+	for _, control := range controls {
+		if err := control.set(); err != nil {
+			t.Fatalf("set %s: %v", control.name, err)
+		}
+	}
+
+	packet := make([]byte, maxPacketBytesPerStream)
+	frames := make([]libopusDREDFullEncoderFrame, dredEncoderSequenceFrames)
+	for frame := range frames {
+		start := frame * dredEncoderSequenceFrameSize * channels
+		end := start + dredEncoderSequenceFrameSize*channels
+		n, err := enc.Encode(pcm[start:end], packet)
+		if err != nil {
+			t.Fatalf("Encode(frame=%d): %v", frame, err)
+		}
+		if n <= 0 {
+			t.Fatalf("Encode(frame=%d) returned %d bytes", frame, n)
+		}
+		frames[frame] = libopusDREDFullEncoderFrame{
+			index:      frame,
+			finalRange: enc.FinalRange(),
+			packet:     append([]byte(nil), packet[:n]...),
+		}
+	}
+	return frames, enc
+}
+
+func assertDREDFullSequenceEncodeZeroAlloc(t *testing.T, enc *Encoder, channels int, pcm []float32) {
+	t.Helper()
+	if enc.enc == nil || !enc.enc.DREDModelLoaded() || !enc.enc.DREDReady() {
+		t.Fatal("active DRED encoder is not model-loaded and ready")
+	}
+	packet := make([]byte, maxPacketBytesPerStream)
+	encodeSequence := func() {
+		for frame := 0; frame < dredEncoderSequenceFrames; frame++ {
+			start := frame * dredEncoderSequenceFrameSize * channels
+			end := start + dredEncoderSequenceFrameSize*channels
+			n, err := enc.Encode(pcm[start:end], packet)
+			if err != nil {
+				t.Fatalf("active DRED Encode(frame=%d): %v", frame, err)
+			}
+			if n <= 0 {
+				t.Fatalf("active DRED Encode(frame=%d) returned %d bytes", frame, n)
+			}
+		}
+	}
+	encodeSequence()
+	allocs := testing.AllocsPerRun(3, encodeSequence)
+	if allocs != 0 {
+		t.Fatalf("active public DRED Encode full sequence allocs/op=%.2f want 0", allocs)
+	}
+	t.Logf("active public DRED Encode: %d warmed frames/cycle, %.0f allocs/op", dredEncoderSequenceFrames, allocs)
+}
+
+func runLibopusDREDFullEncoderSequence(t *testing.T, channels int, pcm []float32) []libopusDREDFullEncoderFrame {
+	t.Helper()
+	variant, err := libopustooling.ResolveLibopusReferenceVariant()
+	if err != nil {
+		t.Fatalf("resolve selected libopus reference: %v", err)
+	}
+	binPath, err := cachedLibopusDREDHelperPath(
+		&libopusDREDFullEncoderSequenceHelper,
+		"libopus_dred_encoder_sequence.c",
+		"gopus_libopus_dred_encoder_sequence",
+		true,
+	)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "DRED full encoder sequence", err)
+	}
+	input := make([]byte, len(pcm)*4)
+	for sample, value := range pcm {
+		binary.LittleEndian.PutUint32(input[sample*4:], math.Float32bits(value))
+	}
+	pcmHash := sha256.Sum256(input)
+	t.Logf("selected libopus=%s reference=%s paired neural models come from selected archive; PCM SHA-256=%s; packet capacity=%d",
+		variant, libopustest.RefPath(), hex.EncodeToString(pcmHash[:]), maxPacketBytesPerStream)
+	output, err := libopustest.RunHelperArgs(
+		binPath,
+		input,
+		strconv.Itoa(channels),
+		strconv.Itoa(dredEncoderSequenceFrames),
+		strconv.Itoa(maxPacketBytesPerStream),
+	)
+	if err != nil {
+		t.Fatalf("run libopus DRED full encoder sequence: %v", err)
+	}
+	return parseLibopusDREDFullEncoderSequence(t, output, channels)
+}
+
+func parseLibopusDREDFullEncoderSequence(t *testing.T, data []byte, channels int) []libopusDREDFullEncoderFrame {
+	t.Helper()
+	r := bytes.NewReader(data)
+	var header [4]byte
+	if _, err := io.ReadFull(r, header[:]); err != nil || string(header[:]) != "GDES" {
+		t.Fatalf("libopus DRED encoder sequence magic=%q err=%v", header, err)
+	}
+	readU32 := func() uint32 {
+		var value uint32
+		if err := binary.Read(r, binary.LittleEndian, &value); err != nil {
+			t.Fatalf("read libopus sequence header: %v", err)
+		}
+		return value
+	}
+	if got := readU32(); got != 1 {
+		t.Fatalf("libopus sequence version=%d want 1", got)
+	}
+	if got := readU32(); got != 48000 {
+		t.Fatalf("libopus sample rate=%d want 48000", got)
+	}
+	if got := readU32(); got != uint32(channels) {
+		t.Fatalf("libopus channels=%d want %d", got, channels)
+	}
+	if got := readU32(); got != dredEncoderSequenceFrameSize {
+		t.Fatalf("libopus frame size=%d want %d", got, dredEncoderSequenceFrameSize)
+	}
+	if got := readU32(); got != dredEncoderSequenceFrames {
+		t.Fatalf("libopus frame count=%d want %d", got, dredEncoderSequenceFrames)
+	}
+
+	frames := make([]libopusDREDFullEncoderFrame, dredEncoderSequenceFrames)
+	for frame := range frames {
+		index := int(readU32())
+		packetLen := int(readU32())
+		finalRange := readU32()
+		if packetLen <= 0 || packetLen > maxPacketBytesPerStream {
+			t.Fatalf("frame %d libopus packet length=%d", frame, packetLen)
+		}
+		packet := make([]byte, packetLen)
+		if _, err := io.ReadFull(r, packet); err != nil {
+			t.Fatalf("read libopus packet frame %d: %v", frame, err)
+		}
+		frames[frame] = libopusDREDFullEncoderFrame{index: index, finalRange: finalRange, packet: packet}
+	}
+	if r.Len() != 0 {
+		t.Fatalf("libopus sequence has %d trailing output bytes", r.Len())
+	}
+	return frames
+}
+
+func TestEncoderCarriedDREDPayloadMatchesLibopusCELTFullband20msStereo(t *testing.T) {
+	libopustest.RequireOracle(t)
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize: 960,
+		ForceMode: ModeCELT,
+		Bandwidth: BandwidthFullband,
+		Channels:  2,
+	})
+	if err != nil {
+		libopustest.HelperUnavailable(t, "stereo CELT DRED packet", err)
+	}
+	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
+	if err != nil {
+		t.Fatalf("findDREDPayload(libopus) error: %v", err)
+	}
+	if !ok {
+		t.Fatal("libopus stereo CELT packet missing DRED payload")
+	}
+
+	gotPacket, gotPayload, gotOffset := encodeUntilDREDPacket(t, encpkg.ModeCELT, BandwidthFullband, 960, 2)
+	toc := ParseTOC(gotPacket[0])
+	if toc.Mode != ModeCELT || !toc.Stereo {
+		t.Fatalf("got packet toc=%+v want celt stereo", toc)
+	}
+
+	// DRED payload offset and bytes are independent of the CELT primary-frame
+	// length, so we still gate on them strictly.
+	if gotOffset != wantOffset {
+		t.Fatalf("frameOffset=%d want %d", gotOffset, wantOffset)
+	}
+	if !bytes.Equal(gotPayload, wantPayload) {
+		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
+	}
+
+	delta := len(gotPacket) - len(packetInfo.packet)
+	if delta != 0 {
+		t.Fatalf("CELT FB stereo packet length=%d want %d (delta=%d bytes)",
+			len(gotPacket), len(packetInfo.packet), delta)
+	}
+	assertDREDPacketPrimaryFrameSizesMatchLibopus(t, gotPacket, packetInfo.packet)
+}
+
+func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband20ms(t *testing.T) {
+	libopustest.RequireOracle(t)
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize: 960,
+		ForceMode: ModeHybrid,
+		Bandwidth: BandwidthFullband,
+	})
+	if err != nil {
+		libopustest.HelperUnavailable(t, "hybrid DRED packet", err)
+	}
+	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
+	if err != nil {
+		t.Fatalf("findDREDPayload(libopus) error: %v", err)
+	}
+	if !ok {
+		t.Fatal("libopus hybrid packet missing DRED payload")
+	}
+	gotPacket, gotPayload, gotOffset := encodeUntilDREDPacket(t, encpkg.ModeHybrid, BandwidthFullband, 960, 1)
+	if ParseTOC(gotPacket[0]).Mode != ModeHybrid {
+		t.Fatalf("got packet mode=%v want %v", ParseTOC(gotPacket[0]).Mode, ModeHybrid)
+	}
+	if gotOffset != wantOffset {
+		t.Fatalf("frameOffset=%d want %d", gotOffset, wantOffset)
+	}
+	if !bytes.Equal(gotPayload, wantPayload) {
+		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
+	}
+	assertDREDPacketExtensionFramingMatchesLibopus(t, gotPacket, packetInfo.packet)
+}
+
+func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband40ms(t *testing.T) {
+	libopustest.RequireOracle(t)
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize: 1920,
+		ForceMode: ModeHybrid,
+		Bandwidth: BandwidthFullband,
+	})
+	if err != nil {
+		libopustest.HelperUnavailable(t, "40 ms hybrid DRED packet", err)
+	}
+	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
+	if err != nil {
+		t.Fatalf("findDREDPayload(libopus) error: %v", err)
+	}
+	if !ok {
+		t.Fatal("libopus 40 ms hybrid packet missing DRED payload")
+	}
+
+	gotPacket, gotPayload, gotOffset := encodeUntilDREDPacket(t, encpkg.ModeHybrid, BandwidthFullband, 1920, 1)
+	if ParseTOC(gotPacket[0]).Mode != ModeHybrid {
+		t.Fatalf("got packet mode=%v want %v", ParseTOC(gotPacket[0]).Mode, ModeHybrid)
+	}
+	if gotOffset != wantOffset {
+		t.Fatalf("frameOffset=%d want %d", gotOffset, wantOffset)
+	}
+	if !bytes.Equal(gotPayload, wantPayload) {
+		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
+	}
+	assertDREDPacketExtensionFramingMatchesLibopus(t, gotPacket, packetInfo.packet)
+}
+
+func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband20msStereo(t *testing.T) {
+	libopustest.RequireOracle(t)
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize: 960,
+		ForceMode: ModeHybrid,
+		Bandwidth: BandwidthFullband,
+		Channels:  2,
+	})
+	if err != nil {
+		libopustest.HelperUnavailable(t, "stereo hybrid DRED packet", err)
+	}
+	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
+	if err != nil {
+		t.Fatalf("findDREDPayload(libopus) error: %v", err)
+	}
+	if !ok {
+		t.Fatal("libopus stereo hybrid packet missing DRED payload")
+	}
+
+	gotPacket, gotPayload, gotOffset := encodeUntilDREDPacket(t, encpkg.ModeHybrid, BandwidthFullband, 960, 2)
+	toc := ParseTOC(gotPacket[0])
+	if toc.Mode != ModeHybrid || !toc.Stereo {
+		t.Fatalf("got packet toc=%+v want hybrid stereo", toc)
+	}
+	if gotOffset != wantOffset {
+		t.Fatalf("frameOffset=%d want %d", gotOffset, wantOffset)
+	}
+	if !bytes.Equal(gotPayload, wantPayload) {
+		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
+	}
+	assertDREDPacketExtensionFramingMatchesLibopus(t, gotPacket, packetInfo.packet)
+}
+
+func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband40msStereo(t *testing.T) {
+	libopustest.RequireOracle(t)
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize: 1920,
+		ForceMode: ModeHybrid,
+		Bandwidth: BandwidthFullband,
+		Channels:  2,
+	})
+	if err != nil {
+		libopustest.HelperUnavailable(t, "40 ms stereo hybrid DRED packet", err)
+	}
+	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
+	if err != nil {
+		t.Fatalf("findDREDPayload(libopus) error: %v", err)
+	}
+	if !ok {
+		t.Fatal("libopus 40 ms stereo hybrid packet missing DRED payload")
+	}
+
+	gotPacket, gotPayload, gotOffset := encodeUntilDREDPacket(t, encpkg.ModeHybrid, BandwidthFullband, 1920, 2)
+	toc := ParseTOC(gotPacket[0])
+	if toc.Mode != ModeHybrid || !toc.Stereo {
+		t.Fatalf("got packet toc=%+v want hybrid stereo", toc)
+	}
+	if gotOffset != wantOffset {
+		t.Fatalf("frameOffset=%d want %d", gotOffset, wantOffset)
+	}
+	if !bytes.Equal(gotPayload, wantPayload) {
+		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
+	}
+	assertDREDPacketExtensionFramingMatchesLibopus(t, gotPacket, packetInfo.packet)
+}
+
+func assertDREDPacketExtensionFramingMatchesLibopus(t *testing.T, gotPacket, wantPacket []byte) {
+	t.Helper()
+	_, gotFrames, gotPadding, _, err := parsePacketFramesAndPadding(gotPacket)
+	if err != nil {
+		t.Fatalf("parse got DRED packet frames: %v", err)
+	}
+	_, wantFrames, wantPadding, _, err := parsePacketFramesAndPadding(wantPacket)
+	if err != nil {
+		t.Fatalf("parse libopus DRED packet frames: %v", err)
+	}
+	if len(gotFrames) != len(wantFrames) {
+		t.Fatalf("primary frame count=%d want %d", len(gotFrames), len(wantFrames))
+	}
+	if !bytes.Equal(gotPadding, wantPadding) {
+		t.Fatalf("extension padding mismatch\n got=%x\nwant=%x", gotPadding, wantPadding)
+	}
+}
+
+func assertDREDPacketPrimaryFrameSizesMatchLibopus(t *testing.T, gotPacket, wantPacket []byte) {
+	t.Helper()
+	_, gotFrames, gotPadding, _, err := parsePacketFramesAndPadding(gotPacket)
+	if err != nil {
+		t.Fatalf("parse got DRED packet frames: %v", err)
+	}
+	_, wantFrames, wantPadding, _, err := parsePacketFramesAndPadding(wantPacket)
+	if err != nil {
+		t.Fatalf("parse libopus DRED packet frames: %v", err)
+	}
+	if len(gotFrames) != len(wantFrames) {
+		t.Fatalf("primary frame count=%d want %d", len(gotFrames), len(wantFrames))
+	}
+	for i := range wantFrames {
+		if len(gotFrames[i]) != len(wantFrames[i]) {
+			t.Fatalf("primary frame %d length=%d want %d", i, len(gotFrames[i]), len(wantFrames[i]))
+		}
+	}
+	if !bytes.Equal(gotPadding, wantPadding) {
+		t.Fatalf("extension padding mismatch\n got=%x\nwant=%x", gotPadding, wantPadding)
+	}
+}
+
+var libopusDREDEncoderModelBlobHelper libopustest.HelperCache
+
+func getLibopusDREDEncoderModelBlobHelperPath() (string, error) {
+	return cachedLibopusDREDHelperPath(&libopusDREDEncoderModelBlobHelper, "libopus_dred_encoder_model_blob.c", "gopus_libopus_dred_encoder_model_blob", true)
+}
+
+func probeLibopusDREDEncoderModelBlob() ([]byte, error) {
+	binPath, err := getLibopusDREDEncoderModelBlobHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	return runModelBlobHelper(binPath)
+}
+
+func probeLibopusPitchDNNModelBlob() ([]byte, error) {
+	binPath, err := getLibopusPitchDNNModelBlobHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	return runModelBlobHelper(binPath)
+}
+
+func probeLibopusEncoderNeuralModelBlob() ([]byte, error) {
+	pitchBlob, err := probeLibopusPitchDNNModelBlob()
+	if err != nil {
+		return nil, err
+	}
+	dredBlob, err := probeLibopusDREDEncoderModelBlob()
+	if err != nil {
+		return nil, err
+	}
+	blob := make([]byte, 0, len(pitchBlob)+len(dredBlob))
+	blob = append(blob, pitchBlob...)
+	blob = append(blob, dredBlob...)
+	return blob, nil
+}
+
+func requireLibopusEncoderNeuralModelBlob(t *testing.T) []byte {
+	t.Helper()
+	blob, err := probeLibopusEncoderNeuralModelBlob()
+	if err != nil {
+		libopustest.HelperUnavailable(t, "encoder neural model", err)
+	}
+	return blob
+}
+
+// assertCarriedDREDPayloadParity compares every carried DRED payload byte with
+// the instruction-paired libopus DRED reference, then exercises the public
+// decoder on that same carrier packet.
+func assertCarriedDREDPayloadParity(t *testing.T, gotPacket []byte, gotPayload, wantPayload []byte, gotOffset int) {
+	t.Helper()
+	if !bytes.Equal(gotPayload, wantPayload) {
+		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
+	}
+	assertCarriedDREDPayloadStructuralParity(t, gotPacket, gotPayload, wantPayload, gotOffset)
+}
+
+// assertCarriedDREDPayloadStructuralParity validates the exact payload's chunk
+// structure and decodes it through the standalone and public DRED paths.
+func assertCarriedDREDPayloadStructuralParity(t *testing.T, gotPacket []byte, gotPayload, wantPayload []byte, gotOffset int) {
+	t.Helper()
+
+	gotParsed, err := internaldred.ParsePayload(gotPayload, gotOffset)
+	if err != nil {
+		t.Fatalf("gopus DRED payload does not parse: %v\n got=%x", err, gotPayload)
+	}
+	wantParsed, err := internaldred.ParsePayload(wantPayload, gotOffset)
+	if err != nil {
+		t.Fatalf("libopus DRED payload does not parse: %v\nwant=%x", err, wantPayload)
+	}
+	if gotParsed.PayloadLatents != wantParsed.PayloadLatents {
+		t.Fatalf("DRED chunk/latent count=%d want %d (got=%x want=%x)",
+			gotParsed.PayloadLatents, wantParsed.PayloadLatents, gotPayload, wantPayload)
+	}
+	if gotParsed.PayloadLatents <= 0 {
+		t.Fatalf("DRED payload carries no latents: %x", gotPayload)
+	}
+	if gotParsed.Header.QMax < gotParsed.Header.Q0 {
+		t.Fatalf("DRED header QMax=%d < Q0=%d", gotParsed.Header.QMax, gotParsed.Header.Q0)
+	}
+
+	assertCarriedDREDPayloadRoundTrips(t, gotPacket)
+}
+
+// assertCarriedDREDPayloadRoundTrips drives the standalone DRED decoder + the
+// public Decoder.DecodeDRED path over the carrier packet, asserting the emitted
+// DRED extension parses, processes, and reconstructs the expected sample count.
+func assertCarriedDREDPayloadRoundTrips(t *testing.T, gotPacket []byte) {
+	t.Helper()
+
+	decoderBlob := requireLibopusDecoderNeuralModelBlob(t)
+	modelBlob, err := probeLibopusDREDModelBlob()
+	if err != nil {
+		libopustest.HelperUnavailable(t, "dred model", err)
+	}
+
+	toc := ParseTOC(gotPacket[0])
+	channels := 1
+	if toc.Stereo {
+		channels = 2
+	}
+	const decoderSampleRate = 48000
+
+	dec, err := NewDecoder(DefaultDecoderConfig(decoderSampleRate, channels))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+	if err := dec.SetDNNBlob(decoderBlob); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+
+	standalone := NewDREDDecoder()
+	if err := standalone.SetDNNBlob(modelBlob); err != nil {
+		t.Fatalf("standalone SetDNNBlob error: %v", err)
+	}
+	dred := NewDRED()
+	maxDRED, parseRate := libopusDREDRequestForDecoder(libopusDREDPacket{
+		sampleRate:     decoderSampleRate,
+		maxDREDSamples: decoderSampleRate, // request up to 1 s; the parse clamps to the carried coverage
+	}, decoderSampleRate)
+	available, _, err := standalone.Parse(dred, gotPacket, maxDRED, parseRate, true)
+	if err != nil {
+		t.Fatalf("standalone Parse(carried payload) error: %v", err)
+	}
+	if dred.Empty() || dred.LatentCount() <= 0 {
+		t.Fatalf("standalone Parse retained no DRED latents (available=%d)", available)
+	}
+	if err := standalone.Process(dred, dred); err != nil {
+		t.Fatalf("standalone Process error: %v", err)
+	}
+	if !dred.Processed() {
+		t.Fatal("standalone DRED did not reach processed state")
+	}
+	if available <= 0 {
+		t.Fatalf("standalone Parse reported no available DRED samples: %d", available)
+	}
+
+	frameSamples := decoderSampleRate / 50 // one 20 ms frame
+	pcm := make([]float32, frameSamples*channels)
+	n, err := dec.DecodeDRED(dred, frameSamples, pcm, frameSamples)
+	if err != nil {
+		t.Fatalf("DecodeDRED(carried payload) error: %v", err)
+	}
+	if n != frameSamples {
+		t.Fatalf("DecodeDRED=%d want %d", n, frameSamples)
+	}
+}
+
+func encoderDREDBitrateForFrameSize(frameSize int) int {
+	bitrate := 40000
+	if frameSize > 0 && frameSize < 960 {
+		bitrate = (40000 * 960) / frameSize
+	}
+	if bitrate > 320000 {
+		bitrate = 320000
+	}
+	return bitrate
+}
+
+func encoderDREDVoicedSample(frameIdx, sampleIdx, frameSize, sampleRate int) float32 {
+	n := frameIdx*frameSize + sampleIdx
+	t := float64(n) / float64(sampleRate)
+	env := 0.82 + 0.18*math.Sin(2*math.Pi*1.3*t)
+	s := 0.0
+	s += 0.28 * math.Sin(2*math.Pi*110*t)
+	s += 0.17 * math.Sin(2*math.Pi*220*t+0.11)
+	s += 0.09 * math.Sin(2*math.Pi*330*t+0.23)
+	s += 0.05 * math.Sin(2*math.Pi*440*t+0.37)
+	return float32(env * s)
+}
+
+func encoderDREDFrame(frameIdx, frameSize, sampleRate, channels int) []float32 {
+	pcm := make([]float32, frameSize*channels)
+	for i := 0; i < frameSize; i++ {
+		s := encoderDREDVoicedSample(frameIdx, i, frameSize, sampleRate)
+		for ch := 0; ch < channels; ch++ {
+			pcm[i*channels+ch] = s
+		}
+	}
+	return pcm
+}
+
+func encoderModeToPublic(mode encpkg.Mode) (Mode, error) {
+	switch mode {
+	case encpkg.ModeSILK:
+		return ModeSILK, nil
+	case encpkg.ModeHybrid:
+		return ModeHybrid, nil
+	case encpkg.ModeCELT:
+		return ModeCELT, nil
+	default:
+		return 0, fmt.Errorf("unsupported encoder mode %v", mode)
+	}
+}
+
+func encodeUntilDREDPacket(t *testing.T, mode encpkg.Mode, bandwidth Bandwidth, frameSize, channels int) ([]byte, []byte, int) {
+	packet, payload, offset, _ := encodeUntilDREDPacketWithFrameIndex(t, mode, bandwidth, frameSize, channels)
+	return packet, payload, offset
+}
+
+func encodeUntilDREDPacketWithFrameIndex(t *testing.T, mode encpkg.Mode, bandwidth Bandwidth, frameSize, channels int) ([]byte, []byte, int, int) {
+	return encodeUntilDREDPacketWithSettings(t, encoderDREDPacketSettings{
+		mode:      mode,
+		bandwidth: bandwidth,
+		frameSize: frameSize,
+		channels:  channels,
+		bitrate:   encoderDREDBitrateForFrameSize(frameSize),
+	})
+}
+
+type encoderDREDPacketSettings struct {
+	mode         encpkg.Mode
+	bandwidth    Bandwidth
+	frameSize    int
+	channels     int
+	bitrate      int
+	cbr          bool
+	dredDuration int // 0 selects the default 80
+}
+
+func encodeUntilDREDPacketWithSettings(t *testing.T, settings encoderDREDPacketSettings) ([]byte, []byte, int, int) {
+	return scanDREDEmissionWithSettings(t, settings, true)
+}
+
+// scanDREDEmissionWithSettings checks the same 640-frame window as the C emit
+// oracle. requireEmission controls only whether absence is an expected result.
+func scanDREDEmissionWithSettings(t *testing.T, settings encoderDREDPacketSettings, requireEmission bool) ([]byte, []byte, int, int) {
+	t.Helper()
+	if settings.frameSize <= 0 {
+		settings.frameSize = 960
+	}
+	if settings.channels <= 0 {
+		settings.channels = 1
+	}
+	if settings.bitrate <= 0 {
+		settings.bitrate = encoderDREDBitrateForFrameSize(settings.frameSize)
+	}
+
+	cfg := EncoderConfig{
+		SampleRate:  48000,
+		Channels:    settings.channels,
+		Application: ApplicationAudio,
+	}
+	enc, err := NewEncoder(cfg)
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+	if err := enc.SetFrameSize(settings.frameSize); err != nil {
+		t.Fatalf("SetFrameSize error: %v", err)
+	}
+	if err := enc.SetBandwidth(settings.bandwidth); err != nil {
+		t.Fatalf("SetBandwidth error: %v", err)
+	}
+	if err := enc.SetBitrate(settings.bitrate); err != nil {
+		t.Fatalf("SetBitrate error: %v", err)
+	}
+	if settings.cbr {
+		if err := enc.SetBitrateMode(BitrateModeCBR); err != nil {
+			t.Fatalf("SetBitrateMode(CBR) error: %v", err)
+		}
+	}
+	if err := enc.SetSignal(SignalMusic); err != nil {
+		t.Fatalf("SetSignal error: %v", err)
+	}
+	if err := enc.SetPacketLoss(20); err != nil {
+		t.Fatalf("SetPacketLoss error: %v", err)
+	}
+	if err := enc.SetDNNBlob(requireLibopusEncoderNeuralModelBlob(t)); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+	dredDuration := settings.dredDuration
+	if dredDuration == 0 {
+		dredDuration = 80
+	}
+	if err := enc.SetDREDDuration(dredDuration); err != nil {
+		t.Fatalf("SetDREDDuration error: %v", err)
+	}
+	enc.enc.SetMode(settings.mode)
+
+	wantMode, err := encoderModeToPublic(settings.mode)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	packet := make([]byte, maxPacketBytesPerStream)
+	for frameIdx := 0; frameIdx < libopusDREDPacketMaxFramesToTry; frameIdx++ {
+		pcm := encoderDREDFrame(frameIdx, settings.frameSize, cfg.SampleRate, cfg.Channels)
+		n, err := enc.Encode(pcm, packet)
+		if err != nil {
+			t.Fatalf("Encode(frame=%d) error: %v", frameIdx, err)
+		}
+		gotPacket := append([]byte(nil), packet[:n]...)
+		toc := ParseTOC(gotPacket[0])
+		packetDuration, err := opusPacketDurationSamples(gotPacket)
+		if err != nil {
+			t.Fatalf("parse packet duration frame=%d: %v", frameIdx, err)
+		}
+		if toc.Mode != wantMode || toc.Bandwidth != settings.bandwidth || packetDuration != settings.frameSize {
+			continue
+		}
+		payload, frameOffset, ok, err := findDREDPayload(gotPacket)
+		if err != nil {
+			t.Fatalf("findDREDPayload(frame=%d) error: %v", frameIdx, err)
+		}
+		if ok {
+			return gotPacket, append([]byte(nil), payload...), frameOffset, frameIdx
+		}
+	}
+	if !requireEmission {
+		return nil, nil, 0, libopusDREDPacketMaxFramesToTry
+	}
+	t.Fatalf("no DRED packet emitted for mode=%v bandwidth=%v frameSize=%d", settings.mode, settings.bandwidth, settings.frameSize)
+	return nil, nil, 0, 0
+}
+
+func TestEncoderDREDEmissionFrameIndexMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	for _, tc := range []struct {
+		name      string
+		mode      encpkg.Mode
+		public    Mode
+		bandwidth Bandwidth
+		channels  int
+	}{
+		{name: "silk", mode: encpkg.ModeSILK, public: ModeSILK, bandwidth: BandwidthWideband, channels: 1},
+		{name: "hybrid", mode: encpkg.ModeHybrid, public: ModeHybrid, bandwidth: BandwidthFullband, channels: 1},
+		{name: "celt", mode: encpkg.ModeCELT, public: ModeCELT, bandwidth: BandwidthFullband, channels: 1},
+		{name: "stereo_celt", mode: encpkg.ModeCELT, public: ModeCELT, bandwidth: BandwidthFullband, channels: 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+				FrameSize: 960,
+				ForceMode: tc.public,
+				Bandwidth: tc.bandwidth,
+				Channels:  tc.channels,
+			})
+			if err != nil {
+				libopustest.HelperUnavailable(t, "DRED packet", err)
+			}
+			_, _, _, gotFrameIndex := encodeUntilDREDPacketWithFrameIndex(t, tc.mode, tc.bandwidth, 960, tc.channels)
+			if gotFrameIndex != packetInfo.frameIndex {
+				t.Fatalf("DRED frame index=%d want %d", gotFrameIndex, packetInfo.frameIndex)
+			}
+		})
+	}
+}
+
+func assertSilkMonoPrimaryFrameByteExact(t *testing.T, frameSize int) {
+	t.Helper()
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize: frameSize, ForceMode: ModeSILK, Bandwidth: BandwidthWideband,
+	})
+	if err != nil {
+		libopustest.HelperUnavailable(t, "DRED packet", err)
+	}
+	gotPacket, _, _ := encodeUntilDREDPacket(t, encpkg.ModeSILK, BandwidthWideband, frameSize, 1)
+	_, gotFrames, _, _, err := parsePacketFramesAndPadding(gotPacket)
+	if err != nil {
+		t.Fatalf("parsePacketFramesAndPadding(got): %v", err)
+	}
+	_, wantFrames, _, _, err := parsePacketFramesAndPadding(packetInfo.packet)
+	if err != nil {
+		t.Fatalf("parsePacketFramesAndPadding(want): %v", err)
+	}
+	if len(gotFrames) != len(wantFrames) {
+		t.Fatalf("frame count=%d want %d", len(gotFrames), len(wantFrames))
+	}
+	for i := range wantFrames {
+		if !bytes.Equal(gotFrames[i], wantFrames[i]) {
+			t.Fatalf("frame %d DIVERGES\n got=%x\nwant=%x", i, gotFrames[i], wantFrames[i])
+		}
+	}
+}
+
+func TestEncoderSilkMono20msPrimaryFrameByteExactMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	assertSilkMonoPrimaryFrameByteExact(t, 960)
+}
+
+func TestEncoderSilkMono40msPrimaryFrameByteExactMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	assertSilkMonoPrimaryFrameByteExact(t, 1920)
+}
+
+func TestEncoderSilkMono60msPrimaryFrameByteExactMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	assertSilkMonoPrimaryFrameByteExact(t, 2880)
+}
+
+func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWideband20ms(t *testing.T) {
+	libopustest.RequireOracle(t)
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize: 960,
+		ForceMode: ModeSILK,
+		Bandwidth: BandwidthWideband,
+	})
+	if err != nil {
+		libopustest.HelperUnavailable(t, "DRED packet", err)
+	}
+	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
+	if err != nil {
+		t.Fatalf("findDREDPayload(libopus) error: %v", err)
+	}
+	if !ok {
+		t.Fatal("libopus silk packet missing DRED payload")
+	}
+
+	gotPacket, gotPayload, gotOffset := encodeUntilDREDPacket(t, encpkg.ModeSILK, BandwidthWideband, 960, 1)
+	if ParseTOC(gotPacket[0]).Mode != ModeSILK {
+		t.Fatalf("got packet mode=%v want %v", ParseTOC(gotPacket[0]).Mode, ModeSILK)
+	}
+	if len(gotPacket) != len(packetInfo.packet) {
+		t.Fatalf("packet length=%d want %d", len(gotPacket), len(packetInfo.packet))
+	}
+	if gotOffset != wantOffset {
+		t.Fatalf("frameOffset=%d want %d", gotOffset, wantOffset)
+	}
+	if !bytes.Equal(gotPayload, wantPayload) {
+		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
+	}
+	assertDREDPacketPrimaryFrameSizesMatchLibopus(t, gotPacket, packetInfo.packet)
+}
+
+func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWideband20msCBR(t *testing.T) {
+	libopustest.RequireOracle(t)
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize: 960,
+		ForceMode: ModeSILK,
+		Bandwidth: BandwidthWideband,
+		Bitrate:   24000,
+		CBR:       true,
+	})
+	if err != nil {
+		libopustest.HelperUnavailable(t, "CBR DRED packet", err)
+	}
+	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
+	if err != nil {
+		t.Fatalf("findDREDPayload(libopus) error: %v", err)
+	}
+	if !ok {
+		t.Fatal("libopus CBR silk packet missing DRED payload")
+	}
+
+	gotPacket, gotPayload, gotOffset, gotFrameIndex := encodeUntilDREDPacketWithSettings(t, encoderDREDPacketSettings{
+		mode:      encpkg.ModeSILK,
+		bandwidth: BandwidthWideband,
+		frameSize: 960,
+		channels:  1,
+		bitrate:   24000,
+		cbr:       true,
+	})
+	if ParseTOC(gotPacket[0]).Mode != ModeSILK {
+		t.Fatalf("got packet mode=%v want %v", ParseTOC(gotPacket[0]).Mode, ModeSILK)
+	}
+	if gotFrameIndex != packetInfo.frameIndex {
+		t.Fatalf("DRED frame index=%d want %d", gotFrameIndex, packetInfo.frameIndex)
+	}
+	if len(gotPacket) != len(packetInfo.packet) {
+		t.Fatalf("packet length=%d want %d", len(gotPacket), len(packetInfo.packet))
+	}
+	if gotOffset != wantOffset {
+		t.Fatalf("frameOffset=%d want %d", gotOffset, wantOffset)
+	}
+	if !bytes.Equal(gotPayload, wantPayload) {
+		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
+	}
+}
+
+func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWideband40ms(t *testing.T) {
+	libopustest.RequireOracle(t)
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize: 1920,
+		ForceMode: ModeSILK,
+		Bandwidth: BandwidthWideband,
+	})
+	if err != nil {
+		libopustest.HelperUnavailable(t, "40 ms DRED packet", err)
+	}
+	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
+	if err != nil {
+		t.Fatalf("findDREDPayload(libopus) error: %v", err)
+	}
+	if !ok {
+		t.Fatal("libopus 40 ms silk packet missing DRED payload")
+	}
+
+	gotPacket, gotPayload, gotOffset := encodeUntilDREDPacket(t, encpkg.ModeSILK, BandwidthWideband, 1920, 1)
+	if ParseTOC(gotPacket[0]).Mode != ModeSILK {
+		t.Fatalf("got packet mode=%v want %v", ParseTOC(gotPacket[0]).Mode, ModeSILK)
+	}
+	if len(gotPacket) != len(packetInfo.packet) {
+		t.Fatalf("packet length=%d want %d", len(gotPacket), len(packetInfo.packet))
+	}
+	if gotOffset != wantOffset {
+		t.Fatalf("frameOffset=%d want %d", gotOffset, wantOffset)
+	}
+	if !bytes.Equal(gotPayload, wantPayload) {
+		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
+	}
+	assertDREDPacketPrimaryFrameSizesMatchLibopus(t, gotPacket, packetInfo.packet)
+}
+
+func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWideband60ms(t *testing.T) {
+	libopustest.RequireOracle(t)
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize: 2880,
+		ForceMode: ModeSILK,
+		Bandwidth: BandwidthWideband,
+	})
+	if err != nil {
+		libopustest.HelperUnavailable(t, "60 ms DRED packet", err)
+	}
+	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
+	if err != nil {
+		t.Fatalf("findDREDPayload(libopus) error: %v", err)
+	}
+	if !ok {
+		t.Fatal("libopus 60 ms silk packet missing DRED payload")
+	}
+
+	gotPacket, gotPayload, gotOffset := encodeUntilDREDPacket(t, encpkg.ModeSILK, BandwidthWideband, 2880, 1)
+	if ParseTOC(gotPacket[0]).Mode != ModeSILK {
+		t.Fatalf("got packet mode=%v want %v", ParseTOC(gotPacket[0]).Mode, ModeSILK)
+	}
+	if len(gotPacket) != len(packetInfo.packet) {
+		t.Fatalf("packet length=%d want %d", len(gotPacket), len(packetInfo.packet))
+	}
+	if gotOffset != wantOffset {
+		t.Fatalf("frameOffset=%d want %d", gotOffset, wantOffset)
+	}
+	if !bytes.Equal(gotPayload, wantPayload) {
+		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
+	}
+	assertDREDPacketPrimaryFrameSizesMatchLibopus(t, gotPacket, packetInfo.packet)
+}
+
+func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWidebandLongFrames(t *testing.T) {
+	libopustest.RequireOracle(t)
+	for _, frameSize := range []int{3840, 4800, 5760} {
+		t.Run(fmt.Sprintf("%d_samples", frameSize), func(t *testing.T) {
+			packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+				FrameSize: frameSize,
+				ForceMode: ModeSILK,
+				Bandwidth: BandwidthWideband,
+			})
+			if err != nil {
+				libopustest.HelperUnavailable(t, "long SILK DRED packet", err)
+			}
+			wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
+			if err != nil {
+				t.Fatalf("findDREDPayload(libopus) error: %v", err)
+			}
+			if !ok {
+				t.Fatal("libopus long SILK packet missing DRED payload")
+			}
+
+			gotPacket, gotPayload, gotOffset, gotFrameIndex := encodeUntilDREDPacketWithFrameIndex(t, encpkg.ModeSILK, BandwidthWideband, frameSize, 1)
+			if ParseTOC(gotPacket[0]).Mode != ModeSILK {
+				t.Fatalf("got packet mode=%v want %v", ParseTOC(gotPacket[0]).Mode, ModeSILK)
+			}
+			if gotFrameIndex != packetInfo.frameIndex {
+				t.Fatalf("DRED frame index=%d want %d", gotFrameIndex, packetInfo.frameIndex)
+			}
+			if len(gotPacket) != len(packetInfo.packet) {
+				t.Fatalf("packet length=%d want %d", len(gotPacket), len(packetInfo.packet))
+			}
+			if gotOffset != wantOffset {
+				t.Fatalf("frameOffset=%d want %d", gotOffset, wantOffset)
+			}
+			if !bytes.Equal(gotPayload, wantPayload) {
+				t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
+			}
+			assertDREDPacketPrimaryFrameSizesMatchLibopus(t, gotPacket, packetInfo.packet)
+		})
+	}
+}
+
+func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband20msPayloadOnly(t *testing.T) {
+	libopustest.RequireOracle(t)
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize: 960,
+		ForceMode: ModeHybrid,
+		Bandwidth: BandwidthFullband,
+	})
+	if err != nil {
+		libopustest.HelperUnavailable(t, "hybrid DRED packet", err)
+	}
+	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
+	if err != nil {
+		t.Fatalf("findDREDPayload(libopus) error: %v", err)
+	}
+	if !ok {
+		t.Fatal("libopus hybrid packet missing DRED payload")
+	}
+
+	gotPacket, gotPayload, gotOffset := encodeUntilDREDPacket(t, encpkg.ModeHybrid, BandwidthFullband, 960, 1)
+	if ParseTOC(gotPacket[0]).Mode != ModeHybrid {
+		t.Fatalf("got packet mode=%v want %v", ParseTOC(gotPacket[0]).Mode, ModeHybrid)
+	}
+	if gotOffset != wantOffset {
+		t.Fatalf("frameOffset=%d want %d", gotOffset, wantOffset)
+	}
+	if !bytes.Equal(gotPayload, wantPayload) {
+		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
+	}
+}
+
+func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband40msPayloadOnly(t *testing.T) {
+	libopustest.RequireOracle(t)
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize: 1920,
+		ForceMode: ModeHybrid,
+		Bandwidth: BandwidthFullband,
+	})
+	if err != nil {
+		libopustest.HelperUnavailable(t, "40 ms hybrid DRED packet", err)
+	}
+	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
+	if err != nil {
+		t.Fatalf("findDREDPayload(libopus) error: %v", err)
+	}
+	if !ok {
+		t.Fatal("libopus 40 ms hybrid packet missing DRED payload")
+	}
+
+	gotPacket, gotPayload, gotOffset := encodeUntilDREDPacket(t, encpkg.ModeHybrid, BandwidthFullband, 1920, 1)
+	if ParseTOC(gotPacket[0]).Mode != ModeHybrid {
+		t.Fatalf("got packet mode=%v want %v", ParseTOC(gotPacket[0]).Mode, ModeHybrid)
+	}
+	if gotOffset != wantOffset {
+		t.Fatalf("frameOffset=%d want %d", gotOffset, wantOffset)
+	}
+	if !bytes.Equal(gotPayload, wantPayload) {
+		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
+	}
+}
+
+func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband40msStereoPayloadOnly(t *testing.T) {
+	libopustest.RequireOracle(t)
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize: 1920,
+		ForceMode: ModeHybrid,
+		Bandwidth: BandwidthFullband,
+		Channels:  2,
+	})
+	if err != nil {
+		libopustest.HelperUnavailable(t, "40 ms stereo hybrid DRED packet", err)
+	}
+	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
+	if err != nil {
+		t.Fatalf("findDREDPayload(libopus) error: %v", err)
+	}
+	if !ok {
+		t.Fatal("libopus 40 ms stereo hybrid packet missing DRED payload")
+	}
+
+	gotPacket, gotPayload, gotOffset := encodeUntilDREDPacket(t, encpkg.ModeHybrid, BandwidthFullband, 1920, 2)
+	toc := ParseTOC(gotPacket[0])
+	if toc.Mode != ModeHybrid || !toc.Stereo {
+		t.Fatalf("got packet toc=%+v want hybrid stereo", toc)
+	}
+	if gotOffset != wantOffset {
+		t.Fatalf("frameOffset=%d want %d", gotOffset, wantOffset)
+	}
+	if !bytes.Equal(gotPayload, wantPayload) {
+		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
+	}
+}
+
+func TestEncoderCarriedDREDPayloadMatchesLibopusCELTFullband20ms(t *testing.T) {
+	libopustest.RequireOracle(t)
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize: 960,
+		ForceMode: ModeCELT,
+		Bandwidth: BandwidthFullband,
+	})
+	if err != nil {
+		libopustest.HelperUnavailable(t, "CELT DRED packet", err)
+	}
+	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
+	if err != nil {
+		t.Fatalf("findDREDPayload(libopus) error: %v", err)
+	}
+	if !ok {
+		t.Fatal("libopus CELT packet missing DRED payload")
+	}
+
+	gotPacket, gotPayload, gotOffset := encodeUntilDREDPacket(t, encpkg.ModeCELT, BandwidthFullband, 960, 1)
+	if ParseTOC(gotPacket[0]).Mode != ModeCELT {
+		t.Fatalf("got packet mode=%v want %v", ParseTOC(gotPacket[0]).Mode, ModeCELT)
+	}
+	if gotOffset != wantOffset {
+		t.Fatalf("frameOffset=%d want %d", gotOffset, wantOffset)
+	}
+	if !bytes.Equal(gotPayload, wantPayload) {
+		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
+	}
+}
+
+func TestEncoderCarriedDREDPayloadMatchesLibopusCELTFullbandLongFrames(t *testing.T) {
+	libopustest.RequireOracle(t)
+	for _, tc := range []struct {
+		frameSize int
+		channels  int
+	}{
+		{frameSize: 1920, channels: 1},
+		{frameSize: 2880, channels: 1},
+		{frameSize: 1920, channels: 2},
+	} {
+		tc := tc
+		t.Run(fmt.Sprintf("%d_samples_%dch", tc.frameSize, tc.channels), func(t *testing.T) {
+			packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+				FrameSize: tc.frameSize,
+				ForceMode: ModeCELT,
+				Bandwidth: BandwidthFullband,
+				Channels:  tc.channels,
+			})
+			if err != nil {
+				libopustest.HelperUnavailable(t, "CELT DRED packet", err)
+			}
+			wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
+			if err != nil {
+				t.Fatalf("findDREDPayload(libopus) error: %v", err)
+			}
+			if !ok {
+				t.Fatal("libopus CELT packet missing DRED payload")
+			}
+
+			gotPacket, gotPayload, gotOffset, gotFrameIndex := encodeUntilDREDPacketWithFrameIndex(t, encpkg.ModeCELT, BandwidthFullband, tc.frameSize, tc.channels)
+			toc := ParseTOC(gotPacket[0])
+			if toc.Mode != ModeCELT || toc.Stereo != (tc.channels == 2) {
+				t.Fatalf("got packet toc=%+v want celt channels=%d", toc, tc.channels)
+			}
+			if gotFrameIndex != packetInfo.frameIndex {
+				t.Fatalf("DRED frame index=%d want %d", gotFrameIndex, packetInfo.frameIndex)
+			}
+			if gotOffset != wantOffset {
+				t.Fatalf("frameOffset=%d want %d", gotOffset, wantOffset)
+			}
+			assertCarriedDREDPayloadParity(t, gotPacket, gotPayload, wantPayload, gotOffset)
+		})
+	}
+}
+
+func assertSilkStereoPrimaryFrameByteExact(t *testing.T, frameSize int) {
+	t.Helper()
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize: frameSize, ForceMode: ModeSILK, Bandwidth: BandwidthWideband, Channels: 2,
+	})
+	if err != nil {
+		libopustest.HelperUnavailable(t, "DRED packet", err)
+	}
+	gotPacket, _, _ := encodeUntilDREDPacket(t, encpkg.ModeSILK, BandwidthWideband, frameSize, 2)
+	_, gotFrames, _, _, err := parsePacketFramesAndPadding(gotPacket)
+	if err != nil {
+		t.Fatalf("parsePacketFramesAndPadding(got): %v", err)
+	}
+	_, wantFrames, _, _, err := parsePacketFramesAndPadding(packetInfo.packet)
+	if err != nil {
+		t.Fatalf("parsePacketFramesAndPadding(want): %v", err)
+	}
+	if len(gotFrames) != len(wantFrames) {
+		t.Fatalf("frame count=%d want %d", len(gotFrames), len(wantFrames))
+	}
+	for i := range wantFrames {
+		if !bytes.Equal(gotFrames[i], wantFrames[i]) {
+			t.Fatalf("frame %d DIVERGES\n got=%x\nwant=%x", i, gotFrames[i], wantFrames[i])
+		}
+	}
+}
+
+func TestEncoderSilkStereo20msPrimaryFrameByteExactMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	assertSilkStereoPrimaryFrameByteExact(t, 960)
+}
+
+func TestEncoderSilkStereo40msPrimaryFrameByteExactMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	assertSilkStereoPrimaryFrameByteExact(t, 1920)
+}
+
+func TestEncoderSilkStereo60msPrimaryFrameByteExactMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	assertSilkStereoPrimaryFrameByteExact(t, 2880)
+}
+
+func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWideband20msStereo(t *testing.T) {
+	libopustest.RequireOracle(t)
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize: 960,
+		ForceMode: ModeSILK,
+		Bandwidth: BandwidthWideband,
+		Channels:  2,
+	})
+	if err != nil {
+		libopustest.HelperUnavailable(t, "stereo silk DRED packet", err)
+	}
+	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
+	if err != nil {
+		t.Fatalf("findDREDPayload(libopus) error: %v", err)
+	}
+	if !ok {
+		t.Fatal("libopus stereo silk packet missing DRED payload")
+	}
+
+	gotPacket, gotPayload, gotOffset := encodeUntilDREDPacket(t, encpkg.ModeSILK, BandwidthWideband, 960, 2)
+	toc := ParseTOC(gotPacket[0])
+	if toc.Mode != ModeSILK || !toc.Stereo {
+		t.Fatalf("got packet toc=%+v want silk stereo", toc)
+	}
+	if len(gotPacket) != len(packetInfo.packet) {
+		t.Fatalf("packet length=%d want %d", len(gotPacket), len(packetInfo.packet))
+	}
+	if gotOffset != wantOffset {
+		t.Fatalf("frameOffset=%d want %d", gotOffset, wantOffset)
+	}
+	if !bytes.Equal(gotPayload, wantPayload) {
+		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
+	}
+	assertDREDPacketPrimaryFrameSizesMatchLibopus(t, gotPacket, packetInfo.packet)
+}
+
+func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWideband40msStereo(t *testing.T) {
+	libopustest.RequireOracle(t)
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize: 1920,
+		ForceMode: ModeSILK,
+		Bandwidth: BandwidthWideband,
+		Channels:  2,
+	})
+	if err != nil {
+		libopustest.HelperUnavailable(t, "stereo 40 ms silk DRED packet", err)
+	}
+	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
+	if err != nil {
+		t.Fatalf("findDREDPayload(libopus) error: %v", err)
+	}
+	if !ok {
+		t.Fatal("libopus stereo 40 ms silk packet missing DRED payload")
+	}
+
+	gotPacket, gotPayload, gotOffset := encodeUntilDREDPacket(t, encpkg.ModeSILK, BandwidthWideband, 1920, 2)
+	toc := ParseTOC(gotPacket[0])
+	if toc.Mode != ModeSILK || !toc.Stereo {
+		t.Fatalf("got packet toc=%+v want silk stereo", toc)
+	}
+	if len(gotPacket) != len(packetInfo.packet) {
+		t.Fatalf("packet length=%d want %d", len(gotPacket), len(packetInfo.packet))
+	}
+	if gotOffset != wantOffset {
+		t.Fatalf("frameOffset=%d want %d", gotOffset, wantOffset)
+	}
+	if !bytes.Equal(gotPayload, wantPayload) {
+		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
+	}
+	assertDREDPacketPrimaryFrameSizesMatchLibopus(t, gotPacket, packetInfo.packet)
+}
+
+func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWideband60msStereo(t *testing.T) {
+	libopustest.RequireOracle(t)
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize: 2880,
+		ForceMode: ModeSILK,
+		Bandwidth: BandwidthWideband,
+		Channels:  2,
+	})
+	if err != nil {
+		libopustest.HelperUnavailable(t, "stereo 60 ms silk DRED packet", err)
+	}
+	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
+	if err != nil {
+		t.Fatalf("findDREDPayload(libopus) error: %v", err)
+	}
+	if !ok {
+		t.Fatal("libopus stereo 60 ms silk packet missing DRED payload")
+	}
+
+	gotPacket, gotPayload, gotOffset := encodeUntilDREDPacket(t, encpkg.ModeSILK, BandwidthWideband, 2880, 2)
+	toc := ParseTOC(gotPacket[0])
+	if toc.Mode != ModeSILK || !toc.Stereo {
+		t.Fatalf("got packet toc=%+v want silk stereo", toc)
+	}
+	if len(gotPacket) != len(packetInfo.packet) {
+		t.Fatalf("packet length=%d want %d", len(gotPacket), len(packetInfo.packet))
+	}
+	if gotOffset != wantOffset {
+		t.Fatalf("frameOffset=%d want %d", gotOffset, wantOffset)
+	}
+	if !bytes.Equal(gotPayload, wantPayload) {
+		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
+	}
+	assertDREDPacketPrimaryFrameSizesMatchLibopus(t, gotPacket, packetInfo.packet)
+}
+
+func encodeUntilMultistreamDREDPacket(t *testing.T, mode encpkg.Mode, bandwidth Bandwidth, frameSize, channels, streams, coupledStreams int, mapping []byte) ([]byte, []byte, int) {
+	t.Helper()
+
+	enc, err := NewMultistreamEncoder(48000, channels, streams, coupledStreams, mapping, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewMultistreamEncoder error: %v", err)
+	}
+	if err := enc.SetFrameSize(frameSize); err != nil {
+		t.Fatalf("SetFrameSize error: %v", err)
+	}
+	if err := enc.SetBandwidth(bandwidth); err != nil {
+		t.Fatalf("SetBandwidth error: %v", err)
+	}
+	if err := enc.SetBitrate(encoderDREDBitrateForFrameSize(frameSize)); err != nil {
+		t.Fatalf("SetBitrate error: %v", err)
+	}
+	if err := enc.SetSignal(SignalMusic); err != nil {
+		t.Fatalf("SetSignal error: %v", err)
+	}
+	if err := enc.SetPacketLoss(20); err != nil {
+		t.Fatalf("SetPacketLoss error: %v", err)
+	}
+	if err := enc.SetDNNBlob(requireLibopusEncoderNeuralModelBlob(t)); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+	if err := enc.SetDREDDuration(80); err != nil {
+		t.Fatalf("SetDREDDuration error: %v", err)
+	}
+	// Reach inside via the unexported multistream.Encoder field to force the
+	// requested base mode on all stream encoders. This mirrors the
+	// enc.enc.SetMode(mode) hop used by the single-stream parity tests.
+	enc.enc.SetMode(mode)
+
+	wantMode, err := encoderModeToPublic(mode)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	packet := make([]byte, maxPacketBytesPerStream*streams)
+	for frameIdx := 0; frameIdx < 640; frameIdx++ {
+		pcm := encoderDREDFrame(frameIdx, frameSize, enc.SampleRate(), channels)
+		n, err := enc.Encode(pcm, packet)
+		if err != nil {
+			t.Fatalf("Encode(frame=%d) error: %v", frameIdx, err)
+		}
+		if n == 0 {
+			// DTX-suppressed packet; keep searching.
+			continue
+		}
+		gotPacket := append([]byte(nil), packet[:n]...)
+		toc := ParseTOC(gotPacket[0])
+		packetDuration, err := opusPacketDurationSamples(gotPacket)
+		if err != nil {
+			t.Fatalf("parse packet duration frame=%d: %v", frameIdx, err)
+		}
+		if toc.Mode != wantMode || toc.Bandwidth != bandwidth || packetDuration != frameSize {
+			continue
+		}
+		payload, frameOffset, ok, err := findDREDPayload(gotPacket)
+		if err != nil {
+			t.Fatalf("findDREDPayload(frame=%d) error: %v", frameIdx, err)
+		}
+		if ok {
+			return gotPacket, append([]byte(nil), payload...), frameOffset
+		}
+	}
+	t.Fatalf("no DRED packet emitted via multistream encoder for mode=%v bandwidth=%v frameSize=%d", mode, bandwidth, frameSize)
+	return nil, nil, 0
+}
+
+func TestMultistreamEncoderCarriedDREDPayloadMatchesLibopusSilkWideband20msStereo(t *testing.T) {
+	libopustest.RequireOracle(t)
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize:   960,
+		ForceMode:   ModeSILK,
+		Bandwidth:   BandwidthWideband,
+		Channels:    2,
+		Multistream: true,
+	})
+	if err != nil {
+		libopustest.HelperUnavailable(t, "stereo silk DRED packet", err)
+	}
+	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
+	if err != nil {
+		t.Fatalf("findDREDPayload(libopus) error: %v", err)
+	}
+	if !ok {
+		t.Fatal("libopus stereo silk packet missing DRED payload")
+	}
+
+	// 2-channel stereo via one coupled stream: streams=1, coupledStreams=1,
+	// mapping={0,1} routes input ch0 -> left, ch1 -> right of stream 0.
+	mapping := []byte{0, 1}
+	gotPacket, gotPayload, gotOffset := encodeUntilMultistreamDREDPacket(
+		t, encpkg.ModeSILK, BandwidthWideband, 960, 2, 1, 1, mapping,
+	)
+	toc := ParseTOC(gotPacket[0])
+	if toc.Mode != ModeSILK || !toc.Stereo {
+		t.Fatalf("got packet toc=%+v want silk stereo", toc)
+	}
+	if len(gotPacket) != len(packetInfo.packet) {
+		t.Fatalf("packet length=%d want %d", len(gotPacket), len(packetInfo.packet))
+	}
+	if gotOffset != wantOffset {
+		t.Fatalf("frameOffset=%d want %d", gotOffset, wantOffset)
+	}
+	if !bytes.Equal(gotPayload, wantPayload) {
+		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
+	}
+	assertDREDPacketPrimaryFrameSizesMatchLibopus(t, gotPacket, packetInfo.packet)
+}
+
+func TestMultistreamEncoderCarriedDREDPayloadMatchesLibopusCELTFullband20msStereo(t *testing.T) {
+	libopustest.RequireOracle(t)
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize:   960,
+		ForceMode:   ModeCELT,
+		Bandwidth:   BandwidthFullband,
+		Channels:    2,
+		Multistream: true,
+	})
+	if err != nil {
+		libopustest.HelperUnavailable(t, "stereo CELT DRED packet", err)
+	}
+	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
+	if err != nil {
+		t.Fatalf("findDREDPayload(libopus) error: %v", err)
+	}
+	if !ok {
+		t.Fatal("libopus stereo CELT packet missing DRED payload")
+	}
+
+	mapping := []byte{0, 1}
+	gotPacket, gotPayload, gotOffset := encodeUntilMultistreamDREDPacket(
+		t, encpkg.ModeCELT, BandwidthFullband, 960, 2, 1, 1, mapping,
+	)
+	toc := ParseTOC(gotPacket[0])
+	if toc.Mode != ModeCELT || !toc.Stereo {
+		t.Fatalf("got packet toc=%+v want celt stereo", toc)
+	}
+	if len(gotPacket) != len(packetInfo.packet) {
+		t.Fatalf("packet length=%d want %d", len(gotPacket), len(packetInfo.packet))
+	}
+	if gotOffset != wantOffset {
+		t.Fatalf("frameOffset=%d want %d", gotOffset, wantOffset)
+	}
+	if !bytes.Equal(gotPayload, wantPayload) {
+		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
+	}
+	assertDREDPacketPrimaryFrameSizesMatchLibopus(t, gotPacket, packetInfo.packet)
+}
+
+func TestMultistreamEncoderCarriedDREDPayloadMatchesLibopusHybridFullband20msStereo(t *testing.T) {
+	libopustest.RequireOracle(t)
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize:   960,
+		ForceMode:   ModeHybrid,
+		Bandwidth:   BandwidthFullband,
+		Channels:    2,
+		Multistream: true,
+	})
+	if err != nil {
+		libopustest.HelperUnavailable(t, "stereo hybrid DRED packet", err)
+	}
+	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
+	if err != nil {
+		t.Fatalf("findDREDPayload(libopus) error: %v", err)
+	}
+	if !ok {
+		t.Fatal("libopus stereo hybrid packet missing DRED payload")
+	}
+
+	mapping := []byte{0, 1}
+	gotPacket, gotPayload, gotOffset := encodeUntilMultistreamDREDPacket(
+		t, encpkg.ModeHybrid, BandwidthFullband, 960, 2, 1, 1, mapping,
+	)
+	toc := ParseTOC(gotPacket[0])
+	if toc.Mode != ModeHybrid || !toc.Stereo {
+		t.Fatalf("got packet toc=%+v want hybrid stereo", toc)
+	}
+	if gotOffset != wantOffset {
+		t.Fatalf("frameOffset=%d want %d", gotOffset, wantOffset)
+	}
+	if len(gotPacket) != len(packetInfo.packet) {
+		t.Fatalf("packet length=%d want %d", len(gotPacket), len(packetInfo.packet))
+	}
+	if !bytes.Equal(gotPayload, wantPayload) {
+		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
+	}
+	assertDREDPacketPrimaryFrameSizesMatchLibopus(t, gotPacket, packetInfo.packet)
+}
+
+func TestMultistreamEncoderCarriedDREDPayloadMatchesLibopusSilkWideband40msStereo(t *testing.T) {
+	libopustest.RequireOracle(t)
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize:   1920,
+		ForceMode:   ModeSILK,
+		Bandwidth:   BandwidthWideband,
+		Channels:    2,
+		Multistream: true,
+	})
+	if err != nil {
+		libopustest.HelperUnavailable(t, "stereo 40 ms silk DRED packet", err)
+	}
+	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
+	if err != nil {
+		t.Fatalf("findDREDPayload(libopus) error: %v", err)
+	}
+	if !ok {
+		t.Fatal("libopus stereo 40 ms silk packet missing DRED payload")
+	}
+
+	mapping := []byte{0, 1}
+	gotPacket, gotPayload, gotOffset := encodeUntilMultistreamDREDPacket(
+		t, encpkg.ModeSILK, BandwidthWideband, 1920, 2, 1, 1, mapping,
+	)
+	toc := ParseTOC(gotPacket[0])
+	if toc.Mode != ModeSILK || !toc.Stereo {
+		t.Fatalf("got packet toc=%+v want silk stereo", toc)
+	}
+	if len(gotPacket) != len(packetInfo.packet) {
+		t.Fatalf("packet length=%d want %d", len(gotPacket), len(packetInfo.packet))
+	}
+	if gotOffset != wantOffset {
+		t.Fatalf("frameOffset=%d want %d", gotOffset, wantOffset)
+	}
+	if !bytes.Equal(gotPayload, wantPayload) {
+		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
+	}
+	assertDREDPacketPrimaryFrameSizesMatchLibopus(t, gotPacket, packetInfo.packet)
+}
+
+func TestMultistreamEncoderCarriedDREDPayloadMatchesLibopusSilkWideband60msStereo(t *testing.T) {
+	libopustest.RequireOracle(t)
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize:   2880,
+		ForceMode:   ModeSILK,
+		Bandwidth:   BandwidthWideband,
+		Channels:    2,
+		Multistream: true,
+	})
+	if err != nil {
+		libopustest.HelperUnavailable(t, "stereo 60 ms silk DRED packet", err)
+	}
+	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
+	if err != nil {
+		t.Fatalf("findDREDPayload(libopus) error: %v", err)
+	}
+	if !ok {
+		t.Fatal("libopus stereo 60 ms silk packet missing DRED payload")
+	}
+
+	mapping := []byte{0, 1}
+	gotPacket, gotPayload, gotOffset := encodeUntilMultistreamDREDPacket(
+		t, encpkg.ModeSILK, BandwidthWideband, 2880, 2, 1, 1, mapping,
+	)
+	toc := ParseTOC(gotPacket[0])
+	if toc.Mode != ModeSILK || !toc.Stereo {
+		t.Fatalf("got packet toc=%+v want silk stereo", toc)
+	}
+	if len(gotPacket) != len(packetInfo.packet) {
+		t.Fatalf("packet length=%d want %d", len(gotPacket), len(packetInfo.packet))
+	}
+	if gotOffset != wantOffset {
+		t.Fatalf("frameOffset=%d want %d", gotOffset, wantOffset)
+	}
+	if !bytes.Equal(gotPayload, wantPayload) {
+		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
+	}
+	assertDREDPacketPrimaryFrameSizesMatchLibopus(t, gotPacket, packetInfo.packet)
+}
+
+func TestMultistreamEncoderCarriedDREDPayloadMatchesLibopusHybridFullband40msStereo(t *testing.T) {
+	libopustest.RequireOracle(t)
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize:   1920,
+		ForceMode:   ModeHybrid,
+		Bandwidth:   BandwidthFullband,
+		Channels:    2,
+		Multistream: true,
+	})
+	if err != nil {
+		libopustest.HelperUnavailable(t, "stereo 40 ms hybrid DRED packet", err)
+	}
+	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
+	if err != nil {
+		t.Fatalf("findDREDPayload(libopus) error: %v", err)
+	}
+	if !ok {
+		t.Fatal("libopus stereo 40 ms hybrid packet missing DRED payload")
+	}
+
+	mapping := []byte{0, 1}
+	gotPacket, gotPayload, gotOffset := encodeUntilMultistreamDREDPacket(
+		t, encpkg.ModeHybrid, BandwidthFullband, 1920, 2, 1, 1, mapping,
+	)
+	toc := ParseTOC(gotPacket[0])
+	if toc.Mode != ModeHybrid || !toc.Stereo {
+		t.Fatalf("got packet toc=%+v want hybrid stereo", toc)
+	}
+	if gotOffset != wantOffset {
+		t.Fatalf("frameOffset=%d want %d", gotOffset, wantOffset)
+	}
+	if len(gotPacket) != len(packetInfo.packet) {
+		t.Fatalf("packet length=%d want %d", len(gotPacket), len(packetInfo.packet))
+	}
+	if !bytes.Equal(gotPayload, wantPayload) {
+		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
+	}
+	assertDREDPacketPrimaryFrameSizesMatchLibopus(t, gotPacket, packetInfo.packet)
+}
+
+func TestMultistreamEncoderCarriedDREDPayloadMatchesLibopusCELTFullband40msStereo(t *testing.T) {
+	libopustest.RequireOracle(t)
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize:   1920,
+		ForceMode:   ModeCELT,
+		Bandwidth:   BandwidthFullband,
+		Channels:    2,
+		Multistream: true,
+	})
+	if err != nil {
+		libopustest.HelperUnavailable(t, "stereo 40 ms CELT DRED packet", err)
+	}
+	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
+	if err != nil {
+		t.Fatalf("findDREDPayload(libopus) error: %v", err)
+	}
+	if !ok {
+		t.Fatal("libopus stereo 40 ms CELT packet missing DRED payload")
+	}
+
+	mapping := []byte{0, 1}
+	gotPacket, gotPayload, gotOffset := encodeUntilMultistreamDREDPacket(
+		t, encpkg.ModeCELT, BandwidthFullband, 1920, 2, 1, 1, mapping,
+	)
+	toc := ParseTOC(gotPacket[0])
+	if toc.Mode != ModeCELT || !toc.Stereo {
+		t.Fatalf("got packet toc=%+v want celt stereo", toc)
+	}
+	if len(gotPacket) != len(packetInfo.packet) {
+		t.Fatalf("packet length=%d want %d", len(gotPacket), len(packetInfo.packet))
+	}
+	if gotOffset != wantOffset {
+		t.Fatalf("frameOffset=%d want %d", gotOffset, wantOffset)
+	}
+	if !bytes.Equal(gotPayload, wantPayload) {
+		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
+	}
+	assertDREDPacketPrimaryFrameSizesMatchLibopus(t, gotPacket, packetInfo.packet)
+}
+
+func publicEncoderDREDRuntimeLoadedForTest(t *testing.T, enc *Encoder) bool {
+	t.Helper()
+	if enc == nil || enc.enc == nil {
+		return false
+	}
+	dred := reflect.ValueOf(enc.enc).Elem().FieldByName("dred")
+	if !dred.IsValid() || dred.IsNil() {
+		return false
+	}
+	runtime := dred.Elem().FieldByName("runtime")
+	return runtime.IsValid() && !runtime.IsNil()
+}
+
+func TestPublicDREDEncoderEncodeWithDormantModelStaysZeroAlloc(t *testing.T) {
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationRestrictedSilk})
+	if err != nil {
+		t.Fatalf("NewEncoder: %v", err)
+	}
+	if err := enc.SetDNNBlob(makeValidEncoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob: %v", err)
+	}
+	if !enc.enc.DREDModelLoaded() {
+		t.Fatal("core encoder did not retain DRED-capable model")
+	}
+	if enc.enc.DREDReady() {
+		t.Fatal("core encoder reports DRED ready before duration is armed")
+	}
+
+	pcm := testSineFrame(960)
+	packet := make([]byte, 4000)
+	for i := 0; i < 5; i++ {
+		if n, err := enc.Encode(pcm, packet); err != nil {
+			t.Fatalf("warmup Encode: %v", err)
+		} else if n == 0 {
+			t.Fatal("warmup Encode returned empty packet")
+		}
+	}
+	if publicEncoderDREDRuntimeLoadedForTest(t, enc) {
+		t.Fatal("public Encode woke DRED runtime before duration was armed")
+	}
+
+	allocs := testing.AllocsPerRun(200, func() {
+		if n, err := enc.Encode(pcm, packet); err != nil {
+			t.Fatalf("Encode: %v", err)
+		} else if n == 0 {
+			t.Fatal("Encode returned empty packet")
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("public Encode with dormant DRED model allocs/op = %.2f, want 0", allocs)
+	}
+	if publicEncoderDREDRuntimeLoadedForTest(t, enc) {
+		t.Fatal("allocation guard woke DRED runtime before duration was armed")
+	}
+}
+
+func TestPublicDREDDecoderDecodeWithCoreModelsStaysZeroAlloc(t *testing.T) {
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder: %v", err)
+	}
+	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob: %v", err)
+	}
+	if err := dec.SetComplexity(5); err != nil {
+		t.Fatalf("SetComplexity(5): %v", err)
+	}
+	if !dec.dredNeuralModelsLoaded() {
+		t.Fatal("decoder did not retain neural model readiness")
+	}
+	if dec.dredPayloadScannerActive() {
+		t.Fatal("core decoder DNN blob armed standalone DRED payload scanning")
+	}
+	if dec.dredGoodPacketMarkerActive() {
+		t.Fatal("core decoder DNN blob armed good-packet DRED marker work")
+	}
+
+	packet := testCELTPacket()
+	pcm := make([]float32, 960)
+	if _, err := dec.Decode(packet, pcm); err != nil {
+		t.Fatalf("warmup Decode: %v", err)
+	}
+	if state := dec.dredState(); state != nil {
+		t.Fatalf("warmup Decode woke DRED sidecar: %+v", state)
+	}
+	// celt_decode_lost selects FRAME_PLC_NEURAL for a lost CELT frame once the
+	// PLC model is loaded, so the neural concealment state wakes while the DRED
+	// payload state stays asleep: no DRED payload was ever received.
+	if _, err := dec.Decode(nil, pcm); err != nil {
+		t.Fatalf("warmup Decode(nil): %v", err)
+	}
+	state := dec.dredState()
+	if state == nil || state.decoderDREDNeuralState == nil {
+		t.Fatalf("warmup Decode(nil) did not run neural concealment: %+v", state)
+	}
+	if state.decoderDREDPayloadState != nil {
+		t.Fatalf("warmup Decode(nil) woke DRED payload state without a DRED payload: %+v", state)
+	}
+	if _, err := dec.Decode(packet, pcm); err != nil {
+		t.Fatalf("warmup recovery Decode: %v", err)
+	}
+
+	allocs := testing.AllocsPerRun(200, func() {
+		if _, err := dec.Decode(packet, pcm); err != nil {
+			t.Fatalf("Decode: %v", err)
+		}
+		if _, err := dec.Decode(nil, pcm); err != nil {
+			t.Fatalf("Decode(nil): %v", err)
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("public Decode and loss concealment with core DNN models allocs/op = %.2f, want 0", allocs)
+	}
+	if state := dec.dredState(); state == nil || state.decoderDREDPayloadState != nil {
+		t.Fatalf("allocation guard woke DRED payload state: %+v", state)
 	}
 }

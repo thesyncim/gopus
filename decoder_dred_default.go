@@ -6,6 +6,8 @@ import (
 	"github.com/thesyncim/gopus/internal/dnnblob"
 )
 
+type decoderDREDFields struct{}
+
 type decoderDREDState struct{}
 
 type decoderDREDRecoveryState struct {
