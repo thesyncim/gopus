@@ -467,3 +467,15 @@ func (d *Decoder) setFixedQEXTPhaseInversionDisabled(disabled bool) {
 		d.fixedQEXT.decoder.SetPhaseInversionDisabled(disabled)
 	}
 }
+
+type decoderFixedQEXTFields struct {
+	decoder             *fixedpoint.QEXTCELTDecoder
+	redundantDec        rangecoding.Decoder
+	res                 []int32
+	invalid             bool
+	hybridActive        bool
+	hybridPayload       []byte
+	hybridChannels      int
+	redundantRange      uint32
+	redundantRangeValid bool
+}

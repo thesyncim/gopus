@@ -2,9 +2,25 @@
 
 package celt
 
-import "github.com/thesyncim/gopus/internal/libopustest"
+import (
+	"github.com/thesyncim/gopus/internal/libopustest"
+)
 
 func configureCELTOracleReference(cfg *libopustest.CHelperConfig) {
 	cfg.QEXTRef = true
 	cfg.Libs = []string{libopustest.QEXTRefPath(".libs", "libopus.a"), "-lm"}
+}
+
+var qextPLCPublicOracleHelper libopustest.HelperCache
+
+func buildQEXTPLCPublicOracleHelper() (string, error) {
+	return libopustest.BuildCHelper(libopustest.CHelperConfig{
+		Label:      "QEXT CELT public PLC",
+		OutputBase: "gopus_qext_celt_public_plc",
+		SourceFile: "libopus_qext_celt_plc_public_info.c",
+		CFlags:     []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"},
+		QEXTRef:    true,
+		Libs:       []string{libopustest.QEXTRefPath(".libs", "libopus.a"), "-lm"},
+		DeadStrip:  true,
+	})
 }

@@ -1,7 +1,11 @@
 package silk
 
 import (
+	"fmt"
+	"github.com/thesyncim/gopus/internal/libopustest"
+	"github.com/thesyncim/gopus/internal/rangecoding"
 	"math"
+	"math/rand"
 	"testing"
 )
 
@@ -739,4 +743,1142 @@ func TestNLSFToLPCFloat32(t *testing.T) {
 	}
 
 	t.Logf("NLSF to LPC float32: %v", a)
+}
+
+func TestA2NLSFEvalPolyRegression(t *testing.T) {
+	p5 := []int32{1, 2, 3, 4, 5, 6}
+	p8 := []int32{1, 1, 2, 3, 5, 8, 13, 21, 34}
+	p3 := []int32{7, -3, 2, 1}
+
+	v5 := a2nlsfEvalPoly(p5, 1234, 5)
+	v8 := a2nlsfEvalPoly(p8, -567, 8)
+	v3 := a2nlsfEvalPoly(p3, 321, 3)
+
+	if v5 == 0 && v8 == 0 && v3 == 0 {
+		t.Fatal("a2nlsfEvalPoly returned all zeros unexpectedly")
+	}
+}
+
+func TestSilkBwExpander32AQ16Regression(t *testing.T) {
+	// order <= 0 branch.
+	empty := []int32{}
+	silkBwExpander32AQ16(empty, 0, 65536)
+
+	// Normal branch and loop body.
+	ar := []int32{40000, -30000, 20000, -10000}
+	before := append([]int32(nil), ar...)
+	silkBwExpander32AQ16(ar, len(ar), 62000)
+
+	changed := false
+	for i := range ar {
+		if ar[i] != before[i] {
+			changed = true
+			break
+		}
+	}
+	if !changed {
+		t.Fatal("silkBwExpander32AQ16 did not update coefficients")
+	}
+}
+
+func TestSilkLPCFitHighAmplitudeRegression(t *testing.T) {
+	const (
+		order = 10
+		qOut  = 12
+		qIn   = 24
+	)
+	aQin := []int32{
+		900000000, -850000000, 800000000, -750000000, 700000000,
+		-650000000, 600000000, -550000000, 500000000, -450000000,
+	}
+	out := make([]int16, order)
+
+	silkLPCFit(out, aQin, qOut, qIn, order)
+
+}
+
+func lpcInversePredGainReference(aQ12 []int16) int32 {
+	order := len(aQ12)
+	var aQA [maxLPCOrder]int32
+	var dcResp int32
+	for k, v := range aQ12 {
+		dcResp += int32(v)
+		aQA[k] = silkLSHIFT(int32(v), lpcInvPredGainQA-12)
+	}
+	if dcResp >= 4096 {
+		return 0
+	}
+	invGainQ30 := int32(1 << 30)
+	for k := order - 1; k > 0; k-- {
+		if aQA[k] > lpcInvPredGainALimitQ24 || aQA[k] < -lpcInvPredGainALimitQ24 {
+			return 0
+		}
+		rcQ31 := -silkLSHIFT(aQA[k], 31-lpcInvPredGainQA)
+		rcMult1Q30 := int32(1<<30) - silkSMMUL(rcQ31, rcQ31)
+		invGainQ30 = silkLSHIFT(silkSMMUL(invGainQ30, rcMult1Q30), 2)
+		if invGainQ30 < maxPredictionPowerGainInvQ30 {
+			return 0
+		}
+		mult2Q := int(32 - silkCLZ32(silkAbs32(rcMult1Q30)))
+		rcMult2 := silkInverse32VarQ(rcMult1Q30, mult2Q+30)
+		for n := 0; n < (k+1)>>1; n++ {
+			tmp1 := aQA[n]
+			tmp2 := aQA[k-n-1]
+			tmp64 := silkRSHIFT_ROUND64(silkSMULL(silkSubSat32(tmp1, int32(silkRSHIFT_ROUND64(silkSMULL(tmp2, rcQ31), 31))), rcMult2), mult2Q)
+			if tmp64 > int64(silkInt32Max) || tmp64 < int64(silkInt32Min) {
+				return 0
+			}
+			aQA[n] = int32(tmp64)
+			tmp64 = silkRSHIFT_ROUND64(silkSMULL(silkSubSat32(tmp2, int32(silkRSHIFT_ROUND64(silkSMULL(tmp1, rcQ31), 31))), rcMult2), mult2Q)
+			if tmp64 > int64(silkInt32Max) || tmp64 < int64(silkInt32Min) {
+				return 0
+			}
+			aQA[k-n-1] = int32(tmp64)
+		}
+	}
+	if aQA[0] > lpcInvPredGainALimitQ24 || aQA[0] < -lpcInvPredGainALimitQ24 {
+		return 0
+	}
+	rcQ31 := -silkLSHIFT(aQA[0], 31-lpcInvPredGainQA)
+	rcMult1Q30 := int32(1<<30) - silkSMMUL(rcQ31, rcQ31)
+	invGainQ30 = silkLSHIFT(silkSMMUL(invGainQ30, rcMult1Q30), 2)
+	if invGainQ30 < maxPredictionPowerGainInvQ30 {
+		return 0
+	}
+	return invGainQ30
+}
+
+// TestLPCInversePredGainMatchesReference checks the paired step-down loop
+// against the one-at-a-time reference on stable, marginal and unstable
+// filters.
+func TestLPCInversePredGainMatchesReference(t *testing.T) {
+	rng := rand.New(rand.NewSource(0x1c9))
+	nonzero := 0
+	for iter := range 200000 {
+		order := []int{10, 16}[rng.Intn(2)]
+		a := make([]int16, order)
+		scale := []int{64, 512, 2048, 8192, 32768}[rng.Intn(5)]
+		for i := range a {
+			a[i] = int16(rng.Intn(2*scale) - scale)
+		}
+		if rng.Intn(4) == 0 {
+			// Bandwidth-expanded all-pole filters are the typical stable input.
+			for i := range a {
+				a[i] = int16(int32(a[i]) * int32(order-i) / int32(4*order))
+			}
+		}
+		got := silkLPCInversePredGain(a, order)
+		want := lpcInversePredGainReference(a)
+		if got != want {
+			t.Fatalf("iter %d: silkLPCInversePredGain(%v) = %d, want %d", iter, a, got, want)
+		}
+		if got != 0 {
+			nonzero++
+		}
+	}
+	if nonzero < 1000 {
+		t.Fatalf("only %d stable filters exercised", nonzero)
+	}
+}
+
+const (
+	libopusSILKLPCInputMagic  = "GSLI"
+	libopusSILKLPCOutputMagic = "GSLO"
+
+	libopusSILKLPCModeBurgModified      = uint32(0)
+	libopusSILKLPCModeLPCAnalysisFilter = uint32(1)
+	libopusSILKLPCModeInnerProduct      = uint32(2)
+	libopusSILKLPCModeEnergy            = uint32(3)
+	libopusSILKLPCModeFindLPC           = uint32(4)
+	libopusSILKLPCModeAutocorrelation   = uint32(5)
+)
+
+var libopusSILKLPCHelper libopustest.HelperCache
+
+func getLibopusSILKLPCHelperPath() (string, error) {
+	libopusArchive := libopustest.RefPath(".libs", "libopus.a")
+	cflags := []string{"-DHAVE_CONFIG_H", "-O2"}
+	if silkLPCOracleUsesAVX2() {
+		libopusArchive = libopustest.SIMDRefPath(".libs", "libopus.a")
+		cflags = append(cflags, "-DGOPUS_LIBOPUS_REQUIRE_AVX2=1")
+	}
+	return libopusSILKLPCHelper.CHelperPath(libopustest.CHelperConfig{
+		Label:       "silk lpc",
+		OutputBase:  "gopus_libopus_silk_lpc",
+		SourceFile:  "libopus_silk_lpc_info.c",
+		CFlags:      cflags,
+		RefIncludes: []string{"celt", "silk", "silk/float"},
+		SIMDRef:     silkLPCOracleUsesAVX2(),
+		Libs:        []string{libopusArchive, "-lm"},
+	})
+}
+
+func newLibopusSILKOracleReader(label, outputMagic string, data []byte, wantCount int) (*libopustest.OracleReader, int, error) {
+	reader, version, err := libopustest.NewOracleReaderVersion(label, outputMagic, data)
+	if err != nil {
+		return nil, 0, err
+	}
+	if version != 3 {
+		return nil, 0, fmt.Errorf("%s helper version=%d want 3", label, version)
+	}
+	arch, innerProductImpl, presumed := reader.U32(), reader.U32(), reader.U32()
+	wantAVX2 := silkLPCOracleUsesAVX2()
+	if !libopustest.NativeX86SILKInnerProductMetadataValid(arch, innerProductImpl, presumed, wantAVX2) {
+		return nil, 0, fmt.Errorf("%s helper SILK_INNER_PRODUCT_FLP_IMPL=%d at arch=%d presumed=%d, Go expects AVX2=%t", label, innerProductImpl, arch, presumed, wantAVX2)
+	}
+	count := reader.Count(wantCount)
+	return reader, count, nil
+}
+
+func runLibopusSILKOracle(binPath string, payload []byte, label string, wantCount int) (*libopustest.OracleReader, int, error) {
+	data, err := libopustest.RunHelper(binPath, payload)
+	if err != nil {
+		return nil, 0, fmt.Errorf("run %s helper: %w", label, err)
+	}
+	return newLibopusSILKOracleReader(label, libopusSILKLPCOutputMagic, data, wantCount)
+}
+
+type libopusSILKBurgCase struct {
+	name       string
+	subfrLen   int
+	nbSubfr    int
+	order      int
+	minInvGain float32
+	x          []float32
+}
+
+type libopusSILKBurgResult struct {
+	resNrg float32
+	a      []float32
+}
+
+type libopusSILKLPCFilterCase struct {
+	name  string
+	order int
+	pred  []float32
+	x     []float32
+}
+
+type libopusSILKInnerProductCase struct {
+	name string
+	a    []float32
+	b    []float32
+}
+
+type libopusSILKEnergyCase struct {
+	name string
+	x    []float32
+}
+
+type libopusSILKAutocorrelationCase struct {
+	name  string
+	order int
+	x     []float32
+}
+
+type libopusSILKFindLPCCase struct {
+	name                 string
+	subfrLength          int
+	nbSubfr              int
+	order                int
+	useInterpolatedNLSFs bool
+	firstFrameAfterReset bool
+	minInvGain           float32
+	prevNLSF             []int16
+	x                    []float32
+}
+
+type libopusSILKFindLPCResult struct {
+	interpIdx int
+	nlsf      []int16
+}
+
+func probeLibopusSILKBurgModified(cases []libopusSILKBurgCase) ([]libopusSILKBurgResult, error) {
+	binPath, err := getLibopusSILKLPCHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	payload := libopustest.NewOraclePayload(libopusSILKLPCInputMagic, libopusSILKLPCModeBurgModified, uint32(len(cases)))
+	for _, tc := range cases {
+		payload.U32(uint32(tc.subfrLen))
+		payload.U32(uint32(tc.nbSubfr))
+		payload.U32(uint32(tc.order))
+		payload.Float32(tc.minInvGain)
+		payload.Float32s(tc.x...)
+	}
+
+	reader, count, err := runLibopusSILKOracle(binPath, payload.Bytes(), "silk lpc burg", len(cases))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]libopusSILKBurgResult, count)
+	for i := range out {
+		out[i].resNrg = reader.Float32()
+		order := int(reader.U32())
+		if order != 10 && order != 16 {
+			return nil, fmt.Errorf("helper order=%d", order)
+		}
+		out[i].a = make([]float32, order)
+		for j := range 16 {
+			v := reader.Float32()
+			if j < order {
+				out[i].a[j] = v
+			}
+		}
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func probeLibopusSILKLPCAnalysisFilter(cases []libopusSILKLPCFilterCase) ([][]float32, error) {
+	binPath, err := getLibopusSILKLPCHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	payload := libopustest.NewOraclePayload(libopusSILKLPCInputMagic, libopusSILKLPCModeLPCAnalysisFilter, uint32(len(cases)))
+	for _, tc := range cases {
+		payload.U32(uint32(len(tc.x)))
+		payload.U32(uint32(tc.order))
+		payload.Float32s(tc.pred...)
+		payload.Float32s(tc.x...)
+	}
+
+	reader, count, err := runLibopusSILKOracle(binPath, payload.Bytes(), "silk lpc analysis filter", len(cases))
+	if err != nil {
+		return nil, err
+	}
+	out := make([][]float32, count)
+	for i := range out {
+		length := int(reader.U32())
+		if length <= 0 || length > 512 {
+			return nil, fmt.Errorf("helper length=%d", length)
+		}
+		out[i] = make([]float32, length)
+		for j := range out[i] {
+			out[i][j] = reader.Float32()
+		}
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func probeLibopusSILKInnerProductFLP(cases []libopusSILKInnerProductCase) ([]float64, error) {
+	binPath, err := getLibopusSILKLPCHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	payload := libopustest.NewOraclePayload(libopusSILKLPCInputMagic, libopusSILKLPCModeInnerProduct, uint32(len(cases)))
+	for _, tc := range cases {
+		if len(tc.a) != len(tc.b) {
+			return nil, fmt.Errorf("%s: a len=%d b len=%d", tc.name, len(tc.a), len(tc.b))
+		}
+		payload.U32(uint32(len(tc.a)))
+		payload.Float32s(tc.a...)
+		payload.Float32s(tc.b...)
+	}
+
+	reader, count, err := runLibopusSILKOracle(binPath, payload.Bytes(), "silk inner product flp", len(cases))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]float64, count)
+	for i := range out {
+		out[i] = reader.Float64()
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func probeLibopusSILKEnergyFLP(cases []libopusSILKEnergyCase) ([]float64, error) {
+	binPath, err := getLibopusSILKLPCHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	payload := libopustest.NewOraclePayload(libopusSILKLPCInputMagic, libopusSILKLPCModeEnergy, uint32(len(cases)))
+	for _, tc := range cases {
+		payload.U32(uint32(len(tc.x)))
+		payload.Float32s(tc.x...)
+	}
+
+	reader, count, err := runLibopusSILKOracle(binPath, payload.Bytes(), "silk energy flp", len(cases))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]float64, count)
+	for i := range out {
+		out[i] = reader.Float64()
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func probeLibopusSILKAutocorrelationFLP(cases []libopusSILKAutocorrelationCase) ([][]float32, error) {
+	binPath, err := getLibopusSILKLPCHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	payload := libopustest.NewOraclePayload(libopusSILKLPCInputMagic, libopusSILKLPCModeAutocorrelation, uint32(len(cases)))
+	for _, tc := range cases {
+		if tc.order <= 0 || tc.order > len(tc.x) || tc.order > 16 || len(tc.x) > 512 {
+			return nil, fmt.Errorf("%s: invalid autocorrelation length=%d order=%d", tc.name, len(tc.x), tc.order)
+		}
+		payload.U32(uint32(len(tc.x)))
+		payload.U32(uint32(tc.order))
+		payload.Float32s(tc.x...)
+	}
+	reader, count, err := runLibopusSILKOracle(binPath, payload.Bytes(), "silk autocorrelation flp", len(cases))
+	if err != nil {
+		return nil, err
+	}
+	out := make([][]float32, count)
+	for i := range out {
+		length := int(reader.U32())
+		if length != cases[i].order {
+			return nil, fmt.Errorf("%s: helper autocorrelation length=%d want %d", cases[i].name, length, cases[i].order)
+		}
+		out[i] = make([]float32, length)
+		for j := range out[i] {
+			out[i][j] = reader.Float32()
+		}
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func probeLibopusSILKFindLPCFLP(cases []libopusSILKFindLPCCase) ([]libopusSILKFindLPCResult, error) {
+	binPath, err := getLibopusSILKLPCHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	payload := libopustest.NewOraclePayload(libopusSILKLPCInputMagic, libopusSILKLPCModeFindLPC, uint32(len(cases)))
+	for _, tc := range cases {
+		payload.U32(uint32(tc.subfrLength))
+		payload.U32(uint32(tc.nbSubfr))
+		payload.U32(uint32(tc.order))
+		if tc.useInterpolatedNLSFs {
+			payload.U32(1)
+		} else {
+			payload.U32(0)
+		}
+		if tc.firstFrameAfterReset {
+			payload.U32(1)
+		} else {
+			payload.U32(0)
+		}
+		payload.Float32(tc.minInvGain)
+		for i := range 16 {
+			var v int16
+			if i < len(tc.prevNLSF) {
+				v = tc.prevNLSF[i]
+			}
+			payload.I32(int32(v))
+		}
+		payload.Float32s(tc.x...)
+	}
+
+	reader, count, err := runLibopusSILKOracle(binPath, payload.Bytes(), "silk find lpc flp", len(cases))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]libopusSILKFindLPCResult, count)
+	for i := range out {
+		order := int(reader.U32())
+		if order != 10 && order != 16 {
+			return nil, fmt.Errorf("helper order=%d", order)
+		}
+		out[i].interpIdx = int(reader.U32())
+		out[i].nlsf = make([]int16, order)
+		for j := range 16 {
+			v := int16(reader.I32())
+			if j < order {
+				out[i].nlsf[j] = v
+			}
+		}
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func TestSILKBurgModifiedFLPMatchesLibopusOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
+	cases := []libopusSILKBurgCase{
+		{name: "order10_four_subframes", subfrLen: 90, nbSubfr: 4, order: 10, minInvGain: 1e-4, x: silkBurgOracleSignal(360, 0x12345678)},
+		{name: "order16_four_subframes", subfrLen: 96, nbSubfr: 4, order: 16, minInvGain: 1e-4, x: silkBurgOracleSignal(384, 0x9abcdef0)},
+		{name: "order16_two_subframes", subfrLen: 96, nbSubfr: 2, order: 16, minInvGain: 5e-5, x: silkBurgOracleSignal(192, 0x31415926)},
+		{name: "order10_tight_gain", subfrLen: 80, nbSubfr: 2, order: 10, minInvGain: 0.08, x: silkBurgOracleSignal(160, 0x27182818)},
+	}
+	want, err := probeLibopusSILKBurgModified(cases)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "silk lpc burg", err)
+	}
+
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			enc := &Encoder{}
+			gotA, gotRes := enc.burgModifiedFLPZeroAllocF32(tc.x, tc.minInvGain, tc.subfrLen, tc.nbSubfr, tc.order)
+			gotRes32 := float32(gotRes)
+			if math.Float32bits(gotRes32) != math.Float32bits(want[i].resNrg) {
+				t.Fatalf("resNrg=%08x %.10g want %08x %.10g",
+					math.Float32bits(gotRes32), gotRes32,
+					math.Float32bits(want[i].resNrg), want[i].resNrg)
+			}
+			if len(gotA) != len(want[i].a) {
+				t.Fatalf("A len=%d want %d", len(gotA), len(want[i].a))
+			}
+			for j := range gotA {
+				got := float32(gotA[j])
+				if math.Float32bits(got) != math.Float32bits(want[i].a[j]) {
+					t.Fatalf("A[%d]=%08x %.10g want %08x %.10g",
+						j,
+						math.Float32bits(got), got,
+						math.Float32bits(want[i].a[j]), want[i].a[j])
+				}
+			}
+		})
+	}
+}
+
+func TestSILKLPCAnalysisFilterFLPMatchesLibopusOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
+	cases := []libopusSILKLPCFilterCase{
+		{name: "order10", order: 10, pred: silkLPCOraclePred(10, 0.44), x: silkBurgOracleSignal(160, 0x10203040)},
+		{name: "order16", order: 16, pred: silkLPCOraclePred(16, 0.38), x: silkBurgOracleSignal(224, 0x50607080)},
+		{name: "order16_short", order: 16, pred: silkLPCOraclePred(16, 0.25), x: silkBurgOracleSignal(64, 0xa0b0c0d0)},
+	}
+	for _, order := range [...]int{6, 8, 12} {
+		for _, outputCount := range [...]int{1, 3, 4, 7, 8, 9} {
+			length := order + outputCount
+			cases = append(cases, libopusSILKLPCFilterCase{
+				name:  fmt.Sprintf("order%d_output%d", order, outputCount),
+				order: order,
+				pred:  silkLPCOraclePred(order, 0.29),
+				x:     silkBurgOracleSignal(length, uint32(0x6a00+order*16+outputCount)),
+			})
+		}
+	}
+	want, err := probeLibopusSILKLPCAnalysisFilter(cases)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "silk lpc analysis filter", err)
+	}
+
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := make([]float32, len(tc.x))
+			lpcAnalysisFilterF32(got, tc.pred, tc.x, len(tc.x), tc.order)
+			if len(got) != len(want[i]) {
+				t.Fatalf("residual len=%d want %d", len(got), len(want[i]))
+			}
+			for j := range got {
+				if math.Float32bits(got[j]) != math.Float32bits(want[i][j]) {
+					t.Fatalf("residual[%d]=%08x %.10g want %08x %.10g",
+						j,
+						math.Float32bits(got[j]), got[j],
+						math.Float32bits(want[i][j]), want[i][j])
+				}
+			}
+		})
+	}
+}
+
+func TestSILKInnerProductFLPMatchesLibopusOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
+	cases := []libopusSILKInnerProductCase{
+		{name: "one", a: []float32{0.25}, b: []float32{-16}},
+		{name: "four", a: silkFLPOracleSignal(4, 0xabcdef01, 1.0), b: silkFLPOracleSignal(4, 0x01020304, 0.75)},
+		{name: "five", a: silkFLPOracleSignal(5, 0xabcdef02, 1.5), b: silkFLPOracleSignal(5, 0x10203040, 0.5)},
+		{name: "pitch_len_31", a: silkFLPOracleSignal(31, 0xabcdef03, 42.0), b: silkFLPOracleSignal(31, 0x20304050, 17.0)},
+		{name: "pitch_len_80", a: silkFLPOracleSignal(80, 0xabcdef04, 32768.0), b: silkFLPOracleSignal(80, 0x30405060, 32768.0)},
+		{name: "pitch_len_120", a: silkFLPOracleSignal(120, 0xabcdef05, 4096.0), b: silkFLPOracleSignal(120, 0x40506070, 8192.0)},
+		{name: "order_sensitive", a: []float32{1e20, 1, -1e20, 1, -1e20, 1, 1e20, 1}, b: []float32{1, 1, 1, 1, 1, 1, 1, 1}},
+	}
+	want, err := probeLibopusSILKInnerProductFLP(cases)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "silk inner product flp", err)
+	}
+
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := innerProductFLP(tc.a, tc.b, len(tc.a))
+			if math.Float64bits(got) != math.Float64bits(want[i]) {
+				t.Fatalf("innerProduct=%016x %.17g want %016x %.17g",
+					math.Float64bits(got), got,
+					math.Float64bits(want[i]), want[i])
+			}
+		})
+	}
+}
+
+func TestSILKEnergyFLPMatchesLibopusOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
+	cases := []libopusSILKEnergyCase{
+		{name: "one", x: []float32{-16}},
+		{name: "four", x: silkFLPOracleSignal(4, 0x55667788, 1.0)},
+		{name: "five", x: silkFLPOracleSignal(5, 0x66778899, 1.5)},
+		{name: "pitch_len_31", x: silkFLPOracleSignal(31, 0x778899aa, 42.0)},
+		{name: "pitch_len_80", x: silkFLPOracleSignal(80, 0x8899aabb, 32768.0)},
+		{name: "pitch_len_120", x: silkFLPOracleSignal(120, 0x99aabbcc, 4096.0)},
+		{name: "wide_dynamic_range", x: []float32{1e10, 1, -1e10, 1, 1, -1e10, 1, 1e10}},
+	}
+	want, err := probeLibopusSILKEnergyFLP(cases)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "silk energy flp", err)
+	}
+
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := energyFLP(tc.x)
+			if math.Float64bits(got) != math.Float64bits(want[i]) {
+				t.Fatalf("energy=%016x %.17g want %016x %.17g",
+					math.Float64bits(got), got,
+					math.Float64bits(want[i]), want[i])
+			}
+		})
+	}
+}
+
+func TestSILKAutocorrelationF32MatchesLibopusOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
+	cancellation := make([]float32, 31)
+	pattern := [...]float32{1e20, 1, -1e20, 1, -1e20, 1, 1e20, 1}
+	for i := range cancellation {
+		cancellation[i] = pattern[i%len(pattern)]
+	}
+	cases := []libopusSILKAutocorrelationCase{
+		{name: "length31_order8_tail", order: 8, x: silkFLPOracleSignal(31, 0x70717273, 32768)},
+		{name: "length120_order9", order: 9, x: silkFLPOracleSignal(120, 0x81828384, 4096)},
+		{name: "finite_cancellation_tail", order: 7, x: cancellation},
+	}
+	want, err := probeLibopusSILKAutocorrelationFLP(cases)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "silk autocorrelation flp", err)
+	}
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := make([]float32, tc.order)
+			autocorrelationF32(got, tc.x, len(tc.x), tc.order)
+			for j := range got {
+				if math.Float32bits(got[j]) != math.Float32bits(want[i][j]) {
+					t.Fatalf("autocorrelation[%d]=%08x %.10g want %08x %.10g", j,
+						math.Float32bits(got[j]), got[j], math.Float32bits(want[i][j]), want[i][j])
+				}
+			}
+		})
+	}
+}
+
+func TestSILKFindLPCFLPMatchesLibopusOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
+	cases := []libopusSILKFindLPCCase{
+		{
+			name:                 "order10_first_frame",
+			subfrLength:          60,
+			nbSubfr:              4,
+			order:                10,
+			useInterpolatedNLSFs: true,
+			firstFrameAfterReset: true,
+			minInvGain:           1e-4,
+			prevNLSF:             silkFindLPCPrevNLSF(10, 0x12345678),
+			x:                    silkBurgOracleSignal(4*(60+10), 0x10203040),
+		},
+		{
+			name:                 "order10_interpolation_enabled",
+			subfrLength:          60,
+			nbSubfr:              4,
+			order:                10,
+			useInterpolatedNLSFs: true,
+			firstFrameAfterReset: false,
+			minInvGain:           2e-4,
+			prevNLSF:             silkFindLPCPrevNLSF(10, 0x22334455),
+			x:                    silkBurgOracleSignal(4*(60+10), 0x31415926),
+		},
+		{
+			name:                 "order16_low_complexity",
+			subfrLength:          80,
+			nbSubfr:              4,
+			order:                16,
+			useInterpolatedNLSFs: false,
+			firstFrameAfterReset: false,
+			minInvGain:           1e-4,
+			prevNLSF:             silkFindLPCPrevNLSF(16, 0xabcdef01),
+			x:                    silkBurgOracleSignal(4*(80+16), 0x50607080),
+		},
+		{
+			name:                 "order16_interpolation_enabled",
+			subfrLength:          80,
+			nbSubfr:              4,
+			order:                16,
+			useInterpolatedNLSFs: true,
+			firstFrameAfterReset: false,
+			minInvGain:           3e-4,
+			prevNLSF:             silkFindLPCPrevNLSF(16, 0x0badf00d),
+			x:                    silkBurgOracleSignal(4*(80+16), 0x90abcdef),
+		},
+		{
+			name:                 "order16_two_subframes",
+			subfrLength:          80,
+			nbSubfr:              2,
+			order:                16,
+			useInterpolatedNLSFs: true,
+			firstFrameAfterReset: false,
+			minInvGain:           5e-5,
+			prevNLSF:             silkFindLPCPrevNLSF(16, 0x13579bdf),
+			x:                    silkBurgOracleSignal(2*(80+16), 0x2468ace0),
+		},
+	}
+	want, err := probeLibopusSILKFindLPCFLP(cases)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "silk find lpc flp", err)
+	}
+
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			bw := BandwidthWideband
+			if tc.order == 10 {
+				bw = BandwidthMediumband
+			}
+			enc := newTestEncoder(bw)
+			if tc.useInterpolatedNLSFs {
+				enc.setupComplexity(10)
+			} else {
+				enc.setupComplexity(0)
+			}
+			enc.firstFrameAfterReset = tc.firstFrameAfterReset
+			copy(enc.prevLSFQ15[:], tc.prevNLSF)
+
+			_, gotNLSF, gotInterp := enc.computeLPCAndNLSFWithInterp(tc.x, tc.nbSubfr, tc.subfrLength, tc.minInvGain)
+			if gotInterp != want[i].interpIdx {
+				t.Fatalf("interpIdx=%d want %d", gotInterp, want[i].interpIdx)
+			}
+			if len(gotNLSF) != len(want[i].nlsf) {
+				t.Fatalf("NLSF len=%d want %d", len(gotNLSF), len(want[i].nlsf))
+			}
+			for j := range gotNLSF {
+				if gotNLSF[j] != want[i].nlsf[j] {
+					t.Fatalf("NLSF[%d]=%d want %d", j, gotNLSF[j], want[i].nlsf[j])
+				}
+			}
+		})
+	}
+}
+
+func silkBurgOracleSignal(n int, seed uint32) []float32 {
+	x := make([]float32, n)
+	state := seed
+	for i := range x {
+		state = state*1664525 + 1013904223
+		noise := float32(int32(state>>8)&0xffff-32768) / 32768.0
+		ramp := float32((i%31)-15) * (1.0 / 256.0)
+		x[i] = 0.35*noise + ramp
+	}
+	return x
+}
+
+func silkFindLPCPrevNLSF(order int, seed uint32) []int16 {
+	out := make([]int16, order)
+	state := seed
+	prev := 900
+	for i := range out {
+		state = state*1664525 + 1013904223
+		step := 1300 + int((state>>24)&0x3ff)
+		prev += step
+		limit := 32000 - (order-i-1)*700
+		if prev > limit {
+			prev = limit
+		}
+		out[i] = int16(prev)
+	}
+	return out
+}
+
+func silkFLPOracleSignal(n int, seed uint32, scale float32) []float32 {
+	x := make([]float32, n)
+	state := seed
+	for i := range x {
+		state = state*1664525 + 1013904223
+		mant := int32(state>>8)&0xffff - 32768
+		x[i] = scale * float32(mant) / 32768.0
+	}
+	return x
+}
+
+func silkLPCOraclePred(order int, gain float32) []float32 {
+	pred := make([]float32, order)
+	for i := range pred {
+		sign := float32(1)
+		if i&1 != 0 {
+			sign = -1
+		}
+		pred[i] = sign * gain / float32(i+2)
+	}
+	return pred
+}
+
+func TestLPCPredictionMultiFrame(t *testing.T) {
+	config := GetBandwidthConfig(BandwidthWideband)
+	frameSamples := config.SampleRate * 20 / 1000 // 20ms = 320 samples at 16kHz
+
+	// Generate a voiced-like signal (sine wave at 300 Hz)
+	amplitude := float32(0.3)
+	numFrames := 5
+
+	// Create multiple frames of input
+	allPCM := make([]float32, frameSamples*numFrames)
+	for i := range allPCM {
+		tm := float64(i) / float64(config.SampleRate)
+		allPCM[i] = amplitude * float32(math.Sin(2*math.Pi*300*tm))
+	}
+
+	// Compute input RMS
+	var inputSumSq float64
+	for _, s := range allPCM[:frameSamples] {
+		inputSumSq += float64(s) * float64(s)
+	}
+	inputRMS := math.Sqrt(inputSumSq / float64(frameSamples))
+
+	t.Logf("=== Multi-frame LPC test ===")
+	t.Logf("Sample rate: %d Hz", config.SampleRate)
+	t.Logf("Frame samples: %d", frameSamples)
+	t.Logf("Num frames: %d", numFrames)
+	t.Logf("Input amplitude: %.3f, Input RMS: %.4f", amplitude, inputRMS)
+
+	// Create a persistent decoder
+	decoder := NewDecoder()
+
+	// Process each frame separately
+	for frame := range numFrames {
+		pcm := allPCM[frame*frameSamples : (frame+1)*frameSamples]
+
+		// Encode this frame
+		encoded := encodeTestPacket(t, BandwidthWideband, pcm)
+
+		// Decode using the same decoder (state persists!)
+		var rd rangecoding.Decoder
+		rd.Init(encoded)
+		decoded, err := decoder.DecodeFrame(&rd, BandwidthWideband, Frame20ms, true)
+		if err != nil {
+			t.Fatalf("Frame %d: Decode failed: %v", frame, err)
+		}
+
+		// Compute output RMS for this frame
+		var outputSumSq float64
+		for _, s := range decoded {
+			outputSumSq += float64(s) * float64(s)
+		}
+		outputRMS := math.Sqrt(outputSumSq / float64(len(decoded)))
+
+		ratio := outputRMS / inputRMS
+
+		// Get decoder state info
+		st := &decoder.state[0]
+
+		// Check sLPCQ14Buf - is there history now?
+		hasHistory := false
+		maxHistory := int32(0)
+		for i := range 16 {
+			if st.sLPCQ14Buf[i] != 0 {
+				hasHistory = true
+				if st.sLPCQ14Buf[i] > maxHistory {
+					maxHistory = st.sLPCQ14Buf[i]
+				}
+				if -st.sLPCQ14Buf[i] > maxHistory {
+					maxHistory = -st.sLPCQ14Buf[i]
+				}
+			}
+		}
+
+		t.Logf("Frame %d: Output RMS=%.4f, Ratio=%.4f, HasHistory=%v, MaxHistory=%d",
+			frame, outputRMS, ratio, hasHistory, maxHistory)
+
+		// Log first few samples
+		if frame < 3 {
+			t.Logf("  First 5 decoded: %.4f, %.4f, %.4f, %.4f, %.4f",
+				decoded[0], decoded[1], decoded[2], decoded[3], decoded[4])
+		}
+	}
+
+	// The key test: does output improve across frames?
+	// Frame 0 might be ~6% due to no history
+	// Frame 1+ should be much better as LPC builds up
+}
+
+// TestLPCHistoryPreservation tests that sLPCQ14Buf is properly preserved between subframes.
+func TestLPCHistoryPreservation(t *testing.T) {
+	config := GetBandwidthConfig(BandwidthNarrowband)
+	frameSamples := config.SampleRate * 20 / 1000 // 160 samples at 8kHz
+
+	// Create a constant amplitude signal
+	amplitude := float32(0.5)
+	pcm := make([]float32, frameSamples)
+	for i := range pcm {
+		pcm[i] = amplitude
+	}
+
+	// Encode
+	encoded := encodeTestPacket(t, BandwidthNarrowband, pcm)
+
+	// Create decoder
+	decoder := NewDecoder()
+
+	var rd rangecoding.Decoder
+	rd.Init(encoded)
+
+	decoded, err := decoder.DecodeFrame(&rd, BandwidthNarrowband, Frame20ms, true)
+	if err != nil {
+		t.Fatalf("Decode failed: %v", err)
+	}
+
+	st := &decoder.state[0]
+
+	t.Logf("=== After first frame ===")
+	t.Logf("Decoded samples: %d", len(decoded))
+	t.Logf("nbSubfr: %d", st.nbSubfr)
+	t.Logf("subfrLength: %d", st.subfrLength)
+	t.Logf("frameLength: %d", st.frameLength)
+
+	// Check the LPC history buffer
+	t.Logf("sLPCQ14Buf after decode:")
+	for i := range 16 {
+		if st.sLPCQ14Buf[i] != 0 {
+			t.Logf("  sLPCQ14Buf[%d] = %d (%.4f)", i, st.sLPCQ14Buf[i], float64(st.sLPCQ14Buf[i])/16384.0)
+		}
+	}
+
+	// Log output statistics
+	var maxOutput, sumOutput float64
+	for _, s := range decoded {
+		absS := math.Abs(float64(s))
+		if absS > maxOutput {
+			maxOutput = absS
+		}
+		sumOutput += float64(s)
+	}
+	t.Logf("Output max: %.4f, mean: %.4f", maxOutput, sumOutput/float64(len(decoded)))
+
+	// Now decode a second frame to see if history helps
+	t.Logf("\n=== Decoding second frame ===")
+
+	// Encode another frame
+	encoded2 := encodeTestPacket(t, BandwidthNarrowband, pcm)
+
+	var rd2 rangecoding.Decoder
+	rd2.Init(encoded2)
+	decoded2, err := decoder.DecodeFrame(&rd2, BandwidthNarrowband, Frame20ms, true)
+	if err != nil {
+		t.Fatalf("Decode2 failed: %v", err)
+	}
+
+	// Check output
+	var maxOutput2, sumOutput2 float64
+	for _, s := range decoded2 {
+		absS := math.Abs(float64(s))
+		if absS > maxOutput2 {
+			maxOutput2 = absS
+		}
+		sumOutput2 += float64(s)
+	}
+	t.Logf("Output2 max: %.4f, mean: %.4f", maxOutput2, sumOutput2/float64(len(decoded2)))
+
+	// Compare
+	t.Logf("\nAmplitude improvement: %.2fx", maxOutput2/maxOutput)
+}
+
+// TestWithinFrameLPCBuildup tests if LPC prediction builds up WITHIN a single frame.
+// In libopus, the LPC synthesis happens subframe by subframe, with each subframe's
+// output becoming the next subframe's history.
+func TestWithinFrameLPCBuildup(t *testing.T) {
+	config := GetBandwidthConfig(BandwidthNarrowband)
+	frameSamples := config.SampleRate * 20 / 1000 // 160 samples at 8kHz
+
+	// Create a constant amplitude signal
+	amplitude := float32(0.5)
+	pcm := make([]float32, frameSamples)
+	for i := range pcm {
+		pcm[i] = amplitude
+	}
+
+	// Encode
+	encoded := encodeTestPacket(t, BandwidthNarrowband, pcm)
+
+	// Decode
+	decoder := NewDecoder()
+	var rd rangecoding.Decoder
+	rd.Init(encoded)
+	decoded, err := decoder.DecodeFrame(&rd, BandwidthNarrowband, Frame20ms, true)
+	if err != nil {
+		t.Fatalf("Decode failed: %v", err)
+	}
+
+	st := &decoder.state[0]
+	subfrLength := int(st.subfrLength)
+	nbSubfr := int(st.nbSubfr)
+
+	t.Logf("=== Within-frame LPC buildup ===")
+	t.Logf("Subframe length: %d, Num subframes: %d", subfrLength, nbSubfr)
+
+	// Compute RMS for each subframe
+	for k := range nbSubfr {
+		start := k * subfrLength
+		end := min(start+subfrLength, len(decoded))
+
+		var sumSq float64
+		for i := start; i < end; i++ {
+			sumSq += float64(decoded[i]) * float64(decoded[i])
+		}
+		rms := math.Sqrt(sumSq / float64(end-start))
+
+		// Also get first/last few samples of this subframe
+		t.Logf("Subframe %d: RMS=%.4f, first=%.4f, last=%.4f",
+			k, rms, decoded[start], decoded[end-1])
+	}
+
+	// The hypothesis is that subframe 0 has low output, but subframes 1-3 improve
+	// as the LPC prediction history builds up within the frame.
+}
+
+func synthesizeLPCOrder16ScalarForTest(sLPC []int32, A_Q12 []int16, presQ14 []int32, pxq []int16, gainQ10 int32, subfrLength int) {
+	c0 := int32(A_Q12[0])
+	c1 := int32(A_Q12[1])
+	c2 := int32(A_Q12[2])
+	c3 := int32(A_Q12[3])
+	c4 := int32(A_Q12[4])
+	c5 := int32(A_Q12[5])
+	c6 := int32(A_Q12[6])
+	c7 := int32(A_Q12[7])
+	c8 := int32(A_Q12[8])
+	c9 := int32(A_Q12[9])
+	c10 := int32(A_Q12[10])
+	c11 := int32(A_Q12[11])
+	c12 := int32(A_Q12[12])
+	c13 := int32(A_Q12[13])
+	c14 := int32(A_Q12[14])
+	c15 := int32(A_Q12[15])
+
+	v0 := sLPC[maxLPCOrder-1]
+	v1 := sLPC[maxLPCOrder-2]
+	v2 := sLPC[maxLPCOrder-3]
+	v3 := sLPC[maxLPCOrder-4]
+	v4 := sLPC[maxLPCOrder-5]
+	v5 := sLPC[maxLPCOrder-6]
+	v6 := sLPC[maxLPCOrder-7]
+	v7 := sLPC[maxLPCOrder-8]
+	v8 := sLPC[maxLPCOrder-9]
+	v9 := sLPC[maxLPCOrder-10]
+	v10 := sLPC[maxLPCOrder-11]
+	v11 := sLPC[maxLPCOrder-12]
+	v12 := sLPC[maxLPCOrder-13]
+	v13 := sLPC[maxLPCOrder-14]
+	v14 := sLPC[maxLPCOrder-15]
+	v15 := sLPC[maxLPCOrder-16]
+
+	sIdx := maxLPCOrder
+	for i := range subfrLength {
+		lpcPredQ10 := int32(maxLPCOrder >> 1)
+		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v0, c0)
+		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v1, c1)
+		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v2, c2)
+		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v3, c3)
+		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v4, c4)
+		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v5, c5)
+		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v6, c6)
+		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v7, c7)
+		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v8, c8)
+		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v9, c9)
+		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v10, c10)
+		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v11, c11)
+		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v12, c12)
+		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v13, c13)
+		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v14, c14)
+		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v15, c15)
+
+		s := silkAddSat32(presQ14[i], lShiftSAT32By4(lpcPredQ10))
+		sLPC[sIdx] = s
+		pxq[i] = silkSAT16(silkRSHIFT_ROUND(silkSMULWW(s, gainQ10), 8))
+		sIdx++
+
+		v15 = v14
+		v14 = v13
+		v13 = v12
+		v12 = v11
+		v11 = v10
+		v10 = v9
+		v9 = v8
+		v8 = v7
+		v7 = v6
+		v6 = v5
+		v5 = v4
+		v4 = v3
+		v3 = v2
+		v2 = v1
+		v1 = v0
+		v0 = s
+	}
+}
+
+func testLPCSynthesisInputs() ([maxLPCOrder + maxSubFrameLength]int32, [maxLPCOrder]int16, [maxSubFrameLength]int32) {
+	var sLPC [maxLPCOrder + maxSubFrameLength]int32
+	var a [maxLPCOrder]int16
+	var pres [maxSubFrameLength]int32
+	for i := range sLPC {
+		sLPC[i] = int32((i*104729)%2000000 - 1000000)
+	}
+	for i := range a {
+		a[i] = int16((i*2311)%28000 - 14000)
+	}
+	for i := range pres {
+		pres[i] = int32((i*8191)%700000 - 350000)
+	}
+	return sLPC, a, pres
+}
+
+func TestSynthesizeLPCOrder16CoreMatchesScalar(t *testing.T) {
+	sLPC, a, pres := testLPCSynthesisInputs()
+	sLPCRef := sLPC
+	var got [maxSubFrameLength]int16
+	var want [maxSubFrameLength]int16
+
+	synthesizeLPCOrder16Core(sLPC[:], a[:], pres[:], got[:], 12345, maxSubFrameLength)
+	synthesizeLPCOrder16ScalarForTest(sLPCRef[:], a[:], pres[:], want[:], 12345, maxSubFrameLength)
+
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("pxq[%d] got %d want %d", i, got[i], want[i])
+		}
+	}
+	for i := range sLPC {
+		if sLPC[i] != sLPCRef[i] {
+			t.Fatalf("sLPC[%d] got %d want %d", i, sLPC[i], sLPCRef[i])
+		}
+	}
+}
+
+func BenchmarkSynthesizeLPCOrder16Core80(b *testing.B) {
+	sLPC0, a, pres := testLPCSynthesisInputs()
+	var pxq [maxSubFrameLength]int16
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		sLPC := sLPC0
+		synthesizeLPCOrder16Core(sLPC[:], a[:], pres[:], pxq[:], 12345, maxSubFrameLength)
+	}
+}
+
+func BenchmarkSynthesizeLPCOrder16Scalar80(b *testing.B) {
+	sLPC0, a, pres := testLPCSynthesisInputs()
+	var pxq [maxSubFrameLength]int16
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		sLPC := sLPC0
+		synthesizeLPCOrder16ScalarForTest(sLPC[:], a[:], pres[:], pxq[:], 12345, maxSubFrameLength)
+	}
 }

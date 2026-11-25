@@ -4,11 +4,10 @@ package gopus_test
 
 import (
 	"fmt"
-	"testing"
-
 	"github.com/thesyncim/gopus"
 	"github.com/thesyncim/gopus/internal/benchutil"
 	"github.com/thesyncim/gopus/internal/libopustest"
+	"testing"
 )
 
 func TestNative96kIntegerDecodeFormatsMatchQEXTOracle(t *testing.T) {
@@ -369,4 +368,8 @@ func TestNative96kMixedIntegerFormatsMatchQEXTOracle(t *testing.T) {
 			t.Fatalf("%dch warmed mixed int16/int24 decode allocated %g times/call", channels, allocs)
 		}
 	}
+}
+
+func probeQEXTDecodePublicReference(p libopustest.QEXTDecode96kParams) (libopustest.QEXTDecode96kResult, error) {
+	return libopustest.ProbeQEXTDecode96k(p)
 }

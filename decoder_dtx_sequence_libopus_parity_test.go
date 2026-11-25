@@ -3,23 +3,13 @@
 package gopus
 
 import (
+	"encoding/binary"
 	"fmt"
+	encpkg "github.com/thesyncim/gopus/internal/encoder"
+	"github.com/thesyncim/gopus/internal/libopustest"
 	"math"
 	"testing"
-
-	"github.com/thesyncim/gopus/internal/libopustest"
 )
-
-// Decode-side DTX-sequence parity: libopus encodes a speech -> silence -> speech
-// stream with OPUS_SET_DTX(1), emitting the TOC-only (1/2-byte) DTX packets that
-// the gopus encoder also produces but that the decode-side oracle gates do not
-// otherwise cover. The SAME packet sequence (including DTX packets) is decoded
-// through both libopus (opus_decode_float) and gopus, sample-aligned, and gated
-// on exact selected-reference PCM. This hardens the decoder's handling of
-// DTX TOC-only packets and the silence/CNG runs they drive.
-//
-// The DTX emit helper needs src/opus_private.h (MODE_* / OPUS_SET_FORCE_MODE).
-// It uses the public reference selected by the current Go feature and ISA tags.
 
 const libopusDTXPacketOutputMagic = "GDTX"
 
@@ -216,4 +206,408 @@ func TestDecodeLibopusDTXSequenceMatchesLibopus(t *testing.T) {
 			assertAPIRateFloat32BitsExact(t, got, want, tc.name)
 		})
 	}
+}
+
+func makeCode1Dup(base []byte) []byte {
+	if len(base) < 2 {
+		return nil
+	}
+	toc := (base[0] &^ 0x03) | 0x01 // code 1
+	frame := base[1:]
+	out := make([]byte, 0, 1+2*len(frame))
+	out = append(out, toc)
+	out = append(out, frame...)
+	out = append(out, frame...)
+	return out
+}
+
+// appendOpusFrameLength appends the RFC 6716 §3.1 frame-length encoding of L
+// (length = 4*secondByte + firstByte for the two-byte form).
+func appendOpusFrameLength(dst []byte, l int) []byte {
+	if l < 252 {
+		return append(dst, byte(l))
+	}
+	first := 252 + ((l - 252) & 3)
+	second := (l - first) / 4
+	return append(dst, byte(first), byte(second))
+}
+
+// makeCode2LastDTX builds a code-2 packet whose first frame is the real frame
+// and whose last (second) frame is empty -> inner DTX last frame.
+func makeCode2LastDTX(base []byte) []byte {
+	if len(base) < 2 {
+		return nil
+	}
+	frame1 := base[1:]
+	if len(frame1) > maxOpusFrameBytes {
+		return nil
+	}
+	toc := (base[0] &^ 0x03) | 0x02 // code 2
+	out := make([]byte, 0, 3+len(frame1))
+	out = append(out, toc)
+	out = appendOpusFrameLength(out, len(frame1)) // frame1 length
+	out = append(out, frame1...)
+	// frame2 implicit length = remaining = 0 bytes -> DTX last frame.
+	return out
+}
+
+// makeCode2FirstDTX builds a code-2 packet whose first frame is empty (DTX) and
+// whose last (second) frame is the real frame.
+func makeCode2FirstDTX(base []byte) []byte {
+	if len(base) < 2 {
+		return nil
+	}
+	toc := (base[0] &^ 0x03) | 0x02 // code 2
+	frame := base[1:]
+	out := make([]byte, 0, 2+len(frame))
+	out = append(out, toc)
+	out = append(out, byte(0))  // frame1 length = 0 -> DTX
+	out = append(out, frame...) // frame2 = remaining = real frame
+	return out
+}
+
+// makeTOCOnlyDTX returns the 1-byte TOC-only DTX packet for base's TOC (code 0).
+func makeTOCOnlyDTX(base []byte) []byte {
+	if len(base) < 1 {
+		return nil
+	}
+	return []byte{base[0] &^ 0x03} // code 0, no payload
+}
+
+func TestDecodeFinalRangePLCDTXMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	requireLibopusAPIRateRefdecodeHelper(t)
+
+	const sampleRate = 48000
+
+	type modecase struct {
+		name string
+		make func(t *testing.T, channels int) []byte
+	}
+	modes := []modecase{
+		{"silk_wb", encodeAPIRateSILKPacket},
+		{"celt_fb", encodeAPIRateCELTPacket},
+		{"hybrid_fb", encodeAPIRateHybridPacket},
+	}
+
+	for _, mc := range modes {
+		for _, channels := range []int{1, 2} {
+			name := mc.name + "_ch" + itoaSmall(channels)
+			t.Run(name, func(t *testing.T) {
+				src := mc.make(t, channels)
+				if len(src) <= 2 {
+					t.Fatalf("encoded %s packet too small (len=%d) to build multi-frame variants", mc.name, len(src))
+				}
+
+				tocDTX := makeTOCOnlyDTX(src)
+				lastDTX := makeCode2LastDTX(src)
+				firstDTX := makeCode2FirstDTX(src)
+				code1 := makeCode1Dup(src)
+				if tocDTX == nil || lastDTX == nil || firstDTX == nil || code1 == nil {
+					t.Fatalf("could not construct multi-frame variants for %s (src len=%d)", mc.name, len(src))
+				}
+
+				// Requested frame_size (uniform for every step in the oracle's v6
+				// protocol): large enough for the longest (two-frame) packet at
+				// 48 kHz (2 x 20 ms = 1920 samples/channel) plus headroom. A NULL
+				// PLC step conceals up to this duration on both sides.
+				const reqFrame = 2880
+
+				// normal -> PLC(NULL) -> TOC-only DTX -> recovery
+				//        -> last-DTX multiframe -> recovery
+				//        -> first-DTX multiframe -> CBR code-1 -> recovery
+				steps := []libopusAPIRateDecodeStep{
+					{packet: src},
+					{}, // PLC: nil packet
+					{packet: tocDTX},
+					{packet: src},
+					{packet: lastDTX},
+					{packet: src},
+					{packet: firstDTX},
+					{packet: code1},
+					{packet: src},
+				}
+
+				wantPCM, ranges, err := decodeWithLibopusReferenceAPIRateFloat32StepsRanges(sampleRate, channels, reqFrame, steps)
+				if err != nil {
+					libopustest.HelperUnavailable(t, "api-rate final range reference decode", err)
+				}
+				if len(ranges) != len(steps) {
+					t.Fatalf("oracle returned %d ranges, want %d", len(ranges), len(steps))
+				}
+
+				dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
+				if err != nil {
+					t.Fatalf("NewDecoder: %v", err)
+				}
+				buf := make([]float32, reqFrame*channels)
+				gotPCM := make([]float32, 0, len(wantPCM))
+
+				labels := []string{
+					"normal", "PLC(nil)", "DTX-TOC-only", "recovery",
+					"multiframe-last-DTX", "recovery2",
+					"multiframe-first-DTX", "CBR-code1-allnormal", "recovery3",
+				}
+
+				for i, s := range steps {
+					clear(buf)
+					var n int
+					var derr error
+					if s.packet == nil {
+						n, derr = dec.Decode(nil, buf)
+					} else {
+						n, derr = dec.Decode(s.packet, buf)
+					}
+					if derr != nil {
+						t.Fatalf("step %d (%s) gopus decode: %v", i, labels[i], derr)
+					}
+					gotPCM = append(gotPCM, buf[:n*channels]...)
+					got := dec.FinalRange()
+					want := ranges[i]
+					if got != want {
+						t.Fatalf("step %d (%s): FinalRange()=0x%08X want 0x%08X (len=%d)",
+							i, labels[i], got, want, packetStepLen(s))
+					}
+				}
+				assertAPIRateFloat32BitsExact(t, gotPCM, wantPCM, "PLC/DTX final-range sequence")
+
+				// Sanity: the inner-DTX-last step must be 0 (regression for the
+				// stale-range bug), and a normal recovery step must be non-zero.
+				if ranges[4] != 0 {
+					t.Fatalf("oracle ground truth changed: multiframe-last-DTX range=0x%08X want 0", ranges[4])
+				}
+				if ranges[3] == 0 {
+					t.Fatalf("oracle ground truth changed: recovery range unexpectedly 0")
+				}
+			})
+		}
+	}
+}
+
+func packetStepLen(s libopusAPIRateDecodeStep) int {
+	if s.packet == nil {
+		return -1
+	}
+	return len(s.packet)
+}
+
+func fecParityBitrateForFrameSize(frameSize int) int {
+	bitrate := 40000
+	if frameSize > 0 && frameSize < 960 {
+		bitrate = (40000 * 960) / frameSize
+	}
+	if bitrate > 320000 {
+		bitrate = 320000
+	}
+	return bitrate
+}
+
+func fecParityVoicedSample(frameIdx, sampleIdx, frameSize, sampleRate int) float32 {
+	n := frameIdx*frameSize + sampleIdx
+	t := float64(n) / float64(sampleRate)
+	env := 0.82 + 0.18*math.Sin(2*math.Pi*1.3*t)
+	s := 0.0
+	s += 0.28 * math.Sin(2*math.Pi*110*t)
+	s += 0.17 * math.Sin(2*math.Pi*220*t+0.11)
+	s += 0.09 * math.Sin(2*math.Pi*330*t+0.23)
+	s += 0.05 * math.Sin(2*math.Pi*440*t+0.37)
+	return float32(env * s)
+}
+
+func fecParityFrame(frameIdx, frameSize, sampleRate, channels int) []float32 {
+	pcm := make([]float32, frameSize*channels)
+	for i := 0; i < frameSize; i++ {
+		s := fecParityVoicedSample(frameIdx, i, frameSize, sampleRate)
+		for ch := 0; ch < channels; ch++ {
+			pcm[i*channels+ch] = s
+		}
+	}
+	return pcm
+}
+
+func fecParityPCMSequence(frameSize, channels, frameCount int) []float32 {
+	pcm := make([]float32, frameSize*channels*frameCount)
+	for frameIndex := 0; frameIndex < frameCount; frameIndex++ {
+		frame := fecParityFrame(frameIndex, frameSize, 48000, channels)
+		copy(pcm[frameIndex*len(frame):], frame)
+	}
+	return pcm
+}
+
+const libopusFECPacketOutputMagic = "GOFC"
+
+var libopusFECEmitPacketsHelper libopustest.HelperCache
+
+func getLibopusFECEmitPacketsHelperPath() (string, error) {
+	return libopusFECEmitPacketsHelper.Path(func() (string, error) {
+		return libopustest.BuildPublicAPIHelper(libopustest.CHelperConfig{
+			Label:       "FEC packet emit",
+			OutputBase:  "gopus_libopus_fec_emit_packets",
+			SourceFile:  "libopus_fec_emit_packets.c",
+			CFlags:      []string{"-DHAVE_CONFIG_H"},
+			RefIncludes: []string{"celt", "silk", "src"},
+		})
+	})
+}
+
+type libopusFECPacketConfig struct {
+	FrameSize   int
+	Channels    int
+	Bitrate     int
+	Application string // "audio" or "voip"
+	Signal      string // "music" or "voice"
+	InBandFEC   bool
+}
+
+func emitLibopusFECPackets(cfg libopusFECPacketConfig, pcm []float32) ([][]byte, error) {
+	binPath, err := getLibopusFECEmitPacketsHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	if cfg.FrameSize <= 0 {
+		cfg.FrameSize = 960
+	}
+	if cfg.Channels <= 0 {
+		cfg.Channels = 1
+	}
+	if cfg.Bitrate <= 0 {
+		cfg.Bitrate = fecParityBitrateForFrameSize(cfg.FrameSize)
+	}
+	if cfg.Application == "" {
+		cfg.Application = "audio"
+	}
+	if cfg.Signal == "" {
+		cfg.Signal = "music"
+	}
+	env := []string{
+		fmt.Sprintf("GOPUS_FEC_FRAME_SIZE=%d", cfg.FrameSize),
+		fmt.Sprintf("GOPUS_FEC_CHANNELS=%d", cfg.Channels),
+		fmt.Sprintf("GOPUS_FEC_BITRATE=%d", cfg.Bitrate),
+		fmt.Sprintf("GOPUS_FEC_APPLICATION=%s", cfg.Application),
+		fmt.Sprintf("GOPUS_FEC_SIGNAL=%s", cfg.Signal),
+		"GOPUS_FEC_PCM_STDIN=1",
+		"GOPUS_FEC_BANDWIDTH=wb",
+		fmt.Sprintf("GOPUS_FEC_MAX_FRAMES=%d", len(pcm)/(cfg.FrameSize*cfg.Channels)),
+	}
+	if !cfg.InBandFEC {
+		env = append(env, "GOPUS_FEC_INBAND=0")
+	}
+	out, err := libopustest.RunHelperEnv(binPath, fecPCMInputLE(pcm), env)
+	if err != nil {
+		return nil, fmt.Errorf("run fec emit helper: %w", err)
+	}
+	reader, version, err := libopustest.NewOracleReaderVersion("fec emit", libopusFECPacketOutputMagic, out)
+	if err != nil {
+		return nil, err
+	}
+	if version != 1 {
+		return nil, fmt.Errorf("fec emit helper version=%d want 1", version)
+	}
+	frameSize := int(reader.U32())
+	channels := int(reader.U32())
+	count := int(reader.U32())
+	if frameSize != cfg.FrameSize || channels != cfg.Channels {
+		return nil, fmt.Errorf("fec emit header frameSize=%d channels=%d want %d/%d", frameSize, channels, cfg.FrameSize, cfg.Channels)
+	}
+	packets := make([][]byte, 0, count)
+	for i := 0; i < count; i++ {
+		packetLen := int(reader.U32())
+		packet := reader.Bytes(packetLen)
+		packets = append(packets, append([]byte(nil), packet...))
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	return packets, nil
+}
+
+func fecPCMInputLE(pcm []float32) []byte {
+	out := make([]byte, len(pcm)*4)
+	var tmp [4]byte
+	for i, v := range pcm {
+		binary.LittleEndian.PutUint32(tmp[:], math.Float32bits(v))
+		copy(out[i*4:(i+1)*4], tmp[:])
+	}
+	return out
+}
+
+func encodeGopusFECPackets(cfg libopusFECPacketConfig, frameCount int) ([][]byte, error) {
+	return encodeGopusFECPacketsWithComplexity(cfg, frameCount, 10)
+}
+
+func encodeGopusFECPacketsWithComplexity(cfg libopusFECPacketConfig, frameCount, complexity int) ([][]byte, error) {
+	if cfg.FrameSize <= 0 {
+		cfg.FrameSize = 960
+	}
+	if cfg.Channels <= 0 {
+		cfg.Channels = 1
+	}
+	if cfg.Bitrate <= 0 {
+		cfg.Bitrate = fecParityBitrateForFrameSize(cfg.FrameSize)
+	}
+	app := ApplicationAudio
+	if cfg.Application == "voip" {
+		app = ApplicationVoIP
+	}
+	enc, err := NewEncoder(EncoderConfig{
+		SampleRate:  48000,
+		Channels:    cfg.Channels,
+		Application: app,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := enc.SetFrameSize(cfg.FrameSize); err != nil {
+		return nil, err
+	}
+	if err := enc.SetBandwidth(BandwidthWideband); err != nil {
+		return nil, err
+	}
+	if err := enc.SetBitrate(cfg.Bitrate); err != nil {
+		return nil, err
+	}
+	sig := SignalMusic
+	if cfg.Signal == "voice" {
+		sig = SignalVoice
+	}
+	if err := enc.SetSignal(sig); err != nil {
+		return nil, err
+	}
+	if cfg.InBandFEC {
+		enc.SetFEC(true)
+	}
+	if err := enc.SetPacketLoss(20); err != nil {
+		return nil, err
+	}
+	if err := enc.SetComplexity(complexity); err != nil {
+		return nil, err
+	}
+	enc.SetVBR(true)
+	enc.SetVBRConstraint(true)
+	if cfg.Channels == 2 {
+		if err := enc.SetForceChannels(2); err != nil {
+			return nil, err
+		}
+	}
+	enc.enc.SetMode(encpkg.ModeSILK)
+
+	packets := make([][]byte, 0, frameCount)
+	for frameIndex := 0; frameIndex < frameCount; frameIndex++ {
+		pcm := fecParityFrame(frameIndex, cfg.FrameSize, 48000, cfg.Channels)
+		packet := make([]byte, maxPacketBytesPerStream)
+		n, err := enc.Encode(pcm, packet)
+		if err != nil {
+			return nil, fmt.Errorf("encode frame %d: %w", frameIndex, err)
+		}
+		if n == 0 {
+			return nil, fmt.Errorf("encode frame %d produced no packet", frameIndex)
+		}
+		gotPacket := append([]byte(nil), packet[:n]...)
+		toc := ParseTOC(gotPacket[0])
+		if toc.Mode != ModeSILK {
+			return nil, fmt.Errorf("encode frame %d mode=%v want silk", frameIndex, toc.Mode)
+		}
+		packets = append(packets, gotPacket)
+	}
+	return packets, nil
 }

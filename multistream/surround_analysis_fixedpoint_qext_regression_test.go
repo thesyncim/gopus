@@ -4,19 +4,13 @@ package multistream
 
 import (
 	"bytes"
-	"math"
-	"testing"
-
 	"github.com/thesyncim/gopus/internal/fixedpoint"
 	"github.com/thesyncim/gopus/internal/libopustest"
 	"github.com/thesyncim/gopus/internal/rangecoding"
+	"math"
+	"testing"
 )
 
-// TestFixedQEXTMonoSurroundCELTResetMatchesLibopus keeps a small raw-CELT
-// witness for the multistream surround failure: two persistent mono frames,
-// followed by a state reset and two more frames. The channel mask is supplied
-// as Q24 so this test isolates the elementary encoder from outer analysis. The
-// selected archive has ENABLE_QEXT compiled in, while runtime QEXT stays off.
 func TestFixedQEXTMonoSurroundCELTResetMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 
@@ -101,4 +95,16 @@ func TestFixedQEXTMonoSurroundCELTResetMatchesLibopus(t *testing.T) {
 		}
 	}
 	t.Logf("matched %d raw mono Q8 frames (combined ENABLE_QEXT archive, runtime-off; reset at frame 2)", len(frames))
+}
+
+func fixedSurroundReferenceConfig() libopustest.CHelperConfig {
+	return libopustest.CHelperConfig{FixedQEXTRef: true}
+}
+
+func fixedSurroundReferenceArchive() string {
+	return libopustest.FixedQEXTRefPath(".libs", "libopus.a")
+}
+
+func fixedSurroundReferenceLabel() string {
+	return "FIXED_POINT+ENABLE_QEXT runtime-off"
 }

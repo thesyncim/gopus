@@ -508,6 +508,8 @@ func (e *Encoder) Error() int {
 // EncoderState captures the encoder state for save/restore operations.
 // This is used by theta RDO to try different quantization choices.
 type EncoderState struct {
+	// buf sits first so all scalar fields below live in the GC noscan tail.
+	buf        []byte
 	storage    uint32
 	offs       uint32
 	endOffs    uint32
@@ -519,10 +521,8 @@ type EncoderState struct {
 	rem        int32
 	ext        uint32
 	err        int32
+	bufOffs    uint32
 	shrunk     bool
-	// buf holds the packet bytes from bufOffs to storage.
-	bufOffs uint32
-	buf     []byte
 }
 
 // ReserveBufferCapacity reserves reusable storage for a future encoder

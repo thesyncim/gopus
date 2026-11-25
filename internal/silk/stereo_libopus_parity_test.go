@@ -2,15 +2,15 @@ package silk
 
 import (
 	"fmt"
-	"math"
-	"slices"
-	"testing"
-	"unsafe"
-
 	"github.com/thesyncim/gopus/internal/libopustest"
 	"github.com/thesyncim/gopus/internal/opusmath"
 	"github.com/thesyncim/gopus/internal/rangecoding"
 	"github.com/thesyncim/gopus/internal/testsignal"
+	"github.com/thesyncim/gopus/internal/util"
+	"math"
+	"slices"
+	"testing"
+	"unsafe"
 )
 
 const (
@@ -1050,4 +1050,637 @@ func stereoScaledRamp(n int, start, step, num, den int16) []int16 {
 		v += int32(step)
 	}
 	return out
+}
+
+func TestStereoLPFilter(t *testing.T) {
+	// Test the LP filter with a known input
+	// LP filter is [1,2,1]/4, so for constant input, output should equal input
+	signal := []int16{1000, 1000, 1000, 1000, 1000, 1000}
+	frameLength := 4
+
+	lp, hp := stereoLPFilter(signal, frameLength)
+
+	// For constant input, LP should equal input and HP should be 0
+	for i := range frameLength {
+		if lp[i] != 1000 {
+			t.Errorf("LP[%d] = %d, want 1000 (constant input)", i, lp[i])
+		}
+		if hp[i] != 0 {
+			t.Errorf("HP[%d] = %d, want 0 (constant input)", i, hp[i])
+		}
+	}
+}
+
+func TestStereoLPFilterImpulse(t *testing.T) {
+	// Test LP filter with an impulse
+	// Input: [0, 0, 4000, 0, 0]
+	// LP[0] = (0 + 2*0 + 4000 + 2) >> 2 = 1000
+	// LP[1] = (0 + 2*4000 + 0 + 2) >> 2 = 2000
+	// LP[2] = (4000 + 2*0 + 0 + 2) >> 2 = 1000
+	signal := []int16{0, 0, 4000, 0, 0}
+	frameLength := 3
+
+	lp, hp := stereoLPFilter(signal, frameLength)
+
+	expectedLP := []int16{1000, 2000, 1000}
+	for i := range frameLength {
+		if lp[i] != expectedLP[i] {
+			t.Errorf("LP[%d] = %d, want %d", i, lp[i], expectedLP[i])
+		}
+	}
+
+	// HP[n] = signal[n+1] - LP[n]
+	// HP[0] = 0 - 1000 = -1000
+	// HP[1] = 4000 - 2000 = 2000
+	// HP[2] = 0 - 1000 = -1000
+	expectedHP := []int16{-1000, 2000, -1000}
+	for i := range frameLength {
+		if hp[i] != expectedHP[i] {
+			t.Errorf("HP[%d] = %d, want %d", i, hp[i], expectedHP[i])
+		}
+	}
+}
+
+func TestStereoConvertLRToMS(t *testing.T) {
+	// Test L/R to M/S conversion
+	// M = (L + R) / 2
+	// S = (L - R) / 2
+	left := []int16{1000, 2000, 3000, 4000}
+	right := []int16{1000, 0, 1000, 2000}
+	mid := make([]int16, 4)
+	side := make([]int16, 4)
+
+	stereoConvertLRToMS(left[:2], right[:2], mid[:2], side[:2], 0)
+
+	// For first 2 samples:
+	// M[0] = (1000 + 1000) / 2 = 1000
+	// S[0] = (1000 - 1000) / 2 = 0
+	// M[1] = (2000 + 0) / 2 = 1000
+	// S[1] = (2000 - 0) / 2 = 1000
+
+	if mid[0] != 1000 {
+		t.Errorf("mid[0] = %d, want 1000", mid[0])
+	}
+	if side[0] != 0 {
+		t.Errorf("side[0] = %d, want 0", side[0])
+	}
+	if mid[1] != 1000 {
+		t.Errorf("mid[1] = %d, want 1000", mid[1])
+	}
+	if side[1] != 1000 {
+		t.Errorf("side[1] = %d, want 1000", side[1])
+	}
+}
+
+func TestIsqrt32(t *testing.T) {
+	tests := []struct {
+		input    uint32
+		expected uint32
+	}{
+		{0, 0},
+		{1, 1},
+		{4, 2},
+		{9, 3},
+		{16, 4},
+		{25, 5},
+		{100, 10},
+		{10000, 100},
+		{1000000, 1000},
+	}
+
+	for _, tt := range tests {
+		got := isqrt32(tt.input)
+		if got != tt.expected {
+			t.Errorf("isqrt32(%d) = %d, want %d", tt.input, got, tt.expected)
+		}
+	}
+}
+
+func TestSILKIsqrt32MatchesLibopusCELTOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
+	inputs := []uint32{
+		0, 1, 2, 3, 4, 15, 16, 17,
+		(1 << 16) - 1, 1 << 16, (1 << 16) + 1,
+		(1 << 24) - 1, 1 << 24, (1 << 24) + 1,
+		1000000, ^uint32(0) - 2, ^uint32(0) - 1, ^uint32(0),
+	}
+	want, err := libopustest.ProbeCELTMathWords(libopustest.CELTMathModeISqrt32, len(inputs), inputs)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "celt math", err)
+	}
+	for i, x := range inputs {
+		got := isqrt32(x)
+		if got != want[i] {
+			t.Fatalf("isqrt32(%d)=%d want %d", x, got, want[i])
+		}
+	}
+}
+
+func TestStereoLRToMSKeepsFilterHistory(t *testing.T) {
+	// silk_stereo_LR_to_MS carries the last two mid and side samples of a
+	// frame into the next one (sMid/sSide).
+	const frameLength = 320
+	buf0 := make([]int16, frameLength+2)
+	buf1 := make([]int16, frameLength+2)
+	for i := 2; i < frameLength+2; i++ {
+		buf0[i] = 16384
+		buf1[i] = 9830
+	}
+	var state stereoEncState
+	var scratch stereoLRToMSScratch
+	silkStereoLRToMS(&state, buf0, buf1, 32000, 200, false, 16, frameLength, &scratch)
+
+	wantMid := int16((16384 + 9830 + 1) >> 1)
+	wantSide := int16((16384 - 9830 + 1) >> 1)
+	if state.sMid != [2]int16{wantMid, wantMid} {
+		t.Errorf("sMid = %v, want [%d %d]", state.sMid, wantMid, wantMid)
+	}
+	if state.sSide != [2]int16{wantSide, wantSide} {
+		t.Errorf("sSide = %v, want [%d %d]", state.sSide, wantSide, wantSide)
+	}
+	// The mid output starts with the previous frame's history (zero here).
+	if buf0[0] != 0 || buf0[1] != 0 || buf0[2] != wantMid {
+		t.Errorf("mid = %v..., want [0 0 %d ...]", buf0[:3], wantMid)
+	}
+}
+
+func TestStereoLPFilterMatchesLibopus(t *testing.T) {
+	// Test that our LP filter matches the libopus implementation exactly
+	// libopus formula: sum = silk_RSHIFT_ROUND(silk_ADD_LSHIFT32(mid[n] + mid[n+2], mid[n+1], 1), 2)
+	// Which is: ((mid[n] + mid[n+2]) + (mid[n+1] << 1) + 2) >> 2
+	// = (mid[n] + 2*mid[n+1] + mid[n+2] + 2) / 4  (rounded)
+
+	testCases := []struct {
+		signal   []int16
+		expected []int16
+	}{
+		// Test case 1: Simple values
+		{[]int16{100, 200, 300, 400, 500}, []int16{200, 300, 400}},
+		// Test case 2: All same
+		{[]int16{1000, 1000, 1000, 1000, 1000}, []int16{1000, 1000, 1000}},
+		// Test case 3: Ramp
+		{[]int16{0, 100, 200, 300, 400}, []int16{100, 200, 300}},
+	}
+
+	for i, tc := range testCases {
+		lp, _ := stereoLPFilter(tc.signal, len(tc.expected))
+		for j, exp := range tc.expected {
+			if lp[j] != exp {
+				t.Errorf("Test %d: LP[%d] = %d, want %d", i, j, lp[j], exp)
+			}
+		}
+	}
+}
+
+func BenchmarkStereoLPFilter(b *testing.B) {
+	signal := make([]int16, 322) // 320 + 2 history
+	for i := range signal {
+		signal[i] = int16(i * 10)
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		stereoLPFilter(signal, 320)
+	}
+}
+
+func makeStereoTestFrame(frameLength, sampleRate int) (left, right []float32) {
+	left = make([]float32, frameLength)
+	right = make([]float32, frameLength)
+	for i := range frameLength {
+		tm := float64(i) / float64(sampleRate)
+		// Use distinct channels so side stays active and rate-split matters.
+		left[i] = 0.35 * float32(math.Sin(2*math.Pi*430.0*tm))
+		right[i] = 0.25*float32(math.Sin(2*math.Pi*910.0*tm+0.6)) + 0.10*left[i]
+	}
+	return left, right
+}
+
+// TestEncodeStereoAppliesPerChannelRateSplit checks that each channel's
+// silk_control_SNR runs at its share of the silk_stereo_LR_to_MS rate split
+// (silk/enc_API.c), and that the split follows the previous frame's speech
+// activity.
+func TestEncodeStereoAppliesPerChannelRateSplit(t *testing.T) {
+	const (
+		bw         = BandwidthWideband
+		sampleRate = 16000
+		frameLen   = 320 // 20 ms at 16 kHz
+		totalRate  = 32000
+	)
+	left, right := makeStereoTestFrame(frameLen, sampleRate)
+	pcm := interleaveStereo(left, right)
+
+	var mids [2]int32
+	for i, prevActivityQ8 := range []int32{0, 200} {
+		p := newTestPacketEncoder(bw, 2)
+		p.ctl.BitRate = totalRate
+		p.enc.state[0].speechActivityQ8 = prevActivityQ8
+		if pkt := p.encodeInto(t, pcm, 1); len(pkt) == 0 {
+			t.Fatal("encode stereo returned empty packet")
+		}
+		if p.enc.stereo.midOnlyFlags[0] != 0 {
+			t.Fatalf("activity %d: expected a frame with side coding", prevActivityQ8)
+		}
+		mid := p.enc.state[0].targetRateBps
+		side := p.enc.state[1].targetRateBps
+		if mid <= 0 || side <= 0 {
+			t.Fatalf("activity %d: invalid split mid=%d side=%d", prevActivityQ8, mid, side)
+		}
+		// The first packet targets the full rate; the split shares it less
+		// 600 bps for the stereo parameters of a 20 ms frame.
+		if mid+side != totalRate-600 {
+			t.Fatalf("activity %d: mid %d + side %d != %d", prevActivityQ8, mid, side, totalRate-600)
+		}
+		mids[i] = mid
+	}
+	if mids[0] == mids[1] {
+		t.Fatalf("rate split ignores the previous speech activity: mid=%d for both", mids[0])
+	}
+}
+
+func TestStereoUnmixBasic(t *testing.T) {
+	// Test basic mid-side to left-right conversion without prediction
+	mid := []float32{0.5, 0.5, 0.5, 0.5}
+	side := []float32{0.25, 0.25, 0.25, 0.25}
+	left := make([]float32, 4)
+	right := make([]float32, 4)
+
+	if err := stereoUnmix(mid, side, 0, 0, left, right); err != nil {
+		t.Fatalf("stereoUnmix failed: %v", err)
+	}
+
+	// L = M + S = 0.75
+	// R = M - S = 0.25
+	for i := range left {
+		if math.Abs(float64(left[i]-0.75)) > 0.001 {
+			t.Errorf("left[%d] = %f, want 0.75", i, left[i])
+		}
+		if math.Abs(float64(right[i]-0.25)) > 0.001 {
+			t.Errorf("right[%d] = %f, want 0.25", i, right[i])
+		}
+	}
+}
+
+func TestStereoUnmixZeroSide(t *testing.T) {
+	// Zero side channel should give L == R == M
+	mid := []float32{0.6, -0.3, 0.0, 0.8}
+	side := []float32{0.0, 0.0, 0.0, 0.0}
+	left := make([]float32, 4)
+	right := make([]float32, 4)
+
+	if err := stereoUnmix(mid, side, 0, 0, left, right); err != nil {
+		t.Fatalf("stereoUnmix failed: %v", err)
+	}
+
+	for i := range mid {
+		if math.Abs(float64(left[i]-mid[i])) > 0.001 {
+			t.Errorf("left[%d] = %f, want %f", i, left[i], mid[i])
+		}
+		if math.Abs(float64(right[i]-mid[i])) > 0.001 {
+			t.Errorf("right[%d] = %f, want %f", i, right[i], mid[i])
+		}
+	}
+}
+
+func TestStereoUnmixClamping(t *testing.T) {
+	// Test that output is clamped to [-1, 1]
+	mid := []float32{1.0, -1.0}
+	side := []float32{0.5, -0.5}
+	left := make([]float32, 2)
+	right := make([]float32, 2)
+
+	if err := stereoUnmix(mid, side, 0, 0, left, right); err != nil {
+		t.Fatalf("stereoUnmix failed: %v", err)
+	}
+
+	// L = 1.0 + 0.5 = 1.5 -> clamped to 1.0
+	if left[0] > 1.0 {
+		t.Errorf("left[0] = %f, should be clamped to 1.0", left[0])
+	}
+	// R = 1.0 - 0.5 = 0.5 (no clamp needed)
+	if math.Abs(float64(right[0]-0.5)) > 0.001 {
+		t.Errorf("right[0] = %f, want 0.5", right[0])
+	}
+
+	// L = -1.0 + -0.5 = -1.5 -> clamped to -1.0
+	if left[1] < -1.0 {
+		t.Errorf("left[1] = %f, should be clamped to -1.0", left[1])
+	}
+}
+
+func TestFrameDurationConversion(t *testing.T) {
+	tests := []struct {
+		tocFrameSize int
+		wantDuration FrameDuration
+	}{
+		{480, Frame10ms},
+		{960, Frame20ms},
+		{1920, Frame40ms},
+		{2880, Frame60ms},
+	}
+
+	for _, tt := range tests {
+		got := FrameDurationFromTOC(tt.tocFrameSize)
+		if got != tt.wantDuration {
+			t.Errorf("FrameDurationFromTOC(%d) = %d, want %d", tt.tocFrameSize, got, tt.wantDuration)
+		}
+	}
+}
+
+func TestSubframeCount(t *testing.T) {
+	tests := []struct {
+		duration FrameDuration
+		want     int
+	}{
+		{Frame10ms, 2},
+		{Frame20ms, 4},
+		{Frame40ms, 8},
+		{Frame60ms, 12},
+	}
+
+	for _, tt := range tests {
+		got := getSubframeCount(tt.duration)
+		if got != tt.want {
+			t.Errorf("getSubframeCount(%d) = %d, want %d", tt.duration, got, tt.want)
+		}
+	}
+}
+
+func TestFrameSamplesPerBandwidth(t *testing.T) {
+	// 20ms frame at different bandwidths
+	tests := []struct {
+		bandwidth   Bandwidth
+		wantSamples int
+	}{
+		{BandwidthNarrowband, 160}, // 8kHz * 0.02s
+		{BandwidthMediumband, 240}, // 12kHz * 0.02s
+		{BandwidthWideband, 320},   // 16kHz * 0.02s
+	}
+
+	for _, tt := range tests {
+		got := getFrameSamples(Frame20ms, tt.bandwidth)
+		if got != tt.wantSamples {
+			t.Errorf("getFrameSamples(20ms, %v) = %d, want %d", tt.bandwidth, got, tt.wantSamples)
+		}
+	}
+}
+
+func TestGet48kHzSamples(t *testing.T) {
+	tests := []struct {
+		duration    FrameDuration
+		wantSamples int
+	}{
+		{Frame10ms, 480},  // 10 * 48
+		{Frame20ms, 960},  // 20 * 48
+		{Frame40ms, 1920}, // 40 * 48
+		{Frame60ms, 2880}, // 60 * 48
+	}
+
+	for _, tt := range tests {
+		got := get48kHzSamples(tt.duration)
+		if got != tt.wantSamples {
+			t.Errorf("get48kHzSamples(%d) = %d, want %d", tt.duration, got, tt.wantSamples)
+		}
+	}
+}
+
+func TestIs40or60ms(t *testing.T) {
+	tests := []struct {
+		duration FrameDuration
+		want     bool
+	}{
+		{Frame10ms, false},
+		{Frame20ms, false},
+		{Frame40ms, true},
+		{Frame60ms, true},
+	}
+
+	for _, tt := range tests {
+		got := is40or60ms(tt.duration)
+		if got != tt.want {
+			t.Errorf("is40or60ms(%d) = %v, want %v", tt.duration, got, tt.want)
+		}
+	}
+}
+
+func TestSubBlockCount(t *testing.T) {
+	tests := []struct {
+		duration FrameDuration
+		want     int
+	}{
+		{Frame10ms, 1},
+		{Frame20ms, 1},
+		{Frame40ms, 2},
+		{Frame60ms, 3},
+	}
+
+	for _, tt := range tests {
+		got := getSubBlockCount(tt.duration)
+		if got != tt.want {
+			t.Errorf("getSubBlockCount(%d) = %d, want %d", tt.duration, got, tt.want)
+		}
+	}
+}
+
+func TestSamplesPerSubframe(t *testing.T) {
+	tests := []struct {
+		bandwidth   Bandwidth
+		wantSamples int
+	}{
+		{BandwidthNarrowband, 40}, // 8kHz * 5ms
+		{BandwidthMediumband, 60}, // 12kHz * 5ms
+		{BandwidthWideband, 80},   // 16kHz * 5ms
+	}
+
+	for _, tt := range tests {
+		got := getSamplesPerSubframe(tt.bandwidth)
+		if got != tt.wantSamples {
+			t.Errorf("getSamplesPerSubframe(%v) = %d, want %d", tt.bandwidth, got, tt.wantSamples)
+		}
+	}
+}
+
+func TestStereoPredWeights(t *testing.T) {
+	// Verify stereo prediction weight table from libopus is symmetric
+	// The table silk_stereo_pred_quant_Q13 has 16 entries
+	for i := range 8 {
+		// Weights should be symmetric around midpoint
+		if silk_stereo_pred_quant_Q13[i] != -silk_stereo_pred_quant_Q13[15-i] {
+			t.Errorf("silk_stereo_pred_quant_Q13[%d] = %d should be negative of silk_stereo_pred_quant_Q13[%d] = %d",
+				i, silk_stereo_pred_quant_Q13[i], 15-i, silk_stereo_pred_quant_Q13[15-i])
+		}
+	}
+}
+
+func TestStereoQuantPred80Levels(t *testing.T) {
+	// Test that silkStereoQuantPred produces valid indices for various Q13 values
+	testCases := []struct {
+		name    string
+		predQ13 [2]int32
+		wantIx0 [3]int8 // Expected ix[0] ranges: [0][0-2], [1][0-4], [2][0-4]
+		wantIx1 [3]int8 // Expected ix[1] ranges
+	}{
+		{
+			name:    "zero predictors",
+			predQ13: [2]int32{0, 0},
+		},
+		{
+			name:    "positive predictor",
+			predQ13: [2]int32{5000, 0},
+		},
+		{
+			name:    "negative predictor",
+			predQ13: [2]int32{-5000, 0},
+		},
+		{
+			name:    "both predictors",
+			predQ13: [2]int32{3000, -2000},
+		},
+		{
+			name:    "extreme positive",
+			predQ13: [2]int32{13732, 13732},
+		},
+		{
+			name:    "extreme negative",
+			predQ13: [2]int32{-13732, -13732},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			predQ13 := tc.predQ13
+			ix := silkStereoQuantPred(&predQ13)
+
+			// Verify index ranges
+			for n := range 2 {
+				if ix[n][0] < 0 || ix[n][0] > 2 {
+					t.Errorf("ix[%d][0] = %d, want [0, 2]", n, ix[n][0])
+				}
+				if ix[n][1] < 0 || ix[n][1] > 4 {
+					t.Errorf("ix[%d][1] = %d, want [0, 4]", n, ix[n][1])
+				}
+				if ix[n][2] < 0 || ix[n][2] > 4 {
+					t.Errorf("ix[%d][2] = %d, want [0, 4]", n, ix[n][2])
+				}
+			}
+
+			// Verify joint index is valid (< 25)
+			jointIdx := 5*int(ix[0][2]) + int(ix[1][2])
+			if jointIdx >= 25 {
+				t.Errorf("joint index = %d, want < 25", jointIdx)
+			}
+		})
+	}
+}
+
+func TestStereoQuantPredDeltaCoding(t *testing.T) {
+	// Test that delta coding is applied: predQ13[0] -= predQ13[1]
+	predQ13 := [2]int32{5000, 3000}
+	originalPred0 := predQ13[0]
+	originalPred1 := predQ13[1]
+
+	_ = silkStereoQuantPred(&predQ13)
+
+	// After quantization, predQ13[0] should be the quantized delta
+	// predQ13[1] should be the quantized second predictor
+	// The relationship: quantized_pred0_original = predQ13[0] + predQ13[1]
+
+	// We can't test exact values since quantization changes them,
+	// but we can verify the delta relationship holds approximately
+	reconstructedPred0 := predQ13[0] + predQ13[1]
+
+	// The reconstructed value should be close to the original (within quantization error)
+	// The quantization step is roughly (max-min)/80 levels
+	maxError := int32(2000) // Allow for quantization error
+
+	if util.Abs(reconstructedPred0-originalPred0) > maxError {
+		t.Errorf("reconstructed pred[0] = %d, original = %d, difference = %d exceeds max error %d",
+			reconstructedPred0, originalPred0, util.Abs(reconstructedPred0-originalPred0), maxError)
+	}
+	if util.Abs(predQ13[1]-originalPred1) > maxError {
+		t.Errorf("quantized pred[1] = %d, original = %d, difference = %d exceeds max error %d",
+			predQ13[1], originalPred1, util.Abs(predQ13[1]-originalPred1), maxError)
+	}
+}
+
+func TestStereoEncodePredRoundtrip(t *testing.T) {
+	// Test encoding stereo prediction indices
+	testCases := []struct {
+		name    string
+		predQ13 [2]int32
+	}{
+		{"zero", [2]int32{0, 0}},
+		{"positive", [2]int32{5000, 2000}},
+		{"negative", [2]int32{-5000, -2000}},
+		{"mixed", [2]int32{3000, -3000}},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Quantize
+			predQ13 := tc.predQ13
+			ix := silkStereoQuantPred(&predQ13)
+
+			// Encode to bitstream
+			buf := make([]byte, 100)
+			var enc rangecoding.Encoder
+			enc.Init(buf)
+			stereoEncodePred(&enc, ix)
+			encoded := enc.Done()
+
+			// Verify something was encoded (non-empty)
+			if len(encoded) == 0 {
+				t.Error("encoded data is empty")
+			}
+		})
+	}
+}
+
+func TestSmulwb(t *testing.T) {
+	// Test SMULWB: (a * int16(b)) >> 16
+	// Note: b is truncated to int16, so only bottom 16 bits are used
+	// int16 range is [-32768, 32767], so 32768 becomes -32768
+	testCases := []struct {
+		a, b int32
+		want int32
+	}{
+		// Using values that fit in int16 for b
+		{65536, 16384, 16384},   // 65536 * 16384 >> 16 = 16384
+		{65536, -16384, -16384}, // 65536 * -16384 >> 16 = -16384
+		{131072, 16384, 32768},  // 131072 * 16384 >> 16 = 32768
+		{-65536, 16384, -16384}, // -65536 * 16384 >> 16 = -16384
+		{0, 16384, 0},           // 0 * anything = 0
+		{65536, 0, 0},           // anything * 0 = 0
+		// Note: 32768 overflows int16 to -32768
+		{65536, 32768, -32768}, // 65536 * int16(32768)=-32768 >> 16 = -32768
+	}
+
+	for _, tc := range testCases {
+		got := smulwb(tc.a, tc.b)
+		if got != tc.want {
+			t.Errorf("smulwb(%d, %d) = %d, want %d", tc.a, tc.b, got, tc.want)
+		}
+	}
+}
+
+// TestInterpolationSamplesCount verifies the correct number of samples are interpolated.
+func TestInterpolationSamplesCount(t *testing.T) {
+	testCases := []struct {
+		fsKHz         int
+		wantInterpLen int
+	}{
+		{8, 64},   // 8kHz: 8ms * 8 = 64 samples
+		{12, 96},  // 12kHz: 8ms * 12 = 96 samples
+		{16, 128}, // 16kHz: 8ms * 16 = 128 samples
+	}
+
+	for _, tc := range testCases {
+		t.Run(fmt.Sprintf("%dkHz", tc.fsKHz), func(t *testing.T) {
+			interpLen := stereoInterpLenMs * tc.fsKHz
+			if interpLen != tc.wantInterpLen {
+				t.Errorf("Interpolation length for %dkHz: got %d, want %d",
+					tc.fsKHz, interpLen, tc.wantInterpLen)
+			}
+		})
+	}
 }

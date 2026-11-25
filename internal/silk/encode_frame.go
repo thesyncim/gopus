@@ -200,13 +200,13 @@ func (e *Encoder) encodeFrame(re *rangecoding.Encoder, condCoding int, maxBits i
 		frameIndices.LTPIndex[i] = ltpIndices[i]
 	}
 
-	gainsUnqQ16 := ensureInt32Slice(&e.scratchGainsUnqQ16, numSubframes)
+	gainsUnqQ16 := e.scratchGainsUnqQ16[:numSubframes]
 	for i := 0; i < numSubframes && i < len(gains); i++ {
 		gainsUnqQ16[i] = int32(gains[i] * 65536.0)
 	}
-	gainsQ16 := ensureInt32Slice(&e.scratchGainsQ16, numSubframes)
+	gainsQ16 := e.scratchGainsQ16[:numSubframes]
 	copy(gainsQ16, gainsUnqQ16)
-	gainIndices := ensureInt8Slice(&e.scratchGainInd, numSubframes)
+	gainIndices := e.scratchGainInd[:numSubframes]
 	lastGainIndexPrev := e.previousGainIndex
 	currentPrevInd := silkGainsQuantInto(gainIndices, gainsQ16, lastGainIndexPrev, condCoding == codeConditionally, numSubframes)
 	for i := 0; i < numSubframes; i++ {
@@ -616,14 +616,14 @@ func (e *Encoder) prefillFrame(in []int16) {
 
 func (e *Encoder) computeNSQExcitation(inputQ0 []int16, lpcQ12 []int16, predCoefQ12 []int16, nlsfInterpQ2 int, gainsQ16 []int32, pitchLags []int32, ltpCoeffs LTPCoeffsArray, ltpScaleQ14 int32, signalType, quantOffset, speechActivityQ8 int, noiseParams *NoiseShapeParams, seed, numSubframes, subframeSamples, frameSamples int, nsqState *NSQState) ([]int8, int) {
 	if len(gainsQ16) < numSubframes {
-		tmp := ensureInt32Slice(&e.scratchGainsQ16, numSubframes)
+		tmp := e.scratchGainsQ16[:numSubframes]
 		copy(tmp, gainsQ16)
 		for i := len(gainsQ16); i < numSubframes; i++ {
 			tmp[i] = 1 << 16
 		}
 		gainsQ16 = tmp
 	}
-	pitchL := ensureInt32Slice(&e.scratchPitchL, numSubframes)
+	pitchL := e.scratchPitchL[:numSubframes]
 	for i := range pitchL {
 		pitchL[i] = 0
 	}
@@ -689,9 +689,9 @@ func (e *Encoder) computeNSQExcitation(inputQ0 []int16, lpcQ12 []int16, predCoef
 		snrDB := float32(e.snrDBQ7) * (1.0 / 128.0)
 		noiseParams = e.noiseShapeState.ComputeNoiseShapeParams(signalType, speechActivityQ8, e.ltpCorr, pitchLags, snrDB, quantOffset, inputQualityBandsQ15, numSubframes, fsKHz, int(e.nStatesDelayedDecision))
 	}
-	harmShapeGainQ14 := ensureInt32Slice(&e.scratchHarmShapeGainQ14, numSubframes)
-	tiltQ14 := ensureInt32Slice(&e.scratchTiltQ14, numSubframes)
-	lfShpQ14 := ensureInt32Slice(&e.scratchLfShpQ14, numSubframes)
+	harmShapeGainQ14 := e.scratchHarmShapeGainQ14[:numSubframes]
+	tiltQ14 := e.scratchTiltQ14[:numSubframes]
+	lfShpQ14 := e.scratchLfShpQ14[:numSubframes]
 	copy(harmShapeGainQ14, noiseParams.HarmShapeGainQ14)
 	copy(tiltQ14, noiseParams.TiltQ14)
 	copy(lfShpQ14, noiseParams.LFShpQ14)

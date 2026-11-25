@@ -3,9 +3,8 @@
 package multistream
 
 import (
-	"testing"
-
 	"github.com/thesyncim/gopus/internal/libopustest"
+	"testing"
 )
 
 func TestFixedHybridQEXTPayloadMatchesSelectedLibopus(t *testing.T) {
@@ -75,4 +74,8 @@ func TestFixedHybridQEXTPayloadWarmZeroAllocs(t *testing.T) {
 	if allocs != 0 {
 		t.Fatalf("warm fixed Hybrid QEXT DecodeToResFixed allocs/op=%.2f, want 0", allocs)
 	}
+}
+
+func probeMultistreamNative96kReference(p libopustest.QEXTDecode96kParams) (libopustest.QEXTDecode96kResult, error) {
+	return libopustest.ProbeQEXTDecodeFixed(p)
 }

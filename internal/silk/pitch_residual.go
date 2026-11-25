@@ -285,11 +285,11 @@ func (e *Encoder) computePitchResidual(numSubframes int) ([]float32, int, int, p
 		copy(Wsig, xBufPtr)
 	}
 
-	autoCorr := ensureFloat32Slice(&e.scratchPitchAuto32, order+1)
+	autoCorr := e.scratchPitchAuto32[:order+1]
 	autocorrelationF32(autoCorr, Wsig, pitchWinLen, order+1)
 	autoCorr[0] += autoCorr[0]*float32(findPitchWhiteNoiseFraction) + 1.0
 
-	refl := ensureFloat32Slice(&e.scratchPitchRefl32, order)
+	refl := e.scratchPitchRefl32[:order]
 	resNrg := schurF32(refl, autoCorr, order)
 
 	// Prediction gain (matching libopus silk_find_pitch_lags_FLP)
@@ -307,7 +307,7 @@ func (e *Encoder) computePitchResidual(numSubframes int) ([]float32, int, int, p
 		resNrg:    resNrg,
 	}
 
-	a := ensureFloat32Slice(&e.scratchPitchA32, order)
+	a := e.scratchPitchA32[:order]
 	for i := range a {
 		a[i] = 0
 	}

@@ -1,34 +1,14 @@
 //go:build gopus_osce
 
-// ctl_sequence_extra_controls_test.go fuzzes the gopus_osce-gated CTLs
-// (encoder OPUS_SET/GET_DRED_DURATION, decoder OPUS_SET/GET_OSCE_BWE and the
-// OSCE LACE activation) for get-after-set and boundary-validation parity with
-// the libopus #ifdef-gated semantics.
-//
-// The default float libopus reference (RefPath) compiles these CTLs out
-// (config.h leaves ENABLE_DRED / ENABLE_OSCE_BWE undefined), so the generic
-// ctl-sequence oracle cannot stand in here. Instead the libopus-documented
-// behaviour is asserted inline, citing the reference source:
-//
-//   - OPUS_SET_DRED_DURATION (opus_encoder.c): "if(value<0 || value>DRED_MAX_FRAMES)
-//     goto bad_arg; st->dred_duration = value". DRED_MAX_FRAMES = 4*DRED_MAX_LATENTS
-//     = 4*26 = 104 (dnn/dred_config.h), which equals internal/dred.MaxFrames.
-//   - OPUS_SET_OSCE_BWE (opus_decoder.c): "if(value<0 || value>1) goto bad_arg;
-//     st->DecControl.enable_osce_bwe = value". The gopus setter takes a bool, so
-//     the {0,1} validation is enforced by the type; round-trip is asserted here.
-
 package gopus
 
 import (
+	internaldred "github.com/thesyncim/gopus/internal/dred"
+	"github.com/thesyncim/gopus/internal/extsupport"
 	"math/rand"
 	"testing"
-
-	internaldred "github.com/thesyncim/gopus/internal/dred"
 )
 
-// TestEncoderCTLSequence_DREDDurationFuzz drives seeded DRED-duration SET/GET
-// programs (with boundary / out-of-range values) and asserts the validation
-// boundary and get-after-set match libopus OPUS_SET/GET_DRED_DURATION.
 func TestEncoderCTLSequence_DREDDurationFuzz(t *testing.T) {
 	const dredMaxFrames = 104 // libopus DRED_MAX_FRAMES = 4*DRED_MAX_LATENTS
 	if internaldred.MaxFrames != dredMaxFrames {
@@ -111,5 +91,103 @@ func TestDecoderCTLSequence_OSCERoundTrip(t *testing.T) {
 		if gotLACE != wantLACE {
 			t.Fatalf("step %d: OSCELACE()=%v, want %v", step, gotLACE, wantLACE)
 		}
+	}
+}
+
+func TestExtraControlsBuildExposesTopLevelControls(t *testing.T) {
+	enc := mustNewTestEncoder(t, 48000, 2, ApplicationAudio)
+	assertOptionalEncoderControls(t, enc)
+	qext, qextOK := any(enc).(qextEncoderControl)
+	if extsupport.QEXT {
+		if !qextOK {
+			t.Fatal("QEXT build does not expose encoder QEXT control")
+		}
+		assertSupportedQEXTControl(t, qext)
+	} else if qextOK {
+		t.Fatal("non-QEXT build unexpectedly exposes encoder QEXT control")
+	}
+	dred, ok := any(enc).(extraDREDControl)
+	if !ok {
+		t.Fatal("extra-controls build does not expose encoder DRED control")
+	}
+	assertWorkingDREDControl(t, dred)
+	if !enc.enc.DREDModelLoaded() {
+		t.Fatal("top-level encoder SetDNNBlob did not propagate DRED-capable blob to the core encoder")
+	}
+
+	dec := newMonoTestDecoder(t)
+	assertOptionalDecoderControls(t, dec)
+	osce, ok := any(dec).(extraOSCEBWEControl)
+	if !ok {
+		t.Fatal("extra-controls build does not expose decoder OSCE BWE control")
+	}
+	assertWorkingOSCEBWEControl(t, osce)
+	lace, ok := any(dec).(extraOSCELACEControl)
+	if !ok {
+		t.Fatal("extra-controls build does not expose decoder OSCE LACE control")
+	}
+	assertWorkingOSCELACEControl(t, lace)
+	standaloneDRED := NewDREDDecoder()
+	if standaloneDRED == nil {
+		t.Fatal("NewDREDDecoder returned nil")
+	}
+	if err := standaloneDRED.SetDNNBlob(makeValidDREDDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("standalone DRED SetDNNBlob error: %v", err)
+	}
+	if !standaloneDRED.ModelLoaded() {
+		t.Fatal("standalone DRED decoder did not retain model blob")
+	}
+	if dredState := NewDRED(); dredState == nil {
+		t.Fatal("NewDRED returned nil")
+	}
+
+	msEnc := mustNewDefaultMultistreamEncoder(t, 48000, 2, ApplicationAudio)
+	assertOptionalEncoderControls(t, msEnc)
+	msQEXT, msQEXTOK := any(msEnc).(qextEncoderControl)
+	if extsupport.QEXT {
+		if !msQEXTOK {
+			t.Fatal("QEXT build does not expose multistream encoder QEXT control")
+		}
+		assertSupportedQEXTControl(t, msQEXT)
+	} else if msQEXTOK {
+		t.Fatal("non-QEXT build unexpectedly exposes multistream encoder QEXT control")
+	}
+	msDred, ok := any(msEnc).(extraDREDControl)
+	if !ok {
+		t.Fatal("extra-controls build does not expose multistream encoder DRED control")
+	}
+	assertWorkingDREDControl(t, msDred)
+	if !msEnc.enc.DREDModelLoaded() {
+		t.Fatal("top-level multistream encoder SetDNNBlob did not propagate DRED-capable blob to child encoders")
+	}
+
+	msDec := mustNewDefaultMultistreamDecoder(t, 48000, 2)
+	assertOptionalDecoderControls(t, msDec)
+	msOSCE, ok := any(msDec).(extraOSCEBWEControl)
+	if !ok {
+		t.Fatal("extra-controls build does not expose multistream decoder OSCE BWE control")
+	}
+	assertWorkingOSCEBWEControl(t, msOSCE)
+	msLACE, ok := any(msDec).(extraOSCELACEControl)
+	if !ok {
+		t.Fatal("extra-controls build does not expose multistream decoder OSCE LACE control")
+	}
+	assertWorkingOSCELACEControl(t, msLACE)
+}
+
+func assertWorkingOSCELACEControl(t *testing.T, dec extraOSCELACEControl) {
+	t.Helper()
+
+	if err := dec.SetOSCELACE(true); err != nil {
+		t.Fatalf("SetOSCELACE(true) error: %v", err)
+	}
+	if got, err := dec.OSCELACE(); err != nil || !got {
+		t.Fatalf("OSCELACE()=(%v,%v) want=(true,nil)", got, err)
+	}
+	if err := dec.SetOSCELACE(false); err != nil {
+		t.Fatalf("SetOSCELACE(false) error: %v", err)
+	}
+	if got, err := dec.OSCELACE(); err != nil || got {
+		t.Fatalf("OSCELACE()=(%v,%v) want=(false,nil)", got, err)
 	}
 }

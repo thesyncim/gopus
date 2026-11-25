@@ -40,17 +40,17 @@ func (e *Encoder) quantizeLSF(lsfQ15 []int16, bandwidth Bandwidth, signalType in
 	}
 
 	// Compute NLSF weights (Laroia)
-	wQ2 := ensureInt16Slice(&e.scratchNLSFWeights, order)
+	wQ2 := e.scratchNLSFWeights[:order]
 	silkNLSFWeightsLaroia(wQ2, lsfQ15, order)
 
 	// Update weights if interpolation is used
 	if interpIdx < 4 && !e.firstFrameAfterReset {
-		nlsf0 := ensureInt16Slice(&e.scratchNLSFTempQ15, order)
+		nlsf0 := e.scratchNLSFTempQ15[:order]
 		for i := range order {
 			diff := int32(lsfQ15[i]) - int32(e.prevLSFQ15[i])
 			nlsf0[i] = int16(int32(e.prevLSFQ15[i]) + (int32(interpIdx) * diff >> 2))
 		}
-		w0Q2 := ensureInt16Slice(&e.scratchNLSFWeightsTmp, order)
+		w0Q2 := e.scratchNLSFWeightsTmp[:order]
 		silkNLSFWeightsLaroia(w0Q2, nlsf0, order)
 
 		iSqrQ15 := int32(silkLSHIFT(silkSMULBB(int32(interpIdx), int32(interpIdx)), 11))
@@ -105,17 +105,17 @@ func (e *Encoder) quantizeLSFWithInterp(lsfQ15 []int16, bandwidth Bandwidth, sig
 	}
 
 	// Compute NLSF weights (Laroia)
-	wQ2 := ensureInt16Slice(&e.scratchNLSFWeights, order)
+	wQ2 := e.scratchNLSFWeights[:order]
 	silkNLSFWeightsLaroia(wQ2, lsfQ15, order)
 
 	// Update weights if interpolation is used
 	if interpIdx < 4 && !e.firstFrameAfterReset {
-		nlsf0 := ensureInt16Slice(&e.scratchNLSFTempQ15, order)
+		nlsf0 := e.scratchNLSFTempQ15[:order]
 		for i := range order {
 			diff := int32(lsfQ15[i]) - int32(e.prevLSFQ15[i])
 			nlsf0[i] = int16(int32(e.prevLSFQ15[i]) + (int32(interpIdx) * diff >> 2))
 		}
-		w0Q2 := ensureInt16Slice(&e.scratchNLSFWeightsTmp, order)
+		w0Q2 := e.scratchNLSFWeightsTmp[:order]
 		silkNLSFWeightsLaroia(w0Q2, nlsf0, order)
 
 		iSqrQ15 := int32(silkLSHIFT(silkSMULBB(int32(interpIdx), int32(interpIdx)), 11))
@@ -214,9 +214,9 @@ func (e *Encoder) decodeQuantizedNLSF(stage1Idx int, residuals []int32, bandwidt
 	}
 
 	order := int(cb.order)
-	nlsfQ15 := ensureInt16Slice(&e.scratchLSFQ15, order)
+	nlsfQ15 := e.scratchLSFQ15[:order]
 
-	indices := ensureInt8Slice(&e.scratchNLSFIndices, order+1)
+	indices := e.scratchNLSFIndices[:order+1]
 	indices[0] = int8(stage1Idx)
 	for i := range order {
 		if i < len(residuals) {
@@ -226,9 +226,9 @@ func (e *Encoder) decodeQuantizedNLSF(stage1Idx int, residuals []int32, bandwidt
 		}
 	}
 
-	ecIx := ensureInt16Slice(&e.scratchEcIx, order)
-	predQ8 := ensureUint8Slice(&e.scratchPredQ8, order)
-	resQ10 := ensureInt16Slice(&e.scratchResQ10, order)
+	ecIx := e.scratchEcIx[:order]
+	predQ8 := e.scratchPredQ8[:order]
+	resQ10 := e.scratchResQ10[:order]
 	silkNLSFDecodeInto(nlsfQ15, indices, cb, ecIx, predQ8, resQ10)
 
 	return nlsfQ15
@@ -310,8 +310,8 @@ func (e *Encoder) encodeLSF(stage1Idx int, residuals []int32, interpIdx int, ban
 	e.rangeEncoder.EncodeICDF(stage1Idx, cb.cb1ICDF[cb1Offset:], 8)
 
 	// Get ecIx for stage 2 encoding (same as silkNLSFUnpack) using scratch buffers
-	ecIx := ensureInt16Slice(&e.scratchEcIx, order)
-	predQ8 := ensureUint8Slice(&e.scratchPredQ8, order)
+	ecIx := e.scratchEcIx[:order]
+	predQ8 := e.scratchPredQ8[:order]
 	silkNLSFUnpack(ecIx, predQ8, cb, stage1Idx)
 
 	// Encode stage 2 residuals for each coefficient.

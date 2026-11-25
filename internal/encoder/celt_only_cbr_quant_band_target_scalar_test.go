@@ -8,3 +8,6 @@ const celtOnlyCBRQuantTraceFrame = 0
 const celtOnlyCBRQuantTraceN = 64
 const celtOnlyCBRQuantTraceLM = 3
 const celtOnlyCBRQuantTraceDualStereoShape = false
+
+const celtOnlyCBRSelectedFrame = 0
+const celtOnlyCBRQuantTraceBand = 17

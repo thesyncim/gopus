@@ -50,3 +50,5 @@ func (d *Decoder) resetFixedQEXTCELT() {}
 func (d *Decoder) invalidateFixedQEXTCELT() {}
 
 func (d *Decoder) setFixedQEXTPhaseInversionDisabled(bool) {}
+
+type decoderFixedQEXTFields struct{}
