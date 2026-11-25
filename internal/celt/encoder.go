@@ -56,12 +56,14 @@ type Encoder struct {
 	encodeStageTrace encodeStageTraceState
 	scratchShape     encodeScratchShape
 
-	// Pointer-bearing scratch structs and dynamic allocation result
-	scratch         encoderScratch
-	bandEncScratch  bandEncodeScratch
+	// Pointer-bearing scratch structs and dynamic allocation result.
+	// scratch sits last so its embedded rangeEncoder's scalar tail merges into
+	// Encoder's noscan tail.
+	lastDynalloc    DynallocResult
 	tonalityScratch tonalityScratch
 	dynallocScratch DynallocScratch
-	lastDynalloc    DynallocResult
+	bandEncScratch  bandEncodeScratch
+	scratch         encoderScratch
 
 	// --- Pointer-free (noscan) tail ---
 

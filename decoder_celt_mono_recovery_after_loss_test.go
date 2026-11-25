@@ -8,21 +8,6 @@ import (
 	"testing"
 )
 
-// TestCELTMonoRecoveryAfterLongGapMatchesLibopus is the focused regression for a
-// mono CELT loss-recovery path: libopus keeps the right-channel energy slot as a
-// per-frame shadow copy of the left channel
-// (`if (C==1) OPUS_COPY(&oldBandE[nbEBands], oldBandE, nbEBands)`), and the
-// loss-recovery prediction folds it back in
-// (`oldBandE[i] = MAXG(oldBandE[i], oldBandE[nbEBands+i])`). Over a long
-// concealment gap the noise PLC decays only the left channel; the recovery frame
-// then folds the undecayed right shadow back into the coarse-energy prediction
-// base. The decoder keeps the same shadow slot through concealment and recovery.
-//
-// The decode plan replays the libopus opus_demo loss-recovery model against the
-// stateful single-decoder oracle (libopus_refdecode_single.c). Short bursts stay
-// in periodic PLC (which does not touch oldBandE) and remain bit-exact;
-// long gaps cross into noise PLC and are the regressors. Both the per-step final
-// range (integer entropy state) and the decoded PCM are asserted.
 func TestCELTMonoRecoveryAfterLongGapMatchesLibopus(t *testing.T) {
 	requireLibopusAPIRateRefdecodeHelper(t)
 
@@ -204,4 +189,8 @@ func buildCELTLossPlan(packets [][]byte, mask []bool) ([]libopusAPIRateDecodeSte
 		lost = 0
 	}
 	return steps, recoveryStepIdx
+}
+
+func privateFloatCELTAPIRateReferenceHelperPath() (string, error) {
+	return apiRateReferenceHelperPath()
 }

@@ -44,11 +44,6 @@ func dynallocImportanceFromFollower(follower float32) int32 {
 // DynallocResult contains the output of dynalloc_analysis.
 // These values are used for VBR target computation and bit allocation.
 type DynallocResult struct {
-	// MaxDepth is the maximum signal level relative to noise floor (in dB).
-	// Used for floor_depth calculation in VBR.
-	// Reference: libopus celt_encoder.c lines 1682-1693
-	MaxDepth celtGLog
-
 	// Offsets contains per-band allocation offsets for dynamic bit allocation.
 	// Bands with high energy variance get extra bits.
 	Offsets []int32
@@ -60,6 +55,11 @@ type DynallocResult struct {
 	// Importance contains per-band importance values (0-13 typically).
 	// Used for bit allocation prioritization.
 	Importance []int32
+
+	// MaxDepth is the maximum signal level relative to noise floor (in dB).
+	// Used for floor_depth calculation in VBR.
+	// Reference: libopus celt_encoder.c lines 1682-1693
+	MaxDepth celtGLog
 
 	// TotBoost is the total boost in bits (Q3 format).
 	// Represents extra bits allocated beyond base target.

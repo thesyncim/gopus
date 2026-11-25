@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"testing"
 
-	gopus "github.com/thesyncim/gopus"
+	"github.com/thesyncim/gopus"
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
 

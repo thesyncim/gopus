@@ -7,9 +7,6 @@ import (
 	"testing"
 )
 
-// encodeAPIRateHybridPacketFrameSizeVariant encodes a single Hybrid frame whose
-// content varies with the variant seed, so successive frames have distinct
-// payloads and exercise cross-frame integer Hybrid state.
 func encodeAPIRateHybridPacketFrameSizeVariant(t *testing.T, channels, frameSize, variant int) []byte {
 	t.Helper()
 	const sampleRate = 48000
@@ -57,4 +54,8 @@ func encodeAPIRateHybridPacketFrameSizeVariant(t *testing.T, channels, frameSize
 		t.Fatalf("Encode: %v", err)
 	}
 	return packet
+}
+
+func apiRateReferenceHelperPath() (string, error) {
+	return getFixedRefdecodeHelperPath()
 }

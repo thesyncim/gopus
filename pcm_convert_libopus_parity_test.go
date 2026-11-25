@@ -2,12 +2,12 @@ package gopus
 
 import (
 	"fmt"
-	"math"
-	"runtime"
-	"testing"
-
 	"github.com/thesyncim/gopus/internal/libopustest"
 	"github.com/thesyncim/gopus/internal/opusmath"
+	"math"
+	"runtime"
+	"strconv"
+	"testing"
 )
 
 func probeLibopusFloatQuant(mode uint32, samples []float32) ([]int16, error) {
@@ -217,5 +217,143 @@ func TestFloat32ToInt16NoSoftClipOutOfRangeMatchesLibopusDispatch(t *testing.T) 
 		if got[i] != want[i] {
 			t.Fatalf("sample[%d]=%d want %d input=%0.10g", i, got[i], want[i], samples[i])
 		}
+	}
+}
+
+func TestConvertFloat32ToInt16Unit(t *testing.T) {
+	src := []float32{
+		-1, -0.875, -0.75, -0.5,
+		-1.5 / 32768, -0.5 / 32768, 0, 0.5 / 32768,
+		1.5 / 32768, 0.125, 0.25, 0.5,
+		0.75, 0.875, 0.99999, 1,
+		-0.25, -0.125, 0.33325, -0.33325,
+	}
+	dst := make([]int16, len(src))
+	ok := convertFloat32ToInt16Unit(dst, src, len(src))
+	if runtime.GOARCH != "arm64" {
+		if ok {
+			t.Fatal("default conversion unexpectedly handled the vector")
+		}
+		return
+	}
+	if !ok {
+		t.Fatal("arm64 conversion rejected in-range samples")
+	}
+	for i, v := range src {
+		want := float32ToInt16(v)
+		if pcmInt16VectorTiesAway && i < len(src)&^15 {
+			// celt_float2int16_neon uses FCVTAS for complete 16-sample
+			// blocks and FCVTNS for the remainder.
+			rounded := int32(math.Round(float64(v * 32768)))
+			want = int16(max(-32768, min(32767, rounded)))
+		}
+		if dst[i] != want {
+			t.Fatalf("dst[%d] = %d, want %d", i, dst[i], want)
+		}
+	}
+
+	outOfRange := append([]float32(nil), src...)
+	outOfRange[8] = 1.01
+	if convertFloat32ToInt16Unit(make([]int16, len(outOfRange)), outOfRange, len(outOfRange)) {
+		t.Fatal("arm64 conversion accepted out-of-range samples")
+	}
+}
+
+func TestConvertFloat32ToInt16UnitRejectsEveryInvalidVectorLane(t *testing.T) {
+	if runtime.GOARCH != "arm64" {
+		t.Skip("unit SIMD conversion is arm64-only")
+	}
+	const n = 16
+	valid := make([]float32, n)
+	for i := range valid {
+		valid[i] = 0.5
+	}
+	if !convertFloat32ToInt16Unit(make([]int16, n), valid, n) {
+		t.Fatal("unit conversion rejected a fully valid vector")
+	}
+
+	invalidValues := []struct {
+		name  string
+		value float32
+	}{
+		{name: "above-one", value: math.Nextafter32(1, float32(math.Inf(1)))},
+		{name: "below-minus-one", value: math.Nextafter32(-1, float32(math.Inf(-1)))},
+		{name: "positive-infinity", value: float32(math.Inf(1))},
+		{name: "negative-infinity", value: float32(math.Inf(-1))},
+		{name: "quiet-nan", value: math.Float32frombits(0x7fc12345)},
+		{name: "signaling-nan", value: math.Float32frombits(0x7fa12345)},
+	}
+	for _, invalid := range invalidValues {
+		for lane := 0; lane < n; lane++ {
+			t.Run(invalid.name+"/lane_"+strconv.Itoa(lane), func(t *testing.T) {
+				src := append([]float32(nil), valid...)
+				src[lane] = invalid.value
+				if convertFloat32ToInt16Unit(make([]int16, n), src, n) {
+					t.Fatalf("accepted %s in lane %d", invalid.name, lane)
+				}
+			})
+		}
+	}
+}
+
+func TestFloat32ToInt16OpusRoundingFixture(t *testing.T) {
+	tests := []struct {
+		name string
+		in   float32
+		want int16
+	}{
+		{name: "-one", in: -1, want: -32768},
+		{name: "negative clamp below minus one", in: math.Nextafter32(-1, float32(math.Inf(-1))), want: -32768},
+		{name: "negative clamp just above minus one", in: math.Nextafter32(-1, 0), want: -32768},
+		{name: "-1.5/32768 tie to even", in: float32(-1.5 / 32768.0), want: -2},
+		{name: "-0.5/32768 tie to even", in: float32(-0.5 / 32768.0), want: 0},
+		{name: "zero", in: 0, want: 0},
+		{name: "0.5/32768 tie to even", in: float32(0.5 / 32768.0), want: 0},
+		{name: "1.5/32768 tie to even", in: float32(1.5 / 32768.0), want: 2},
+		{name: "positive max exact", in: float32(32767.0 / 32768.0), want: 32767},
+		{name: "positive clamp at one", in: 1, want: 32767},
+		{name: "positive clamp above one", in: math.Nextafter32(1, float32(math.Inf(1))), want: 32767},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := float32ToInt16(tc.in); got != tc.want {
+				t.Fatalf("float32ToInt16(%0.10g) = %d, want %d", tc.in, got, tc.want)
+			}
+			if got := opusmath.Float32ToInt16(tc.in); got != tc.want {
+				t.Fatalf("opusmath.Float32ToInt16(%0.10g) = %d, want %d", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestFloat32ToInt16OpusRoundingBitNeighbors(t *testing.T) {
+	tests := []struct {
+		name string
+		base float32
+		want [3]int16
+	}{
+		{name: "-1.5/32768", base: float32(-1.5 / 32768.0), want: [3]int16{-2, -2, -1}},
+		{name: "-0.5/32768", base: float32(-0.5 / 32768.0), want: [3]int16{-1, 0, 0}},
+		{name: "0.5/32768", base: float32(0.5 / 32768.0), want: [3]int16{0, 0, 1}},
+		{name: "1.5/32768", base: float32(1.5 / 32768.0), want: [3]int16{1, 2, 2}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			samples := []float32{
+				math.Nextafter32(tc.base, float32(math.Inf(-1))),
+				tc.base,
+				math.Nextafter32(tc.base, float32(math.Inf(1))),
+			}
+			for i, sample := range samples {
+				if got := float32ToInt16(sample); got != tc.want[i] {
+					t.Fatalf("float32ToInt16 neighbor %d (%0.10g) = %d, want %d", i, sample, got, tc.want[i])
+				}
+				if got := opusmath.Float32ToInt16(sample); got != tc.want[i] {
+					t.Fatalf("opusmath.Float32ToInt16 neighbor %d (%0.10g) = %d, want %d", i, sample, got, tc.want[i])
+				}
+			}
+		})
 	}
 }
