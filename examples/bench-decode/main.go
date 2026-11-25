@@ -70,11 +70,10 @@ func run() error {
 		return errors.New("-batch must be >= 1")
 	}
 
-	data, label, _, cleanup, err := loadInput(*input, *url, *sample)
+	data, label, err := loadInput(*input, *url, *sample)
 	if err != nil {
 		return fmt.Errorf("load input failed: %w", err)
 	}
-	defer cleanup()
 
 	fmt.Printf("Input: %s\n", label)
 	fmt.Printf("Batch: %d full-stream repeats per timed iteration\n", *batch)
@@ -131,45 +130,31 @@ func run() error {
 	return nil
 }
 
-func loadInput(inputPath, urlValue, sample string) ([]byte, string, string, func(), error) {
+func loadInput(inputPath, urlValue, sample string) ([]byte, string, error) {
 	inputPath = strings.TrimSpace(inputPath)
 	urlValue = strings.TrimSpace(urlValue)
 
 	if inputPath != "" {
 		data, err := os.ReadFile(inputPath)
 		if err != nil {
-			return nil, "", "", nil, err
+			return nil, "", err
 		}
-		return data, inputPath, inputPath, func() {}, nil
+		return data, inputPath, nil
 	}
 
 	if urlValue == "" {
 		resolved, err := resolveSampleURL(sample)
 		if err != nil {
-			return nil, "", "", nil, err
+			return nil, "", err
 		}
 		urlValue = resolved
 	}
 
 	data, err := downloadBytes(urlValue)
 	if err != nil {
-		return nil, "", "", nil, err
+		return nil, "", err
 	}
-
-	tmp, err := os.CreateTemp("", "gopus_bench_*.opus")
-	if err != nil {
-		return nil, "", "", nil, err
-	}
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmp.Name())
-		return nil, "", "", nil, err
-	}
-	_ = tmp.Close()
-	label := urlValue
-
-	cleanup := func() { _ = os.Remove(tmp.Name()) }
-	return data, label, tmp.Name(), cleanup, nil
+	return data, urlValue, nil
 }
 
 func resolveSampleURL(name string) (string, error) {

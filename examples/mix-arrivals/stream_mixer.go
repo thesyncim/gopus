@@ -174,6 +174,11 @@ func (m *StreamMixer) PushFrame(trackID string, startSample int64, pcm []float32
 		return fmt.Errorf("pcm length (%d) is not aligned to %d channels", len(pcm), m.channels)
 	}
 
+	tr, ok := m.tracks[trackID]
+	if !ok {
+		return ErrUnknownTrack
+	}
+
 	frameSamples := int64(len(pcm) / m.channels)
 	endSample := startSample + frameSamples
 	if endSample <= m.cursor {
@@ -188,11 +193,6 @@ func (m *StreamMixer) PushFrame(trackID string, startSample int64, pcm []float32
 	segmentPCM := make([]float32, len(pcm))
 	copy(segmentPCM, pcm)
 	seg := streamSegment{startSample: startSample, pcm: segmentPCM}
-
-	tr, ok := m.tracks[trackID]
-	if !ok {
-		return ErrUnknownTrack
-	}
 	idx := sort.Search(len(tr.queue), func(i int) bool {
 		return tr.queue[i].startSample > startSample
 	})

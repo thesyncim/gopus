@@ -162,8 +162,8 @@ func encodeFrames(n int) ([][]byte, error) {
 	}
 
 	packets := make([][]byte, n)
+	pcm := make([]float32, frameSize*channels)
 	for f := range n {
-		pcm := make([]float32, frameSize*channels)
 		for i := range pcm {
 			t := float64(f*frameSize+i) / sampleRate
 			pcm[i] = float32(0.4 * math.Sin(2*math.Pi*440*t))

@@ -29,7 +29,7 @@ const channels = 1
 
 func main() {
 	fmt.Println("=== Encode/decode int16 PCM at several sample rates ===")
-	for _, rate := range []int{8000, 16000, 24000, 48000} {
+	for _, rate := range []int{8000, 12000, 16000, 24000, 48000} {
 		frame := rate / 50 // 20 ms at this rate
 		decoded, err := roundtripInt16(rate, frame)
 		if err != nil {
@@ -62,12 +62,13 @@ func roundtripInt16(sampleRate, frameSize int) (int, error) {
 	for i := range pcm {
 		pcm[i] = int16(0.4 * 32767 * math.Sin(2*math.Pi*440*float64(i)/float64(sampleRate)))
 	}
-	packet, err := enc.EncodeInt16Slice(pcm)
+	cfg := gopus.DefaultDecoderConfig(sampleRate, channels)
+	packetBuf := make([]byte, cfg.MaxPacketBytes)
+	pktLen, err := enc.EncodeInt16(pcm, packetBuf)
 	if err != nil {
 		return 0, fmt.Errorf("encode: %w", err)
 	}
 
-	cfg := gopus.DefaultDecoderConfig(sampleRate, channels)
 	dec, err := gopus.NewDecoder(cfg)
 	if err != nil {
 		return 0, fmt.Errorf("new decoder: %w", err)
@@ -76,7 +77,7 @@ func roundtripInt16(sampleRate, frameSize int) (int, error) {
 	// DecodeInt16 writes int16 samples directly; size the buffer for the largest
 	// frame at this rate (MaxPacketSamples is expressed per channel at the API rate).
 	pcmOut := make([]int16, cfg.MaxPacketSamples*cfg.Channels)
-	n, err := dec.DecodeInt16(packet, pcmOut)
+	n, err := dec.DecodeInt16(packetBuf[:pktLen], pcmOut)
 	if err != nil {
 		return 0, fmt.Errorf("decode: %w", err)
 	}

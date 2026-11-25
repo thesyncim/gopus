@@ -510,6 +510,7 @@ func playSourceWithFFplay(inputPath, url string) error {
 type pcmPlayer struct {
 	cmd   *exec.Cmd
 	stdin io.WriteCloser
+	buf   []byte
 }
 
 func newPCMPlayer(channels int) (*pcmPlayer, error) {
@@ -550,7 +551,11 @@ func (p *pcmPlayer) WriteSamples(samples []float32) error {
 	if len(samples) == 0 {
 		return nil
 	}
-	buf := make([]byte, len(samples)*2)
+	needed := len(samples) * 2
+	if cap(p.buf) < needed {
+		p.buf = make([]byte, needed)
+	}
+	buf := p.buf[:needed]
 	for i, s := range samples {
 		scaled := float64(s) * 32768.0
 		if scaled > 32767.0 {

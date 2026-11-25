@@ -28,6 +28,7 @@ var (
 // Writer writes signed 16-bit PCM samples to a classic RIFF/WAVE file.
 type Writer struct {
 	file         *os.File
+	buf          []byte
 	dataBytes    uint64
 	maxDataBytes uint64
 	sampleRate   uint32
@@ -93,7 +94,11 @@ func (w *Writer) WriteSamples(samples []float32) error {
 		return ErrRIFFSizeLimit
 	}
 
-	buf := make([]byte, len(samples)*bytesPerSample)
+	needed := len(samples) * bytesPerSample
+	if cap(w.buf) < needed {
+		w.buf = make([]byte, needed)
+	}
+	buf := w.buf[:needed]
 	for i, sample := range samples {
 		scaled := float64(sample) * 32768.0
 		if scaled > 32767.0 {
