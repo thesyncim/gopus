@@ -614,57 +614,68 @@ func DynallocAnalysis(
 }
 
 // DynallocScratch holds pre-allocated buffers for DynallocAnalysis.
+// Standard Opus frames (nbBands <= MaxBands, channels <= 2) use the inline
+// pointer-free arrays in the noscan tail; wider custom/QEXT modes fall back
+// to the overflow arenas.
 type DynallocScratch struct {
-	i32 arena.Bump[int32]
-	f32 arena.Bump[float32]
+	i32   arena.Bump[int32]
+	f32   arena.Bump[float32]
+	padE  []celtGLog
+	padE2 []celtGLog
 
-	// Result arrays (caller provides these in result struct)
-	Offsets      []int32
-	SpreadWeight []int32
-	Importance   []int32
-
-	// Libopus-width scratch buffers.
-	NoiseFloor []float32
-
-	// Masking model buffers
-	Mask      []float32
-	Sig       []float32
-	Follower  []float32
-	BandLogE3 []float32
-
-	// Zero-padded copies of short band-energy inputs.
-	padE, padE2 []celtGLog
+	// --- Pointer-free (noscan) inline buffers for standard Opus ---
+	offsetsBuf      [MaxBands]int32
+	spreadWeightBuf [MaxBands]int32
+	importanceBuf   [MaxBands]int32
+	noiseFloorBuf   [MaxBands]float32
+	maskBuf         [MaxBands]float32
+	sigBuf          [MaxBands]float32
+	followerBuf     [2 * MaxBands]float32
+	bandLogE3Buf    [MaxBands]float32
 }
 
-// EnsureDynallocScratch ensures scratch buffers are large enough.
+// EnsureDynallocScratch ensures overflow scratch buffers are large enough for
+// non-standard modes wider than MaxBands or 2 channels.
 func (s *DynallocScratch) EnsureDynallocScratch(nbBands, channels int) {
+	if nbBands <= MaxBands && channels <= 2 {
+		return
+	}
 	maxSize := nbBands * channels
 	needI32 := 3 * nbBands
 	needF32 := 4*nbBands + maxSize
 	if s.i32.Cap() < needI32 {
 		s.i32.Ensure(needI32)
-		s.Offsets = s.i32.AllocN(nbBands)
-		s.SpreadWeight = s.i32.AllocN(nbBands)
-		s.Importance = s.i32.AllocN(nbBands)
-	} else {
-		s.Offsets = s.Offsets[:nbBands]
-		s.SpreadWeight = s.SpreadWeight[:nbBands]
-		s.Importance = s.Importance[:nbBands]
 	}
 	if s.f32.Cap() < needF32 {
 		s.f32.Ensure(needF32)
-		s.NoiseFloor = s.f32.AllocN(nbBands)
-		s.Mask = s.f32.AllocN(nbBands)
-		s.Sig = s.f32.AllocN(nbBands)
-		s.Follower = s.f32.AllocN(maxSize)
-		s.BandLogE3 = s.f32.AllocN(nbBands)
-	} else {
-		s.NoiseFloor = s.NoiseFloor[:nbBands]
-		s.Mask = s.Mask[:nbBands]
-		s.Sig = s.Sig[:nbBands]
-		s.Follower = s.Follower[:maxSize]
-		s.BandLogE3 = s.BandLogE3[:nbBands]
 	}
+}
+
+func (s *DynallocScratch) buffers(nbBands, channels int) (
+	offsets, spreadWeight, importance []int32,
+	noiseFloor, mask, sig, follower, bandLogE3 []float32,
+) {
+	maxSize := nbBands * channels
+	if nbBands <= MaxBands && channels <= 2 {
+		return s.offsetsBuf[:nbBands],
+			s.spreadWeightBuf[:nbBands],
+			s.importanceBuf[:nbBands],
+			s.noiseFloorBuf[:nbBands],
+			s.maskBuf[:nbBands],
+			s.sigBuf[:nbBands],
+			s.followerBuf[:maxSize],
+			s.bandLogE3Buf[:nbBands]
+	}
+	s.i32.Ensure(3 * nbBands)
+	s.f32.Ensure(4*nbBands + maxSize)
+	return s.i32.AllocN(nbBands),
+		s.i32.AllocN(nbBands),
+		s.i32.AllocN(nbBands),
+		s.f32.AllocN(nbBands),
+		s.f32.AllocN(nbBands),
+		s.f32.AllocN(nbBands),
+		s.f32.AllocN(maxSize),
+		s.f32.AllocN(nbBands)
 }
 
 // DynallocAnalysisWithScratch is the zero-allocation version of DynallocAnalysis:
@@ -689,15 +700,15 @@ func DynallocAnalysisWithScratch(
 		scratch = &DynallocScratch{}
 	}
 	nbBands = max(nbBands, 0)
-	scratch.EnsureDynallocScratch(nbBands, channels)
+	offsetsBuf, spreadWeightBuf, importanceBuf, noiseFloorBuf, maskBuf, sigBuf, followerBuf, bandLogE3Buf := scratch.buffers(nbBands, channels)
 	end = min(end, nbBands)
 	start = min(max(start, 0), end)
 
 	result := DynallocResult{
 		MaxDepth:     celtGLog(-31.9),
-		Offsets:      scratch.Offsets[:nbBands],
-		SpreadWeight: scratch.SpreadWeight[:nbBands],
-		Importance:   scratch.Importance[:nbBands],
+		Offsets:      offsetsBuf[:nbBands],
+		SpreadWeight: spreadWeightBuf[:nbBands],
+		Importance:   importanceBuf[:nbBands],
 	}
 	clear(result.Offsets)
 	clear(result.Importance)
@@ -719,9 +730,9 @@ func DynallocAnalysisWithScratch(
 	bandLogE2 = scratch.dynallocPadded(bandLogE2, total, &scratch.padE2)
 	e0 := bandLogE[:end:end]
 
-	noiseFloor := scratch.NoiseFloor[:end:end]
-	mask := scratch.Mask[:end:end]
-	sig := scratch.Sig[:end:end]
+	noiseFloor := noiseFloorBuf[:end:end]
+	mask := maskBuf[:end:end]
+	sig := sigBuf[:end:end]
 	maxDepth := float32(result.MaxDepth)
 	var e1 []celtGLog
 	if channels == 1 {
@@ -785,10 +796,10 @@ func DynallocAnalysisWithScratch(
 		return result
 	}
 
-	follower := scratch.Follower[:total]
+	follower := followerBuf[:total]
 	clear(follower)
 	last := 0
-	bandLogE3 := scratch.BandLogE3[:end]
+	bandLogE3 := bandLogE3Buf[:end]
 	for c := range channels {
 		copy(bandLogE3, bandLogE2[c*nbBands:][:end])
 		if lm == 0 {

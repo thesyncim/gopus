@@ -8,10 +8,6 @@ import (
 	"testing"
 )
 
-// TestCombFilterWithInputSigUsesSSEConstOrder pins the constant-gain body of
-// the prefilter/PLC comb filter to libopus comb_filter_const_sse, which the
-// x86 SIMD build binds statically (OPUS_X86_PRESUME_SSE): each output is
-// (x + g10*x[-T]) + (g11*(x[-T+1]+x[-T-1]) + g12*(x[-T+2]+x[-T-2])).
 func TestCombFilterWithInputSigUsesSSEConstOrder(t *testing.T) {
 	rng := rand.New(rand.NewSource(5))
 	const maxPeriod, n, overlap = 1024, 960, 120
@@ -41,5 +37,21 @@ func TestCombFilterWithInputSigUsesSSEConstOrder(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestCombFilterConstSSEOrderZeroAllocs(t *testing.T) {
+	const n = 480
+	dst := make([]float32, n)
+	delay := make([]float32, n)
+	for i := range delay {
+		delay[i] = float32((i*37)%191-95) / 64
+	}
+	run := func() {
+		combFilterConstFloat32(dst, delay, 0.25, 0.125, 0.0625, 0, 0, 0, 0, len(dst)&^3)
+	}
+	run()
+	if got := testing.AllocsPerRun(100, run); got != 0 {
+		t.Fatalf("comb filter allocated: %g allocs/run", got)
 	}
 }

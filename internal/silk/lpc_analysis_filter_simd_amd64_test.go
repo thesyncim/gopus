@@ -58,3 +58,7 @@ func TestLPCAnalysisFilterF32ZeroAlloc(t *testing.T) {
 		t.Fatalf("LPC analysis filter allocated %v times", allocs)
 	}
 }
+
+func silkLPCOracleUsesAVX2() bool {
+	return silkUseInnerProductFLPAVX2FMA
+}

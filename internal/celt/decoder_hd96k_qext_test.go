@@ -2,14 +2,11 @@
 
 package celt
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
-// TestHD96kSynthesizeMonoMatchesIMDCTLong pins the native 96 kHz synthesis
-// scaffolding (HD96kSynthesizeMono, long/non-transient case) to the
-// oracle-verified HD96k long-block IMDCT primitive (hd96kIMDCTLong). The two
-// must agree bit-for-bit since both drive the same size-driven kernel at
-// overlap=240, N=3840; this guards the overlap=240 threading the 2b decode
-// driver depends on.
 func TestHD96kSynthesizeMonoMatchesIMDCTLong(t *testing.T) {
 	m := NewHD96kMode()
 	frameSize := m.MdctN / 2 // 1920
@@ -49,5 +46,57 @@ func TestHD96kSynthesizeMonoMatchesIMDCTLong(t *testing.T) {
 		if float32(prevSig[i]) != refFull[frameSize+i] {
 			t.Fatalf("overlap[%d]: got %v want %v", i, float32(prevSig[i]), refFull[frameSize+i])
 		}
+	}
+}
+
+func TestNative96ResetClearsActivePostfilterHistory(t *testing.T) {
+	d := NewDecoder(1)
+	d.EnableHD96kMode()
+	d.postfilterPeriodOld = 120
+	d.postfilterPeriod = 120
+	d.postfilterGainOld = 0.5
+	d.postfilterGain = 0.5
+
+	const frameSize = 1920
+	samples := make([]float32, frameSize)
+	for i := range samples {
+		samples[i] = float32(0.3 * math.Sin(2*math.Pi*330*float64(i)/96000))
+	}
+	d.postfilterTest(samples, frameSize, 3, 120, 0.5, 0)
+	mem := d.DecodeMem(0)
+	if len(mem) != d.decodeMemHistoryLen()+240 {
+		t.Fatalf("native96 decode_mem len=%d, want %d", len(mem), d.decodeMemHistoryLen()+240)
+	}
+	active := false
+	for _, sample := range mem {
+		active = active || sample != 0
+	}
+	if !active {
+		t.Fatal("native96 postfilter did not populate decode_mem")
+	}
+
+	backing := &d.decodeMem[0]
+	d.Reset()
+	if len(d.DecodeMem(0)) != len(mem) {
+		t.Fatal("Reset resized native96 decode_mem")
+	}
+	if &d.decodeMem[0] != backing {
+		t.Fatal("Reset replaced native96 decode_mem instead of reusing it")
+	}
+	for i, sample := range d.decodeMem {
+		if sample != 0 {
+			t.Fatalf("Reset retained native96 decode_mem at %d: %g", i, sample)
+		}
+	}
+
+	d.postfilterPeriodOld = 120
+	d.postfilterPeriod = 120
+	d.postfilterGainOld = 0.5
+	d.postfilterGain = 0.5
+	allocs := testing.AllocsPerRun(20, func() {
+		d.postfilterTest(samples, frameSize, 3, 120, 0.5, 0)
+	})
+	if allocs != 0 {
+		t.Fatalf("warmed native96 postfilter after Reset allocated %g times/call", allocs)
 	}
 }

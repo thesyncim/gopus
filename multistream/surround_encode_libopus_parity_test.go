@@ -3,10 +3,9 @@ package multistream
 import (
 	"bytes"
 	"fmt"
+	"github.com/thesyncim/gopus/internal/libopustest"
 	"math"
 	"testing"
-
-	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 var surroundRefencodeHelper libopustest.HelperCache
@@ -291,5 +290,216 @@ func TestSurroundEncodeComplexityMatchesLibopus(t *testing.T) {
 		t.Run(fmt.Sprintf("complexity%d", complexity), func(t *testing.T) {
 			runSurroundEncodeParity(t, sampleRate, channels, frameSize, 6, bitrate, complexity, true, true)
 		})
+	}
+}
+
+func TestSurroundInt16PacketRangeMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	const frameCount = 6
+	for _, tc := range []struct {
+		name          string
+		channels      int
+		mappingFamily int
+		frameSize     int
+		bitrate       int
+		vbr           bool
+	}{
+		{name: "stereo_coupled_20ms_cvbr", channels: 2, mappingFamily: 1, frameSize: 960, bitrate: 64000, vbr: true},
+		{name: "stereo_discrete_20ms_cbr", channels: 2, mappingFamily: 255, frameSize: 960, bitrate: 64000},
+		{name: "quad_20ms_cvbr", channels: 4, mappingFamily: 1, frameSize: 960, bitrate: 128000, vbr: true},
+		{name: "surround_5_1_10ms_cbr", channels: 6, mappingFamily: 1, frameSize: 480, bitrate: 256000},
+		{name: "surround_7_1_20ms_cbr", channels: 8, mappingFamily: 1, frameSize: 960, bitrate: 384000},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pcm := floatToInt16(generateSurroundSweep(tc.channels, tc.frameSize, frameCount))
+			ref, err := encodeLibopusSurroundInt16(48000, tc.channels, tc.mappingFamily, 2049,
+				tc.bitrate, tc.vbr, true, 10, -1000, tc.frameSize, frameCount,
+				4000, pcm, false)
+			if err != nil {
+				t.Fatalf("live C short surround encode: %v", err)
+			}
+			if len(ref.packets) != frameCount || len(ref.ranges) != frameCount {
+				t.Fatalf("oracle record count packets/ranges=%d/%d want %d", len(ref.packets), len(ref.ranges), frameCount)
+			}
+			var enc *Encoder
+			if tc.mappingFamily == 255 {
+				enc, err = NewEncoder(48000, tc.channels, 2, 0, []byte{0, 1})
+			} else {
+				enc, err = NewEncoderDefault(48000, tc.channels)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if enc.Streams() != ref.streams || enc.CoupledStreams() != ref.coupledStreams {
+				t.Fatalf("stream layout Go=%d/%d C=%d/%d", enc.Streams(), enc.CoupledStreams(), ref.streams, ref.coupledStreams)
+			}
+			if enc.MappingFamily() != tc.mappingFamily {
+				t.Fatalf("mapping family Go=%d want %d", enc.MappingFamily(), tc.mappingFamily)
+			}
+			if !bytes.Equal(enc.mapping, ref.mapping) {
+				t.Fatalf("channel mapping Go=%v C=%v", enc.mapping, ref.mapping)
+			}
+			enc.SetBitrate(tc.bitrate)
+			enc.SetVBR(tc.vbr)
+			enc.SetVBRConstraint(true)
+			enc.SetComplexity(10)
+			enc.SetBandwidthAuto()
+			out := make([]byte, 4000)
+			for frame := range frameCount {
+				start := frame * tc.frameSize * tc.channels
+				input := pcm[start : start+tc.frameSize*tc.channels]
+				n, err := enc.EncodeInt16(input, tc.frameSize, out)
+				if err != nil {
+					t.Fatalf("frame %d Go short encode: %v", frame, err)
+				}
+				if n <= 0 || !bytes.Equal(out[:n], ref.packets[frame]) || enc.GetFinalRange() != ref.ranges[frame] {
+					t.Fatalf("frame %d: firstByte=%d len Go/C=%d/%d range Go/C=%08x/%08x",
+						frame, firstByteMismatch(out[:n], ref.packets[frame]), n, len(ref.packets[frame]),
+						enc.GetFinalRange(), ref.ranges[frame])
+				}
+			}
+		})
+	}
+}
+
+func TestSurroundLowSpaceFinalRangeMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	var spec surroundFuzzSpec
+	for _, candidate := range buildSurroundFuzzSweep() {
+		if candidate.name == "surround_7_1/fs480/br64000/vbrfalse/cfalse/cx0" {
+			spec = candidate
+			break
+		}
+	}
+	if spec.frameCount != 5 {
+		t.Fatalf("missing 7.1 low-space witness: %+v", spec)
+	}
+	pcm := seededMultichannelPCM(spec.seed, spec.channels, spec.frameSize, spec.frameCount)
+	ref, err := encodeLibopusSurround(compositeSampleRate, spec.channels, 1, compositeApplication,
+		spec.bitrate, spec.vbr, spec.vbrConstraint, spec.complexity, compositeBandwidthAuto,
+		spec.frameSize, spec.frameCount, compositeMaxPacketBytes, pcm, false)
+	if err != nil {
+		t.Fatalf("live C surround encode: %v", err)
+	}
+	enc, err := NewEncoderDefault(compositeSampleRate, spec.channels)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enc.SetBitrate(spec.bitrate)
+	enc.SetVBR(spec.vbr)
+	enc.SetVBRConstraint(spec.vbrConstraint)
+	enc.SetComplexity(spec.complexity)
+	enc.SetBandwidthAuto()
+	var sawBare, sawPadded bool
+	for frame := range spec.frameCount {
+		start := frame * spec.frameSize * spec.channels
+		input := pcm[start : start+spec.frameSize*spec.channels]
+		got, err := encodePacketMax(enc, input, spec.frameSize, input, compositeMaxPacketBytes)
+		if err != nil {
+			t.Fatalf("frame %d: %v", frame, err)
+		}
+		if !bytes.Equal(got, ref.packets[frame]) || enc.GetFinalRange() != ref.ranges[frame] {
+			t.Errorf("frame %d: firstByte=%d len Go/C=%d/%d range Go/C=%08x/%08x", frame,
+				firstByteMismatch(got, ref.packets[frame]), len(got), len(ref.packets[frame]),
+				enc.GetFinalRange(), ref.ranges[frame])
+		}
+		streams, err := parseMultistreamPacket(ref.packets[frame], ref.streams)
+		if err != nil {
+			t.Fatalf("frame %d: parse reference: %v", frame, err)
+		}
+		child := streams[4]
+		parsed, err := parseOpusPacket(child, false)
+		if err != nil {
+			t.Fatalf("frame %d: parse trailing reference: %v", frame, err)
+		}
+		empty := true
+		for _, payload := range parsed.frames {
+			if len(payload) != 0 {
+				empty = false
+			}
+		}
+		if empty {
+			if enc.encoders[4].FinalRange() != 0 {
+				t.Fatalf("frame %d empty trailing child range=%08x want 0", frame, enc.encoders[4].FinalRange())
+			}
+			if len(child) == 1 {
+				sawBare = true
+			} else if len(child) == 2 {
+				sawPadded = true
+			}
+		} else if enc.encoders[4].FinalRange() == 0 {
+			t.Fatalf("frame %d coded trailing child has zero final range", frame)
+		}
+	}
+	if !sawBare || !sawPadded {
+		t.Fatalf("selected C trailing stream lacks bare/padded empty packet pair (bare=%t padded=%t)", sawBare, sawPadded)
+	}
+}
+
+func TestSurroundLowSpaceThenRealFrameMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	const (
+		channels   = 8
+		frameSize  = 480
+		frameCount = 6
+		bitrate    = 64000
+		complexity = 0
+	)
+	pcm := generateSurroundSweep(channels, frameSize, frameCount)
+	ref, err := encodeLibopusSurround(compositeSampleRate, channels, 1, compositeApplication,
+		bitrate, false, false, complexity, compositeBandwidthAuto,
+		frameSize, frameCount, compositeMaxPacketBytes, pcm, false)
+	if err != nil {
+		t.Fatalf("live C surround encode: %v", err)
+	}
+	if ref.streams != 5 {
+		t.Fatalf("reference streams=%d want 5", ref.streams)
+	}
+	firstStreams, err := parseMultistreamPacket(ref.packets[0], ref.streams)
+	if err != nil {
+		t.Fatalf("parse first reference packet: %v", err)
+	}
+	firstLFE := firstStreams[len(firstStreams)-1]
+	parsed, err := parseOpusPacket(firstLFE, false)
+	if err != nil {
+		t.Fatalf("parse first LFE packet: %v", err)
+	}
+	if len(parsed.frames) != 1 || len(parsed.frames[0]) != 0 {
+		t.Fatalf("first LFE packet=%x want one empty frame", firstLFE)
+	}
+	secondStreams, err := parseMultistreamPacket(ref.packets[1], ref.streams)
+	if err != nil {
+		t.Fatalf("parse second reference packet: %v", err)
+	}
+	secondLFE, err := parseOpusPacket(secondStreams[len(secondStreams)-1], false)
+	if err != nil {
+		t.Fatalf("parse second LFE packet: %v", err)
+	}
+	if len(secondLFE.frames) == 0 || len(secondLFE.frames[0]) == 0 {
+		t.Fatalf("second LFE packet=%x want coded recovery frame", secondStreams[len(secondStreams)-1])
+	}
+	enc, err := NewEncoderDefault(compositeSampleRate, channels)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enc.SetBitrate(bitrate)
+	enc.SetVBR(false)
+	enc.SetVBRConstraint(false)
+	enc.SetComplexity(complexity)
+	enc.SetBandwidthAuto()
+	out := make([]byte, compositeMaxPacketBytes)
+	for frame := range frameCount {
+		start := frame * frameSize * channels
+		input := pcm[start : start+frameSize*channels]
+		n, err := enc.Encode(input, frameSize, out)
+		if err != nil {
+			t.Fatalf("frame %d Go encode: %v", frame, err)
+		}
+		got := out[:n]
+		if !bytes.Equal(got, ref.packets[frame]) || enc.GetFinalRange() != ref.ranges[frame] {
+			t.Fatalf("frame %d firstByte=%d len Go/C=%d/%d range Go/C=%08x/%08x",
+				frame, firstByteMismatch(got, ref.packets[frame]), len(got), len(ref.packets[frame]),
+				enc.GetFinalRange(), ref.ranges[frame])
+		}
 	}
 }

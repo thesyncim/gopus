@@ -2,10 +2,11 @@ package celt
 
 import (
 	"fmt"
-	"math"
-	"testing"
-
 	"github.com/thesyncim/gopus/internal/libopustest"
+	"math"
+	"math/rand"
+	"reflect"
+	"testing"
 )
 
 const (
@@ -545,4 +546,494 @@ func ulpDiffFloat32(a, b float32) uint32 {
 		return ab - bb
 	}
 	return bb - ab
+}
+
+func TestIMDCTPreRotateFFTMatchesSplitPath(t *testing.T) {
+	rng := rand.New(rand.NewSource(0x1dc7))
+	for _, n := range []int{240, 480, 960, 1920} {
+		n2, n4 := n/2, n/4
+		trig := getMDCTTrigF32(n)
+		st := getKissFFTState(n4)
+		for iter := 0; iter < 20; iter++ {
+			spectrum := make([]float32, n2)
+			for i := range spectrum {
+				spectrum[i] = float32(rng.NormFloat64() * math.Pow(10, float64(rng.Intn(8))))
+			}
+			fftIn := make([]float32, 2*n4)
+			got := imdctPreRotateFFT(fftIn, make([]float32, 2*n4), spectrum, trig, n2, n4, st)
+
+			wantIn := make([]float32, 2*n4)
+			imdctPreRotateF32Spectrum(wantIn, spectrum, trig, n2, n4)
+			want := kissFFT32InterleavedToScratch(wantIn, make([]float32, 2*n4), st)
+			for i := range want {
+				if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
+					t.Fatalf("n=%d iter %d: out[%d]=%v want %v", n, iter, i, got[i], want[i])
+				}
+			}
+		}
+	}
+}
+
+// TestIMDCTPostRotateScalarMatchesReference checks the scalar post-rotation
+// against the clt_mdct_backward_c() loop written with its yp0/yp1 cursors.
+func TestIMDCTPostRotateScalarMatchesReference(t *testing.T) {
+	rng := rand.New(rand.NewSource(0x9057))
+	for _, n4 := range []int{1, 2, 3, 7, 30, 60, 120, 240, 480} {
+		n2 := 2 * n4
+		trig := make([]float32, n2)
+		for i := range trig {
+			trig[i] = float32(rng.Float64()*2 - 1)
+		}
+		fft := make([]float32, 2*n4)
+		for i := range fft {
+			fft[i] = float32(rng.NormFloat64() * 1e3)
+		}
+		got := make([]float32, n2)
+		imdctPostRotateF32FromKissScalar(got, fft, trig, n2, n4)
+
+		want := make([]float32, n2)
+		yp0, yp1 := 0, n2-2
+		for i := range (n4 + 1) >> 1 {
+			k := n4 - 1 - i
+			re, im := fft[2*i+1], fft[2*i]
+			t0, t1 := trig[i], trig[n4+i]
+			yr := mdctMulAddMix(re, im, t0, t1)
+			yi := mdctMulSubMix(re, im, t1, t0)
+			re2, im2 := fft[2*k+1], fft[2*k]
+			want[yp0] = yr
+			want[yp1+1] = yi
+			t0, t1 = trig[n4-i-1], trig[n2-i-1]
+			want[yp1] = mdctMulAddMix(re2, im2, t0, t1)
+			want[yp0+1] = mdctMulSubMix(re2, im2, t1, t0)
+			yp0 += 2
+			yp1 -= 2
+		}
+		for i := range want {
+			if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
+				t.Fatalf("n4=%d: buf[%d]=%v want %v", n4, i, got[i], want[i])
+			}
+		}
+	}
+}
+
+func imdctPreRotateFMA32KissScalarRef(fftIn []float32, spectrum []float32, trig []float32, n2, n4 int) {
+	for i := range n4 {
+		x1 := float64(spectrum[2*i])
+		x2 := float64(spectrum[n2-1-2*i])
+		t0 := float64(trig[i])
+		t1 := float64(trig[n4+i])
+		prodR := float64(float32(x2 * t1))
+		prodI := float64(float32(x1 * t1))
+		yr := float32(math.FMA(x1, t0, -prodR))
+		yi := float32(math.FMA(x2, t0, prodI))
+		fftIn[2*i] = yr
+		fftIn[2*i+1] = yi
+	}
+}
+
+func TestIMDCTPreRotateFMA32KissMatchesScalar(t *testing.T) {
+	for _, n2 := range []int{2, 4, 10, 60, 120, 122, 240, 480} {
+		n4 := n2 / 2
+		if n4 == 0 {
+			continue
+		}
+		spectrum := make([]float32, n2)
+		trig := make([]float32, n2)
+		for i := range spectrum {
+			spectrum[i] = float32((i*7%101)-50) * 0.013
+		}
+		for i := range trig {
+			trig[i] = float32((i*5%97)-48) * 0.021
+		}
+
+		got := make([]float32, 2*n4)
+		want := make([]float32, 2*n4)
+		imdctPreRotateFMA32Kiss(got, spectrum, trig, n2, n4)
+		imdctPreRotateFMA32KissScalarRef(want, spectrum, trig, n2, n4)
+		for i := range n4 {
+			gr, gi := got[2*i], got[2*i+1]
+			wr, wi := want[2*i], want[2*i+1]
+			if math.Float32bits(gr) != math.Float32bits(wr) || math.Float32bits(gi) != math.Float32bits(wi) {
+				t.Fatalf("n2=%d i=%d: got (%v,%v) want (%v,%v)", n2, i, gr, gi, wr, wi)
+			}
+		}
+	}
+}
+
+func TestIMDCTPreRotateFMA32KissNoAllocs(t *testing.T) {
+	const n2 = 120
+	const n4 = n2 / 2
+	spectrum := make([]float32, n2)
+	trig := make([]float32, n2)
+	fftIn := make([]float32, 2*n4)
+	for i := range spectrum {
+		spectrum[i] = float32(i%17-8) * 0.0625
+	}
+	for i := range trig {
+		trig[i] = float32(i%19-9) * 0.03125
+	}
+	imdctPreRotateFMA32Kiss(fftIn, spectrum, trig, n2, n4)
+	if allocs := testing.AllocsPerRun(100, func() {
+		imdctPreRotateFMA32Kiss(fftIn, spectrum, trig, n2, n4)
+	}); allocs != 0 {
+		t.Fatalf("allocs per call = %v, want 0", allocs)
+	}
+}
+
+func BenchmarkIMDCTPreRotateFMA32Kiss(b *testing.B) {
+	n2 := 120
+	n4 := n2 / 2
+	spectrum := make([]float32, n2)
+	trig := make([]float32, n2)
+	fftIn := make([]float32, 2*n4)
+	for i := range spectrum {
+		spectrum[i] = float32((i%17)-8) * 0.0625
+	}
+	for i := range trig {
+		trig[i] = float32((i%19)-9) * 0.03125
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		imdctPreRotateFMA32Kiss(fftIn, spectrum, trig, n2, n4)
+	}
+}
+
+func imdctPreRotateF32Ref(fftIn []float32, spectrum []float32, trig []float32, n2, n4 int) {
+	if n4 <= 0 {
+		return
+	}
+
+	_ = spectrum[n2-1]
+	_ = trig[n2-1]
+	out := fftIn[:n4*2]
+	_ = out[n4*2-1]
+
+	i := 0
+	for ; i+1 < n4; i += 2 {
+		x10 := spectrum[2*i]
+		x20 := spectrum[n2-1-2*i]
+		t00 := trig[i]
+		t10 := trig[n4+i]
+		b0 := 2 * i
+		out[b0] = x10*t00 - x20*t10
+		out[b0+1] = x20*t00 + x10*t10
+
+		i1 := i + 1
+		x11 := spectrum[2*i1]
+		x21 := spectrum[n2-1-2*i1]
+		t01 := trig[i1]
+		t11 := trig[n4+i1]
+		b1 := 2 * i1
+		out[b1] = x11*t01 - x21*t11
+		out[b1+1] = x21*t01 + x11*t11
+	}
+
+	if i < n4 {
+		x1 := spectrum[2*i]
+		x2 := spectrum[n2-1-2*i]
+		t0 := trig[i]
+		t1 := trig[n4+i]
+		b := 2 * i
+		out[b] = x1*t0 - x2*t1
+		out[b+1] = x2*t0 + x1*t1
+	}
+}
+
+func imdctPostRotateF32Ref(buf []float32, trig []float32, n2, n4 int) {
+	limit := (n4 + 1) >> 1
+	if limit <= 0 {
+		return
+	}
+
+	_ = buf[n2-1]
+	_ = trig[n2-1]
+
+	yp0 := 0
+	yp1 := n2 - 2
+	for i := range limit {
+		re := buf[yp0+1]
+		im := buf[yp0]
+		t0 := trig[i]
+		t1 := trig[n4+i]
+		yr := re*t0 + im*t1
+		yi := re*t1 - im*t0
+
+		re2 := buf[yp1+1]
+		im2 := buf[yp1]
+		buf[yp0] = yr
+		buf[yp1+1] = yi
+
+		t0 = trig[n4-i-1]
+		t1 = trig[n2-i-1]
+		yr = re2*t0 + im2*t1
+		yi = re2*t1 - im2*t0
+		buf[yp1] = yr
+		buf[yp0+1] = yi
+
+		yp0 += 2
+		yp1 -= 2
+	}
+}
+
+func imdctPostRotateF32FromKissRef(buf []float32, fft []float32, trig []float32, n2, n4 int) {
+	if len(buf) < n2 || len(fft) < 2*n4 {
+		return
+	}
+	copy(buf[:2*n4], fft[:2*n4])
+	imdctPostRotateF32Ref(buf, trig, n2, n4)
+}
+
+func TestIMDCTRotateDispatchMatchesReference(t *testing.T) {
+	n2 := 120
+	n4 := n2 / 2
+	spectrum := make([]float32, n2)
+	trig := make([]float32, n2)
+	for i := range spectrum {
+		spectrum[i] = float32((i%17)-8) * 0.0625
+	}
+	for i := range trig {
+		trig[i] = float32((i%19)-9) * 0.03125
+	}
+
+	gotFFT := make([]float32, 2*n4)
+	wantFFT := make([]float32, 2*n4)
+	imdctPreRotateF32Spectrum(gotFFT, spectrum, trig, n2, n4)
+	imdctPreRotateF32Ref(wantFFT, spectrum, trig, n2, n4)
+	if !reflect.DeepEqual(gotFFT, wantFFT) {
+		t.Fatalf("imdctPreRotateF32 mismatch")
+	}
+
+	gotBuf := make([]float32, n2)
+	wantBuf := make([]float32, n2)
+	copy(gotBuf, gotFFT)
+	copy(wantBuf, wantFFT)
+	imdctPostRotateF32(gotBuf, trig, n2, n4)
+	imdctPostRotateF32Ref(wantBuf, trig, n2, n4)
+	if !reflect.DeepEqual(gotBuf, wantBuf) {
+		t.Fatalf("imdctPostRotateF32 mismatch")
+	}
+}
+
+func TestIMDCTPostRotateF32FromKissMatchesReference(t *testing.T) {
+	for _, n2 := range []int{10, 120} {
+		n4 := n2 / 2
+		trig := make([]float32, n2)
+		fft := make([]float32, 2*n4)
+		for i := range trig {
+			trig[i] = float32((i%19)-9) * 0.03125
+		}
+		for i := range n4 {
+			fft[2*i] = float32((i%17)-8) * 0.0625
+			fft[2*i+1] = float32((i%23)-11) * -0.03125
+		}
+
+		got := make([]float32, n2)
+		want := make([]float32, n2)
+		imdctPostRotateF32FromKiss(got, fft, trig, n2, n4)
+		imdctPostRotateF32FromKissRef(want, fft, trig, n2, n4)
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("n2=%d imdctPostRotateF32FromKiss mismatch", n2)
+		}
+	}
+}
+
+func BenchmarkIMDCTPreRotateCurrent(b *testing.B) {
+	n2 := 120
+	n4 := n2 / 2
+	spectrum := make([]float32, n2)
+	trig := make([]float32, n2)
+	fftIn := make([]float32, 2*n4)
+	for i := range spectrum {
+		spectrum[i] = float32((i%17)-8) * 0.0625
+	}
+	for i := range trig {
+		trig[i] = float32((i%19)-9) * 0.03125
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		imdctPreRotateF32Spectrum(fftIn, spectrum, trig, n2, n4)
+	}
+}
+
+func BenchmarkIMDCTPreRotateReference(b *testing.B) {
+	n2 := 120
+	n4 := n2 / 2
+	spectrum := make([]float32, n2)
+	trig := make([]float32, n2)
+	fftIn := make([]float32, 2*n4)
+	for i := range spectrum {
+		spectrum[i] = float32((i%17)-8) * 0.0625
+	}
+	for i := range trig {
+		trig[i] = float32((i%19)-9) * 0.03125
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		imdctPreRotateF32Ref(fftIn, spectrum, trig, n2, n4)
+	}
+}
+
+func BenchmarkIMDCTPostRotateCurrent(b *testing.B) {
+	n2 := 120
+	n4 := n2 / 2
+	buf := make([]float32, n2)
+	trig := make([]float32, n2)
+	for i := range buf {
+		buf[i] = float32((i%23)-11) * 0.03125
+	}
+	for i := range trig {
+		trig[i] = float32((i%19)-9) * 0.03125
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		imdctPostRotateF32(buf, trig, n2, n4)
+	}
+}
+
+func BenchmarkIMDCTPostRotateReference(b *testing.B) {
+	n2 := 120
+	n4 := n2 / 2
+	buf := make([]float32, n2)
+	trig := make([]float32, n2)
+	for i := range buf {
+		buf[i] = float32((i%23)-11) * 0.03125
+	}
+	for i := range trig {
+		trig[i] = float32((i%19)-9) * 0.03125
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		imdctPostRotateF32Ref(buf, trig, n2, n4)
+	}
+}
+
+func pocFFTInput240() []complex64 {
+	const n = 240
+	in := make([]complex64, n)
+	for i := range in {
+		r := float32(math.Sin(float64(i)*0.079)*0.9 + math.Cos(float64(i+3)*0.031)*0.2)
+		im := float32(math.Cos(float64(i)*0.053)*0.7 - math.Sin(float64(i+11)*0.017)*0.3)
+		in[i] = complex(r, im)
+	}
+	return in
+}
+
+// BenchmarkPOCFFT240 times the production complex FFT at the decode bench's
+// transform size (n4=240). Its implementation follows GOARCH and build
+// constraints; GOEXPERIMENT=simd enables eligible Go SIMD kernels.
+func BenchmarkPOCFFT240(b *testing.B) {
+	in := pocFFTInput240()
+	scratch := make([]float32, 2*len(in))
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = kissFFT32ToScratch(in, scratch, nil)
+	}
+}
+
+// BenchmarkPOCIMDCT480 times the full IMDCT used by the 48 kHz 20 ms mono decode
+// (pre-rotate + FFT + post-rotate + TDAC), matching synthesizeMonoLongToFloat32:
+// spectrum n2=480, overlap=120. Run with GOEXPERIMENT=simd to measure eligible
+// Go SIMD kernels, or with the ordinary/nosimd build to measure scalar Go.
+func BenchmarkPOCIMDCT480(b *testing.B) {
+	const (
+		n2      = 480
+		overlap = 120
+	)
+	spectrum := make([]float32, n2)
+	for i := range spectrum {
+		spectrum[i] = float32(math.Sin(float64(i)*0.017)*0.8 + math.Cos(float64(i+5)*0.013)*0.3)
+	}
+	prev := make([]float32, overlap)
+	var scratch imdctScratchF32
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = imdctOverlapWithPrevScratchF32Output32(spectrum, prev, overlap, &scratch)
+	}
+}
+
+func imdctTDACWindowScalarRef(out, xsrc, window []float32, yOut0, xOut0, xSrc0, wBwd0, count int) {
+	for i := range count {
+		x1 := xsrc[xSrc0-i]
+		x2 := out[yOut0+i]
+		w1 := window[i]
+		w2 := window[wBwd0-i]
+		var yOut, xOut float32
+		if mdctUseFMALikeMixEnabled {
+			yOut = float32(math.FMA(float64(x2), float64(w2), -float64(x1*w1)))
+			xOut = float32(math.FMA(float64(x2), float64(w1), float64(x1*w2)))
+		} else {
+			yOut = x2*w2 - x1*w1
+			xOut = x2*w1 + x1*w2
+		}
+		out[yOut0+i] = yOut
+		out[xOut0-i] = xOut
+	}
+}
+
+func TestIMDCTTDACWindowFMA32MatchesScalar(t *testing.T) {
+	for _, overlap := range []int{2, 4, 6, 8, 16, 30, 60, 120, 240} {
+		count := overlap / 2
+		window := make([]float32, overlap)
+		for i := range window {
+			window[i] = float32((i*3%53)-26) * 0.018
+		}
+
+		// In-place variant: out region [blockStart, blockStart+overlap),
+		// x1 from a separate buf indexed by xp1-start.
+		blockStart := 3
+		start := blockStart + overlap/2
+		n := blockStart + overlap + 5
+		buf := make([]float32, n)
+		for i := range buf {
+			buf[i] = float32((i*7%89)-44) * 0.011
+		}
+		got := make([]float32, n)
+		want := make([]float32, n)
+		for i := range got {
+			got[i] = float32((i*5%71)-35) * 0.009
+			want[i] = got[i]
+		}
+		yp1 := blockStart
+		xp1 := blockStart + overlap - 1
+		imdctTDACWindow(got, buf, window, yp1, xp1, xp1-start, overlap-1, count)
+		imdctTDACWindowScalarRef(want, buf, window, yp1, xp1, xp1-start, overlap-1, count)
+		for i := range want {
+			if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
+				t.Fatalf("inplace overlap=%d idx=%d: got %v want %v", overlap, i, got[i], want[i])
+			}
+		}
+
+		// In-buffer variant: xsrc == out, xSrc0 == xOut0.
+		got2 := make([]float32, overlap)
+		want2 := make([]float32, overlap)
+		for i := range got2 {
+			got2[i] = float32((i*11%67)-33) * 0.013
+			want2[i] = got2[i]
+		}
+		imdctTDACWindow(got2, got2, window, 0, overlap-1, overlap-1, overlap-1, count)
+		imdctTDACWindowScalarRef(want2, want2, window, 0, overlap-1, overlap-1, overlap-1, count)
+		for i := range want2 {
+			if math.Float32bits(got2[i]) != math.Float32bits(want2[i]) {
+				t.Fatalf("inbuf overlap=%d idx=%d: got %v want %v", overlap, i, got2[i], want2[i])
+			}
+		}
+	}
+}
+
+func BenchmarkIMDCTTDACWindow(b *testing.B) {
+	overlap := 120
+	count := overlap / 2
+	window := make([]float32, overlap)
+	for i := range window {
+		window[i] = float32((i*3%53)-26) * 0.018
+	}
+	out := make([]float32, overlap)
+	for i := range out {
+		out[i] = float32((i*5%71)-35) * 0.009
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		imdctTDACWindow(out, out, window, 0, overlap-1, overlap-1, overlap-1, count)
+	}
 }

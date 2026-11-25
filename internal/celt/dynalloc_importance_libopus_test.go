@@ -1,10 +1,11 @@
 package celt
 
 import (
-	"math"
-	"testing"
-
+	"fmt"
 	"github.com/thesyncim/gopus/internal/libopustest"
+	"math"
+	"math/rand"
+	"testing"
 )
 
 func TestDynallocImportanceRoundingMatchesLibopus(t *testing.T) {
@@ -46,5 +47,1425 @@ func TestDynallocImportanceRoundingMatchesLibopus(t *testing.T) {
 		if got != int32(want[i]) {
 			t.Fatalf("importance(%08x %.10g)=%d want %d", math.Float32bits(sample), sample, got, int(int32(want[i])))
 		}
+	}
+}
+
+const (
+	libopusCELTDynallocInputMagic  = "GCDI"
+	libopusCELTDynallocOutputMagic = "GCDO"
+)
+
+var libopusCELTDynallocHelper libopustest.HelperCache
+
+type libopusCELTDynallocCase struct {
+	name              string
+	start             int
+	end               int
+	channels          int
+	lsbDepth          int
+	lm                int
+	effectiveBytes    int
+	isTransient       bool
+	vbr               bool
+	constrainedVBR    bool
+	lfe               bool
+	toneFreq          float32
+	toneishness       float32
+	bandLogE          []float32
+	bandLogE2         []float32
+	oldBandE          []float32
+	surroundDynalloc  [MaxBands]float32
+	analysisValid     bool
+	analysisLeakBoost [19]uint8
+}
+
+type libopusCELTDynallocResult struct {
+	maxDepth     float32
+	totBoost     int
+	offsets      [MaxBands]int
+	importance   [MaxBands]int
+	spreadWeight [MaxBands]int32
+}
+
+func getLibopusCELTDynallocHelperPath() (string, error) {
+	return libopusCELTDynallocHelper.CHelperPath(libopustest.CHelperConfig{
+		Label:        "celt dynalloc",
+		OutputBase:   "gopus_libopus_celt_dynalloc",
+		SourceFile:   "libopus_celt_dynalloc_info.c",
+		ProbeRelPath: "celt/celt_encoder.c",
+		CFlags:       []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"},
+		RefIncludes:  []string{"celt", "silk"},
+		Libs:         []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
+		DeadStrip:    true,
+	})
+}
+
+func probeLibopusCELTDynalloc(cases []libopusCELTDynallocCase) ([]libopusCELTDynallocResult, error) {
+	binPath, err := getLibopusCELTDynallocHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	payload := libopustest.NewOraclePayload(libopusCELTDynallocInputMagic, uint32(len(cases)))
+	for _, tc := range cases {
+		payload.I32(int32(MaxBands))
+		payload.I32(int32(tc.start))
+		payload.I32(int32(tc.end))
+		payload.I32(int32(tc.channels))
+		payload.I32(int32(tc.lsbDepth))
+		payload.I32(int32(tc.lm))
+		payload.I32(int32(tc.effectiveBytes))
+		payload.I32(boolToI32(tc.isTransient))
+		payload.I32(boolToI32(tc.vbr))
+		payload.I32(boolToI32(tc.constrainedVBR))
+		payload.I32(boolToI32(tc.lfe))
+		payload.Float32(tc.toneFreq)
+		payload.Float32(tc.toneishness)
+		payload.I32(boolToI32(tc.analysisValid))
+		payload.Float32s(tc.bandLogE...)
+		payload.Float32s(tc.bandLogE2...)
+		payload.Float32s(tc.oldBandE...)
+		payload.Float32s(tc.surroundDynalloc[:]...)
+		for _, v := range tc.analysisLeakBoost {
+			payload.U32(uint32(v))
+		}
+	}
+
+	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "celt dynalloc", libopusCELTDynallocOutputMagic)
+	if err != nil {
+		return nil, err
+	}
+	count := reader.Count(len(cases))
+	if count != len(cases) {
+		return nil, fmt.Errorf("CELT dynalloc oracle returned %d cases, want %d", count, len(cases))
+	}
+	reader.ExpectRemaining(count * (2 + 3*MaxBands) * 4)
+	out := make([]libopusCELTDynallocResult, count)
+	for i := range out {
+		out[i].maxDepth = reader.Float32()
+		out[i].totBoost = int(reader.I32())
+		for band := range out[i].offsets {
+			out[i].offsets[band] = int(reader.I32())
+		}
+		for band := range out[i].importance {
+			out[i].importance[band] = int(reader.I32())
+		}
+		for band := range out[i].spreadWeight {
+			out[i].spreadWeight[band] = reader.I32()
+		}
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func TestLibopusCELTDynallocAnalysisMatchesReference(t *testing.T) {
+	libopustest.RequireOracle(t)
+	cases := []libopusCELTDynallocCase{
+		celtDynallocCase("mono_tonal_analysis", 1, 0, MaxBands, 24, 3, 96, false, true, false, false),
+		celtDynallocCase("stereo_last_carry", 2, 0, MaxBands, 24, 1, 80, false, true, false, false),
+		celtDynallocCase("cvbr_transient", 2, 2, 18, 16, 2, 88, true, true, true, false),
+		celtDynallocCase("low_rate_lfe", 1, 0, 14, 16, 0, 20, false, true, false, true),
+	}
+	cases[0].analysisValid = true
+	for i := range cases[0].analysisLeakBoost {
+		cases[0].analysisLeakBoost[i] = uint8((i*11 + 7) & 0xff)
+	}
+	cases[0].toneFreq = 0.62
+	cases[0].toneishness = 0.995
+	cases[1].bandLogE2[10] = 1
+	cases[1].bandLogE[MaxBands] = 10
+	cases[1].bandLogE2[MaxBands] = 10
+	cases[2].surroundDynalloc[5] = 1.75
+	cases[2].surroundDynalloc[8] = 0.5
+
+	want, err := probeLibopusCELTDynalloc(cases)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "celt dynalloc", err)
+	}
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := runGoDynallocCase(tc, nil)
+			assertDynallocResultMatches(t, got, want[i])
+
+			var scratch DynallocScratch
+			gotScratch := runGoDynallocCase(tc, &scratch)
+			assertDynallocResultMatches(t, gotScratch, want[i])
+		})
+	}
+}
+
+func runGoDynallocCase(tc libopusCELTDynallocCase, scratch *DynallocScratch) DynallocResult {
+	logN := make([]int16, MaxBands)
+	for i := range logN {
+		logN[i] = int16(LogN[i])
+	}
+	bandLogE := float32sToGLogs(tc.bandLogE)
+	bandLogE2 := float32sToGLogs(tc.bandLogE2)
+	oldBandE := tc.oldBandE
+	surround := tc.surroundDynalloc[:]
+	leak := tc.analysisLeakBoost[:]
+	if scratch != nil {
+		return DynallocAnalysisWithScratch(
+			bandLogE, bandLogE2, oldBandE,
+			MaxBands, tc.start, tc.end, tc.channels, tc.lsbDepth, tc.lm,
+			logN,
+			tc.effectiveBytes,
+			tc.isTransient, tc.vbr, tc.constrainedVBR, tc.lfe,
+			tc.toneFreq, tc.toneishness,
+			surround,
+			tc.analysisValid, leak,
+			scratch,
+			EBands[:],
+		)
+	}
+	return DynallocAnalysis(
+		bandLogE, bandLogE2, oldBandE,
+		MaxBands, tc.start, tc.end, tc.channels, tc.lsbDepth, tc.lm,
+		logN,
+		tc.effectiveBytes,
+		tc.isTransient, tc.vbr, tc.constrainedVBR, tc.lfe,
+		tc.toneFreq, tc.toneishness,
+		surround,
+		tc.analysisValid, leak,
+	)
+}
+
+func assertDynallocResultMatches(t *testing.T, got DynallocResult, want libopusCELTDynallocResult) {
+	t.Helper()
+	if math.Float32bits(float32(got.MaxDepth)) != math.Float32bits(want.maxDepth) {
+		t.Fatalf("maxDepth=%08x %.10g want %08x %.10g",
+			math.Float32bits(float32(got.MaxDepth)), got.MaxDepth,
+			math.Float32bits(want.maxDepth), want.maxDepth)
+	}
+	if got.TotBoost != want.totBoost {
+		t.Fatalf("totBoost=%d want %d", got.TotBoost, want.totBoost)
+	}
+	for band := range MaxBands {
+		if got.Offsets[band] != int32(want.offsets[band]) {
+			t.Fatalf("offsets[%d]=%d want %d", band, got.Offsets[band], want.offsets[band])
+		}
+		if got.Importance[band] != int32(want.importance[band]) {
+			t.Fatalf("importance[%d]=%d want %d", band, got.Importance[band], want.importance[band])
+		}
+		if got.SpreadWeight[band] != want.spreadWeight[band] {
+			t.Fatalf("spreadWeight[%d]=%d want %d", band, got.SpreadWeight[band], want.spreadWeight[band])
+		}
+	}
+}
+
+func celtDynallocCase(name string, channels, start, end, lsbDepth, lm, effectiveBytes int, isTransient, vbr, constrainedVBR, lfe bool) libopusCELTDynallocCase {
+	total := channels * MaxBands
+	tc := libopusCELTDynallocCase{
+		name:           name,
+		start:          start,
+		end:            end,
+		channels:       channels,
+		lsbDepth:       lsbDepth,
+		lm:             lm,
+		effectiveBytes: effectiveBytes,
+		isTransient:    isTransient,
+		vbr:            vbr,
+		constrainedVBR: constrainedVBR,
+		lfe:            lfe,
+		toneFreq:       -1,
+		bandLogE:       make([]float32, total),
+		bandLogE2:      make([]float32, total),
+		oldBandE:       make([]float32, total),
+	}
+	for c := range channels {
+		for band := range MaxBands {
+			idx := c*MaxBands + band
+			base := 1.2 + 0.18*float64((band%7)-3) + 0.07*float64(c)
+			wave := 0.31*math.Sin(float64((band+1)*(c+2))*0.67) + 0.11*math.Cos(float64(band+3)*0.41)
+			tc.bandLogE[idx] = float32(base + wave)
+			tc.bandLogE2[idx] = float32(base + 0.7*wave + 0.05*float64((band+c)%3-1))
+			tc.oldBandE[idx] = float32(base - 0.13*wave + 0.03*float64((band+2*c)%5-2))
+		}
+	}
+	return tc
+}
+
+func boolToI32(v bool) int32 {
+	if v {
+		return 1
+	}
+	return 0
+}
+
+func generateRealisticBandEnergies(nbBands int) []float64 {
+	energies := make([]float64, nbBands)
+	for i := range nbBands {
+		// Simulate typical music spectrum:
+		// - Peak around band 5-10 (low-mid frequencies)
+		// - Gradual rolloff at high frequencies
+		// - Some variation to simulate natural content
+		center := 7.0
+		spread := 6.0
+		base := 8.0 - math.Pow(float64(i)-center, 2)/(spread*spread)*4.0
+
+		// Add slight variation
+		variation := 0.5 * math.Sin(float64(i)*0.7)
+		energies[i] = base + variation
+	}
+	return energies
+}
+
+// generateFlatBandEnergies generates flat spectrum band energies at a given level.
+func generateFlatBandEnergies(nbBands int, level float64) []float64 {
+	energies := make([]float64, nbBands)
+	for i := range nbBands {
+		energies[i] = level
+	}
+	return energies
+}
+
+// generateStereoEnergies generates stereo band energies with specified patterns.
+func generateStereoEnergies(nbBands int, leftPattern, rightPattern []float64) []float64 {
+	if len(leftPattern) < nbBands || len(rightPattern) < nbBands {
+		// Extend patterns if needed
+		for len(leftPattern) < nbBands {
+			leftPattern = append(leftPattern, leftPattern[len(leftPattern)-1])
+		}
+		for len(rightPattern) < nbBands {
+			rightPattern = append(rightPattern, rightPattern[len(rightPattern)-1])
+		}
+	}
+	energies := make([]float64, 2*nbBands)
+	copy(energies[:nbBands], leftPattern[:nbBands])
+	copy(energies[nbBands:], rightPattern[:nbBands])
+	return energies
+}
+
+func TestDynallocStereoCarriesLastAcrossChannels(t *testing.T) {
+	const (
+		nbBands  = MaxBands
+		channels = 2
+		lm       = 1
+	)
+	bandLogE := make([]celtGLog, channels*nbBands)
+	bandLogE2 := make([]celtGLog, channels*nbBands)
+	oldBandE := make([]celtGLog, channels*nbBands)
+	logN := make([]int16, nbBands)
+	for i := range logN {
+		logN[i] = int16(LogN[i])
+	}
+
+	// libopus declares dynalloc_analysis()'s "last" index outside the channel
+	// loop. Channel 0 leaves it at band 10; channel 1 then uses that backward
+	// smoothing point for a steep low-band envelope.
+	bandLogE2[10] = 1
+	bandLogE[nbBands] = 10
+	bandLogE2[nbBands] = 10
+
+	got := DynallocAnalysis(
+		bandLogE, bandLogE2, oldBandE,
+		nbBands, 0, nbBands, channels, 24, lm,
+		logN,
+		80,
+		false, true, false, false,
+		-1, 0,
+		nil,
+		false, nil,
+	)
+	if got.Offsets[0] != 4 {
+		t.Fatalf("offset[0]=%d want 4; stereo dynalloc must carry last across channels like libopus", got.Offsets[0])
+	}
+
+	var scratch DynallocScratch
+	gotScratch := DynallocAnalysisWithScratch(
+		bandLogE, bandLogE2, oldBandE,
+		nbBands, 0, nbBands, channels, 24, lm,
+		logN,
+		80,
+		false, true, false, false,
+		-1, 0,
+		nil,
+		false, nil,
+		&scratch,
+		EBands[:],
+	)
+	if gotScratch.Offsets[0] != got.Offsets[0] {
+		t.Fatalf("scratch offset[0]=%d want %d", gotScratch.Offsets[0], got.Offsets[0])
+	}
+}
+
+// =============================================================================
+// Test 1: Noise Floor Computation
+// =============================================================================
+
+// TestNoiseFloorComputation verifies noise floor formula matches libopus.
+// Reference: libopus celt_encoder.c lines 1071-1076:
+//
+//	noise_floor[i] = 0.0625*logN[i] + 0.5 + (9-lsb_depth) - eMeans[i]/16 + 0.0062*(i+5)^2
+//
+// Note: The eMeans division by 16 is for fixed-point; in float builds it's just eMeans[i].
+func TestNoiseFloorComputation(t *testing.T) {
+	testCases := []struct {
+		name     string
+		lsbDepth int
+	}{
+		{"16-bit audio", 16},
+		{"24-bit audio", 24},
+		{"8-bit audio", 8},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			nbBands := 21
+			noiseFloor := make([]float64, nbBands)
+
+			// Compute noise floor using the formula from libopus
+			for i := range nbBands {
+				logNVal := 0.0
+				if i < len(LogN) {
+					// LogN is in Q8 format, so divide by 256 for actual log2 value
+					// However, for noise floor computation, libopus uses the raw value
+					// and scales by 0.0625 (1/16)
+					logNVal = float64(LogN[i])
+				}
+				eMean := 0.0
+				if i < len(eMeans) {
+					eMean = float64(eMeans[i])
+				}
+
+				// libopus formula (float version):
+				// noise_floor[i] = 0.0625*logN[i] + 0.5 + (9-lsb_depth) - eMeans[i] + 0.0062*(i+5)^2
+				noiseFloor[i] = 0.0625*logNVal + 0.5 + float64(9-tc.lsbDepth) - eMean + 0.0062*float64((i+5)*(i+5))
+			}
+
+			// Verify properties of the noise floor
+			t.Logf("Noise floor for %d-bit depth:", tc.lsbDepth)
+			for i := range nbBands {
+				t.Logf("  Band %d: logN=%d, eMeans=%.4f, noise_floor=%.4f",
+					i, LogN[i], eMeans[i], noiseFloor[i])
+			}
+
+			// Higher bit depth should result in lower noise floor
+			if tc.lsbDepth == 24 {
+				// 24-bit should have 8 units lower noise floor than 16-bit
+				for i := range nbBands {
+					// Just verify noise floor decreases with bit depth
+					if noiseFloor[i] > 0 {
+						t.Logf("Note: Band %d has positive noise floor %.4f", i, noiseFloor[i])
+					}
+				}
+			}
+
+			// Verify noise floor generally increases for higher bands (preemphasis effect)
+			// The (i+5)^2 term causes this
+			for i := 5; i < nbBands-1; i++ {
+				if noiseFloor[i+1] < noiseFloor[i]-1.0 {
+					t.Logf("Warning: noise floor decreased significantly from band %d to %d: %.4f -> %.4f",
+						i, i+1, noiseFloor[i], noiseFloor[i+1])
+				}
+			}
+		})
+	}
+}
+
+// TestNoiseFloorConsistency verifies noise floor is consistent with spread weight computation.
+func TestNoiseFloorConsistency(t *testing.T) {
+	nbBands := 21
+	lsbDepth := 16
+
+	// The noise floor used in computeSpreadWeights should match our formula
+	bandLogE := generateFlatBandEnergies(nbBands, 10.0)
+	weights := computeSpreadWeights(float64sToGLogs(bandLogE), nbBands, 1, lsbDepth)
+
+	// With flat energy above noise floor, weights should be relatively uniform
+	t.Logf("Spread weights with flat energy at 10.0:")
+	for i := range nbBands {
+		t.Logf("  Band %d: weight=%d", i, weights[i])
+		// Weights should be in valid range
+		if weights[i] < 1 || weights[i] > 32 {
+			t.Errorf("Band %d: weight %d out of range [1, 32]", i, weights[i])
+		}
+	}
+}
+
+// =============================================================================
+// Test 2: MaxDepth Calculation
+// =============================================================================
+
+// TestMaxDepthCalculation verifies maxDepth is max(bandLogE - noiseFloor) across all bands.
+// Reference: libopus celt_encoder.c lines 1068-1081
+func TestMaxDepthCalculation(t *testing.T) {
+	testCases := []struct {
+		name     string
+		nbBands  int
+		channels int
+		energies []float64
+	}{
+		{
+			name:     "mono flat",
+			nbBands:  21,
+			channels: 1,
+			energies: generateFlatBandEnergies(21, 5.0),
+		},
+		{
+			name:     "mono peaked",
+			nbBands:  21,
+			channels: 1,
+			energies: generateRealisticBandEnergies(21),
+		},
+		{
+			name:     "stereo flat",
+			nbBands:  21,
+			channels: 2,
+			energies: generateStereoEnergies(21, generateFlatBandEnergies(21, 5.0), generateFlatBandEnergies(21, 8.0)),
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			lsbDepth := 16
+
+			// Compute noise floor
+			noiseFloor := make([]float64, tc.nbBands)
+			for i := 0; i < tc.nbBands; i++ {
+				logNVal := 0.0
+				if i < len(LogN) {
+					logNVal = float64(LogN[i])
+				}
+				eMean := 0.0
+				if i < len(eMeans) {
+					eMean = float64(eMeans[i])
+				}
+				noiseFloor[i] = 0.0625*logNVal + 0.5 + float64(9-lsbDepth) - eMean + 0.0062*float64((i+5)*(i+5))
+			}
+
+			// Compute maxDepth
+			maxDepth := -31.9 // libopus initial value
+			for c := 0; c < tc.channels; c++ {
+				for i := 0; i < tc.nbBands; i++ {
+					idx := c*tc.nbBands + i
+					if idx < len(tc.energies) {
+						depth := tc.energies[idx] - noiseFloor[i]
+						if depth > maxDepth {
+							maxDepth = depth
+						}
+					}
+				}
+			}
+
+			t.Logf("maxDepth = %.4f", maxDepth)
+
+			// Verify maxDepth is reasonable
+			if maxDepth < -31.9 {
+				t.Errorf("maxDepth %.4f below initial value -31.9", maxDepth)
+			}
+
+			// For stereo with different channel levels, maxDepth should reflect the louder channel
+			if tc.channels == 2 {
+				// Find max depth separately for each channel
+				maxDepthL := -31.9
+				maxDepthR := -31.9
+				for i := 0; i < tc.nbBands; i++ {
+					depthL := tc.energies[i] - noiseFloor[i]
+					depthR := tc.energies[tc.nbBands+i] - noiseFloor[i]
+					if depthL > maxDepthL {
+						maxDepthL = depthL
+					}
+					if depthR > maxDepthR {
+						maxDepthR = depthR
+					}
+				}
+				expectedMax := math.Max(maxDepthL, maxDepthR)
+				if math.Abs(maxDepth-expectedMax) > 0.001 {
+					t.Errorf("Stereo maxDepth mismatch: got %.4f, expected max(%.4f, %.4f) = %.4f",
+						maxDepth, maxDepthL, maxDepthR, expectedMax)
+				}
+			}
+		})
+	}
+}
+
+// =============================================================================
+// Test 3: Spread Weight Computation
+// =============================================================================
+
+// TestSpreadWeightComputation verifies spread weights based on SMR (signal-to-mask ratio).
+// Reference: libopus celt_encoder.c lines 1083-1117
+// Weights should be powers of 2: 1, 2, 4, 8, 16, 32
+func TestSpreadWeightComputation(t *testing.T) {
+	validWeights := map[int32]bool{1: true, 2: true, 4: true, 8: true, 16: true, 32: true}
+
+	testCases := []struct {
+		name     string
+		nbBands  int
+		channels int
+		lsbDepth int
+		energies []float64
+	}{
+		{
+			name:     "high energy mono",
+			nbBands:  21,
+			channels: 1,
+			lsbDepth: 16,
+			energies: generateFlatBandEnergies(21, 15.0),
+		},
+		{
+			name:     "low energy mono",
+			nbBands:  21,
+			channels: 1,
+			lsbDepth: 16,
+			energies: generateFlatBandEnergies(21, -5.0),
+		},
+		{
+			name:     "realistic mono",
+			nbBands:  21,
+			channels: 1,
+			lsbDepth: 16,
+			energies: generateRealisticBandEnergies(21),
+		},
+		{
+			name:     "24-bit high energy",
+			nbBands:  21,
+			channels: 1,
+			lsbDepth: 24,
+			energies: generateFlatBandEnergies(21, 15.0),
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			weights := computeSpreadWeights(float64sToGLogs(tc.energies), tc.nbBands, tc.channels, tc.lsbDepth)
+
+			if len(weights) != tc.nbBands {
+				t.Errorf("Expected %d weights, got %d", tc.nbBands, len(weights))
+				return
+			}
+
+			t.Logf("Spread weights:")
+			for i := 0; i < tc.nbBands; i++ {
+				t.Logf("  Band %d: weight=%d", i, weights[i])
+
+				// Verify weight is a valid power of 2
+				if !validWeights[weights[i]] {
+					t.Errorf("Band %d: weight %d is not a valid power of 2 (1,2,4,8,16,32)", i, weights[i])
+				}
+			}
+		})
+	}
+}
+
+// TestSpreadWeightMaskingModel verifies the masking propagation in spread weights.
+func TestSpreadWeightMaskingModel(t *testing.T) {
+	nbBands := 21
+	channels := 1
+	lsbDepth := 16
+
+	// Create energy with one very loud band
+	energies := generateFlatBandEnergies(nbBands, -5.0)
+	loudBand := 10
+	energies[loudBand] = 20.0 // Much louder than neighbors
+
+	weights := computeSpreadWeights(float64sToGLogs(energies), nbBands, channels, lsbDepth)
+
+	t.Logf("Weights with loud band at %d:", loudBand)
+	for i := range nbBands {
+		t.Logf("  Band %d: energy=%.2f, weight=%d", i, energies[i], weights[i])
+	}
+
+	// The loud band should have high weight
+	if weights[loudBand] < 16 {
+		t.Errorf("Loud band %d should have high weight (>=16), got %d", loudBand, weights[loudBand])
+	}
+
+	// Nearby bands should be masked (lower weights due to masking)
+	// Forward masking (2 dB/band slope)
+	// Backward masking (3 dB/band slope)
+	// This is a qualitative check - exact values depend on noise floor
+}
+
+// =============================================================================
+// Test 4: Follower Smoothing
+// =============================================================================
+
+// TestFollowerSmoothing verifies forward/backward smoothing and median filter.
+// Reference: libopus celt_encoder.c lines 1137-1166
+func TestFollowerSmoothing(t *testing.T) {
+	nbBands := 21
+
+	// Create test energies with a spike
+	bandLogE3 := generateFlatBandEnergies(nbBands, 5.0)
+	bandLogE3[10] = 15.0 // Large spike
+
+	// Simulate follower computation
+	f := make([]float64, nbBands)
+
+	// Forward pass: follower rises at most 1.5 dB per band
+	f[0] = bandLogE3[0]
+	last := 0
+	for i := 1; i < nbBands; i++ {
+		if bandLogE3[i] > bandLogE3[i-1]+0.5 {
+			last = i
+		}
+		if f[i-1]+1.5 < bandLogE3[i] {
+			f[i] = f[i-1] + 1.5
+		} else {
+			f[i] = bandLogE3[i]
+		}
+	}
+
+	t.Logf("After forward pass (last=%d):", last)
+	for i := range nbBands {
+		t.Logf("  Band %d: bandLogE3=%.2f, f=%.2f", i, bandLogE3[i], f[i])
+	}
+
+	// Backward pass: follower falls at most 2 dB per band
+	for i := last - 1; i >= 0; i-- {
+		if f[i+1]+2.0 < f[i] {
+			f[i] = f[i+1] + 2.0
+		}
+		if bandLogE3[i] < f[i] {
+			f[i] = bandLogE3[i]
+		}
+	}
+
+	t.Logf("After backward pass:")
+	for i := range nbBands {
+		t.Logf("  Band %d: bandLogE3=%.2f, f=%.2f", i, bandLogE3[i], f[i])
+	}
+
+	// Verify follower tracks the spike
+	// The follower should rise gradually toward the spike and fall gradually after
+	for i := 1; i < 10; i++ {
+		// Before spike: follower should be rising toward it (if spike is high enough)
+		if f[i] < f[i-1]-0.001 && bandLogE3[i] > f[i] {
+			t.Logf("Note: follower[%d]=%.2f < follower[%d]=%.2f but energy=%.2f is higher",
+				i, f[i], i-1, f[i-1], bandLogE3[i])
+		}
+	}
+}
+
+// TestMedianFilterApplication verifies median filter in follower smoothing.
+// Reference: libopus celt_encoder.c lines 1151-1162
+func TestMedianFilterApplication(t *testing.T) {
+	// Simulate the median filter applied to bandLogE3
+	// offset = 1.0 (conservative value from libopus)
+	offset := 1.0
+
+	// Create test data with outliers
+	bandLogE3 := []float64{5.0, 5.0, 12.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0,
+		5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0}
+	nbBands := len(bandLogE3)
+
+	// Initialize follower with smoothed values
+	f := make([]float64, nbBands)
+	copy(f, bandLogE3)
+
+	// Apply forward smoothing
+	for i := 1; i < nbBands; i++ {
+		if f[i-1]+1.5 < f[i] {
+			f[i] = f[i-1] + 1.5
+		}
+	}
+
+	t.Logf("Before median filter:")
+	for i := 2; i < nbBands-2; i++ {
+		med5 := medianOf5Float(bandLogE3[i-2:])
+		t.Logf("  Band %d: f=%.2f, median5=%.2f", i, f[i], med5-offset)
+	}
+
+	// Apply median filter: f[i] = max(f[i], median_of_5(bandLogE3[i-2..i+2]) - offset)
+	for i := 2; i < nbBands-2; i++ {
+		med := medianOf5Float(bandLogE3[i-2:]) - offset
+		if med > f[i] {
+			f[i] = med
+		}
+	}
+
+	// Handle edges with median_of_3
+	if nbBands >= 3 {
+		tmp := medianOf3Float(bandLogE3[0:]) - offset
+		if tmp > f[0] {
+			f[0] = tmp
+		}
+		if tmp > f[1] {
+			f[1] = tmp
+		}
+	}
+	if nbBands >= 3 {
+		tmp := medianOf3Float(bandLogE3[nbBands-3:]) - offset
+		if tmp > f[nbBands-2] {
+			f[nbBands-2] = tmp
+		}
+		if tmp > f[nbBands-1] {
+			f[nbBands-1] = tmp
+		}
+	}
+
+	t.Logf("After median filter:")
+	for i := range nbBands {
+		t.Logf("  Band %d: f=%.2f", i, f[i])
+	}
+
+	// The median filter should help smooth out the outlier at band 2
+	// But since it's surrounded by 5.0 values, median should be 5.0
+}
+
+// =============================================================================
+// Test 5: Importance Weights
+// =============================================================================
+
+// TestImportanceWeights verifies importance calculation.
+// Reference: libopus celt_encoder.c lines 1184-1191
+func TestImportanceWeights(t *testing.T) {
+	testCases := []struct {
+		name           string
+		effectiveBytes int
+		lm             int
+		expectDefault  bool
+	}{
+		{
+			name:           "low bitrate LM=0",
+			effectiveBytes: 20,
+			lm:             0,
+			expectDefault:  true, // < 30 + 5*0 = 30
+		},
+		{
+			name:           "low bitrate LM=3",
+			effectiveBytes: 40,
+			lm:             3,
+			expectDefault:  true, // < 30 + 5*3 = 45
+		},
+		{
+			name:           "sufficient bitrate LM=3",
+			effectiveBytes: 50,
+			lm:             3,
+			expectDefault:  false, // >= 30 + 5*3 = 45
+		},
+		{
+			name:           "high bitrate",
+			effectiveBytes: 200,
+			lm:             3,
+			expectDefault:  false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			nbBands := 21
+			channels := 1
+			lsbDepth := 16
+
+			bandLogE := generateRealisticBandEnergies(nbBands)
+			oldBandE := generateFlatBandEnergies(MaxBands, 5.0)
+
+			importance := ComputeImportance(float64sToGLogs(bandLogE), float64sToGLogs(oldBandE), nbBands, channels, tc.lm, lsbDepth, tc.effectiveBytes)
+
+			if len(importance) != nbBands {
+				t.Errorf("Expected %d importance values, got %d", nbBands, len(importance))
+				return
+			}
+
+			t.Logf("Importance weights (effectiveBytes=%d, LM=%d):", tc.effectiveBytes, tc.lm)
+			allDefault := true
+			for i := range nbBands {
+				t.Logf("  Band %d: importance=%d", i, importance[i])
+				if importance[i] != 13 {
+					allDefault = false
+				}
+			}
+
+			if tc.expectDefault && !allDefault {
+				t.Errorf("Expected all default importance (13), but got varying values")
+			}
+			if !tc.expectDefault && allDefault {
+				t.Errorf("Expected computed importance values, but got all defaults (13)")
+			}
+		})
+	}
+}
+
+// TestImportanceScaling verifies importance scales with follower excess.
+// Reference: libopus celt_encoder.c line 1187-1189:
+//
+//	importance[i] = floor(0.5 + 13 * celt_exp2_db(min(follower[i], 4.0)))
+func TestImportanceScaling(t *testing.T) {
+	// Test the scaling formula: importance = 13 * 2^(min(follower, 4))
+	// When follower = 0, importance = 13 * 2^0 = 13
+	// When follower = 1, importance = 13 * 2^1 = 26
+	// When follower = 2, importance = 13 * 2^2 = 52
+	// When follower = 4, importance = 13 * 2^4 = 208
+
+	expectedTable := map[float64]int{
+		0.0: 13,
+		1.0: 26,
+		2.0: 52,
+		3.0: 104,
+		4.0: 208,
+	}
+
+	for follower, expected := range expectedTable {
+		actual := int(math.Floor(0.5 + 13.0*math.Pow(2.0, follower)))
+		if actual != expected {
+			t.Errorf("follower=%.1f: expected importance=%d, got %d", follower, expected, actual)
+		}
+	}
+
+	// Values above 4.0 should be clamped
+	capped := int(math.Floor(0.5 + 13.0*math.Pow(2.0, 4.0)))
+	if capped != 208 {
+		t.Errorf("Expected capped importance=208 for follower>4, got %d", capped)
+	}
+}
+
+// =============================================================================
+// Test 6: Offset/Boost Computation
+// =============================================================================
+
+// TestOffsetComputation verifies boost calculation per band.
+// Reference: libopus celt_encoder.c lines 1232-1265
+func TestOffsetComputation(t *testing.T) {
+	// The offset (boost) depends on:
+	// - follower value (clamped to 4)
+	// - band width
+	// - VBR vs CBR mode
+
+	testCases := []struct {
+		name              string
+		vbr               bool
+		constrainedVBR    bool
+		isTransient       bool
+		effectiveBytes    int
+		expectTwoThirdCap bool
+	}{
+		{
+			name:              "VBR mode",
+			vbr:               true,
+			constrainedVBR:    false,
+			isTransient:       false,
+			effectiveBytes:    100,
+			expectTwoThirdCap: false,
+		},
+		{
+			name:              "CBR mode",
+			vbr:               false,
+			constrainedVBR:    false,
+			isTransient:       false,
+			effectiveBytes:    100,
+			expectTwoThirdCap: true, // CBR caps at 2/3
+		},
+		{
+			name:              "CVBR non-transient",
+			vbr:               true,
+			constrainedVBR:    true,
+			isTransient:       false,
+			effectiveBytes:    100,
+			expectTwoThirdCap: true, // CVBR non-transient also caps
+		},
+		{
+			name:              "CVBR transient",
+			vbr:               true,
+			constrainedVBR:    true,
+			isTransient:       true,
+			effectiveBytes:    100,
+			expectTwoThirdCap: false, // Transient frames don't cap
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Simulate the CBR cap calculation
+			// libopus: if ((!vbr || (constrained_vbr && !isTransient)) && tot_boost > 2*effectiveBytes/3)
+			shouldCap := (!tc.vbr || (tc.constrainedVBR && !tc.isTransient))
+
+			if shouldCap != tc.expectTwoThirdCap {
+				t.Errorf("Expected cap=%v, got %v", tc.expectTwoThirdCap, shouldCap)
+			}
+
+			// 2/3 cap in bits
+			cap := 2 * tc.effectiveBytes * 8 / 3
+			t.Logf("Mode: vbr=%v, cvbr=%v, transient=%v -> cap_enabled=%v, cap=%d bits",
+				tc.vbr, tc.constrainedVBR, tc.isTransient, shouldCap, cap)
+		})
+	}
+}
+
+// TestBoostBitsCalculation covers the libopus float-mode boost branches.
+func TestBoostBitsCalculation(t *testing.T) {
+	lm := 3 // 20ms frame
+	C := 1  // mono
+
+	testCases := []struct {
+		bandIdx  int
+		width    int
+		follower float64 // In log2 units (dB/6 approximately)
+	}{
+		{0, 1, 2.0},   // Very narrow band
+		{5, 4, 2.0},   // Narrow band
+		{10, 8, 2.0},  // Medium band
+		{15, 24, 2.0}, // Wide band
+		{20, 64, 2.0}, // Very wide band
+	}
+
+	for _, tc := range testCases {
+		// Compute band width
+		width := tc.width
+		if tc.bandIdx < len(EBands)-1 {
+			width = C * (EBands[tc.bandIdx+1] - EBands[tc.bandIdx]) << lm
+		}
+
+		// Clamp follower to 4.0 (libopus MIN(follower, GCONST(4)))
+		follower := tc.follower
+		if follower > 4.0 {
+			follower = 4.0
+		}
+
+		var boost, boostBits int
+		if width < 6 {
+			boost = int(follower)
+			boostBits = boost * width << bitRes
+		} else if width > 48 {
+			boost = int(follower * 8.0)
+			boostBits = (boost * width << bitRes) / 8
+		} else {
+			boost = int(follower * float64(width) / 6.0)
+			boostBits = boost * 6 << bitRes
+		}
+
+		t.Logf("Band %d: width=%d, follower=%.4f, boost=%d, boost_bits=%d (Q3)",
+			tc.bandIdx, width, tc.follower, boost, boostBits)
+	}
+}
+
+// =============================================================================
+// Test 7: Median Helpers
+// =============================================================================
+
+// medianOf3Float computes median of first 3 elements.
+func medianOf3Float(x []float64) float64 {
+	if len(x) < 3 {
+		if len(x) == 0 {
+			return 0
+		}
+		return x[0]
+	}
+	a, b, c := x[0], x[1], x[2]
+	if a > b {
+		if b > c {
+			return b
+		} else if a > c {
+			return c
+		}
+		return a
+	}
+	if a > c {
+		return a
+	} else if b > c {
+		return c
+	}
+	return b
+}
+
+// medianOf5Float computes median of first 5 elements.
+func medianOf5Float(x []float64) float64 {
+	if len(x) < 5 {
+		return medianOf3Float(x)
+	}
+	// Copy to avoid modifying input
+	arr := []float64{x[0], x[1], x[2], x[3], x[4]}
+	// Simple bubble sort (fine for 5 elements)
+	for i := range 4 {
+		for j := 0; j < 4-i; j++ {
+			if arr[j] > arr[j+1] {
+				arr[j], arr[j+1] = arr[j+1], arr[j]
+			}
+		}
+	}
+	return arr[2] // Middle element
+}
+
+// TestMedianOf3 tests median of 3 with various inputs.
+func TestMedianOf3(t *testing.T) {
+	testCases := []struct {
+		input    []float64
+		expected float64
+	}{
+		{[]float64{1, 2, 3}, 2},
+		{[]float64{3, 2, 1}, 2},
+		{[]float64{2, 1, 3}, 2},
+		{[]float64{1, 3, 2}, 2},
+		{[]float64{5, 5, 5}, 5},
+		{[]float64{1, 1, 2}, 1},
+		{[]float64{-1, 0, 1}, 0},
+		{[]float64{10, -10, 0}, 0},
+	}
+
+	for _, tc := range testCases {
+		result := medianOf3Float(tc.input)
+		if math.Abs(result-tc.expected) > 1e-10 {
+			t.Errorf("medianOf3(%v) = %v, expected %v", tc.input, result, tc.expected)
+		}
+	}
+}
+
+// TestMedianOf5 tests median of 5 with various inputs.
+func TestMedianOf5(t *testing.T) {
+	testCases := []struct {
+		input    []float64
+		expected float64
+	}{
+		{[]float64{1, 2, 3, 4, 5}, 3},
+		{[]float64{5, 4, 3, 2, 1}, 3},
+		{[]float64{1, 5, 2, 4, 3}, 3},
+		{[]float64{5, 5, 5, 5, 5}, 5},
+		{[]float64{1, 1, 1, 2, 2}, 1},
+		{[]float64{-2, -1, 0, 1, 2}, 0},
+		{[]float64{100, 0, 50, 25, 75}, 50},
+	}
+
+	for _, tc := range testCases {
+		result := medianOf5Float(tc.input)
+		if math.Abs(result-tc.expected) > 1e-10 {
+			t.Errorf("medianOf5(%v) = %v, expected %v", tc.input, result, tc.expected)
+		}
+	}
+}
+
+// =============================================================================
+// Test 8: Edge Cases
+// =============================================================================
+
+// TestDynallocEdgeCases tests edge cases in dynalloc analysis.
+func TestDynallocEdgeCases(t *testing.T) {
+	t.Run("EmptyBandEnergies", func(t *testing.T) {
+		// Empty energies should produce default weights
+		weights := computeSpreadWeights(nil, 21, 1, 16)
+		for i, w := range weights {
+			if w != 1 {
+				t.Errorf("Band %d: expected default weight 1, got %d", i, w)
+			}
+		}
+	})
+
+	t.Run("VeryLowEffectiveBytes", func(t *testing.T) {
+		// Very low effective bytes should disable dynalloc (importance = 13)
+		nbBands := 21
+		effectiveBytes := 10 // Very low
+		lm := 3
+
+		bandLogE := generateRealisticBandEnergies(nbBands)
+		oldBandE := generateFlatBandEnergies(MaxBands, 5.0)
+
+		importance := ComputeImportance(float64sToGLogs(bandLogE), float64sToGLogs(oldBandE), nbBands, 1, lm, 16, effectiveBytes)
+
+		allDefault := true
+		for _, imp := range importance {
+			if imp != 13 {
+				allDefault = false
+				break
+			}
+		}
+		if !allDefault {
+			t.Error("Expected all default importance for very low effectiveBytes")
+		}
+	})
+
+	t.Run("LM0SpecialHandling", func(t *testing.T) {
+		// LM=0 (2.5ms frames) has special handling for first 8 bands
+		nbBands := 17 // Typical for LM=0
+		lm := 0
+		effectiveBytes := 50 // Above threshold: 30 + 5*0 = 30
+
+		// Current frame has low energy in first bands
+		bandLogE := generateFlatBandEnergies(nbBands, 2.0)
+		// Previous frame had higher energy
+		oldBandE := make([]float64, MaxBands)
+		for i := range 8 {
+			oldBandE[i] = 10.0 // Higher than current
+		}
+
+		importance := ComputeImportance(float64sToGLogs(bandLogE), float64sToGLogs(oldBandE), nbBands, 1, lm, 16, effectiveBytes)
+
+		t.Logf("LM=0 importance (current=2.0, old[0:8]=10.0):")
+		for i := range nbBands {
+			t.Logf("  Band %d: importance=%d", i, importance[i])
+		}
+
+		// First 8 bands should use max(current, old) for energy
+		// This should affect the importance values
+	})
+
+	t.Run("SingleBand", func(t *testing.T) {
+		bandLogE := []float64{10.0}
+		weights := computeSpreadWeights(float64sToGLogs(bandLogE), 1, 1, 16)
+		if len(weights) != 1 {
+			t.Errorf("Expected 1 weight, got %d", len(weights))
+		}
+	})
+
+	t.Run("NegativeEnergies", func(t *testing.T) {
+		// Very negative energies (below noise floor)
+		nbBands := 21
+		bandLogE := generateFlatBandEnergies(nbBands, -20.0)
+		weights := computeSpreadWeights(float64sToGLogs(bandLogE), nbBands, 1, 16)
+
+		// All weights should still be valid
+		for i, w := range weights {
+			if w < 1 || w > 32 {
+				t.Errorf("Band %d: weight %d out of range", i, w)
+			}
+		}
+	})
+}
+
+// =============================================================================
+// Test 9: Benchmarks
+// =============================================================================
+
+// BenchmarkComputeSpreadWeights benchmarks spread weight computation.
+func BenchmarkComputeSpreadWeights(b *testing.B) {
+	nbBands := 21
+	bandLogE := generateRealisticBandEnergies(nbBands)
+
+	b.Run("Mono", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			computeSpreadWeights(float64sToGLogs(bandLogE), nbBands, 1, 16)
+		}
+	})
+
+	stereoBandLogE := generateStereoEnergies(nbBands,
+		generateRealisticBandEnergies(nbBands),
+		generateRealisticBandEnergies(nbBands))
+
+	b.Run("Stereo", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			computeSpreadWeights(float64sToGLogs(stereoBandLogE), nbBands, 2, 16)
+		}
+	})
+}
+
+// BenchmarkDynallocImportance benchmarks importance computation in dynalloc context.
+func BenchmarkDynallocImportance(b *testing.B) {
+	nbBands := 21
+	bandLogE := generateRealisticBandEnergies(nbBands)
+	oldBandE := generateFlatBandEnergies(MaxBands, 5.0)
+	bandLogEGLog := float64sToGLogs(bandLogE)
+	oldBandEGLog := float64sToGLogs(oldBandE)
+
+	b.Run("Mono_LowBitrate", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			ComputeImportance(bandLogEGLog, oldBandEGLog, nbBands, 1, 3, 16, 40)
+		}
+	})
+
+	b.Run("Mono_HighBitrate", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			ComputeImportance(bandLogEGLog, oldBandEGLog, nbBands, 1, 3, 16, 200)
+		}
+	})
+
+	stereoBandLogE := generateStereoEnergies(nbBands,
+		generateRealisticBandEnergies(nbBands),
+		generateRealisticBandEnergies(nbBands))
+	oldStereoE := generateFlatBandEnergies(2*MaxBands, 5.0)
+	stereoBandLogEGLog := float64sToGLogs(stereoBandLogE)
+	oldStereoEGLog := float64sToGLogs(oldStereoE)
+
+	b.Run("Stereo_HighBitrate", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			ComputeImportance(stereoBandLogEGLog, oldStereoEGLog, nbBands, 2, 3, 16, 200)
+		}
+	})
+}
+
+// BenchmarkDynallocAnalysisFull benchmarks full dynalloc analysis flow.
+func BenchmarkDynallocAnalysisFull(b *testing.B) {
+	nbBands := 21
+	channels := 1
+	lm := 3
+	lsbDepth := 16
+	effectiveBytes := 200
+
+	bandLogE := generateRealisticBandEnergies(nbBands)
+	oldBandE := generateFlatBandEnergies(MaxBands, 5.0)
+	bandLogEGLog := float64sToGLogs(bandLogE)
+	oldBandEGLog := float64sToGLogs(oldBandE)
+
+	b.Run("Full_Mono_20ms", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			// Compute spread weights
+			computeSpreadWeights(bandLogEGLog, nbBands, channels, lsbDepth)
+			// Compute importance
+			ComputeImportance(bandLogEGLog, oldBandEGLog, nbBands, channels, lm, lsbDepth, effectiveBytes)
+		}
+	})
+}
+
+// =============================================================================
+// Integration Tests
+// =============================================================================
+
+// TestSpreadWeightsIntegration tests that spread weights affect spreading decision.
+func TestSpreadWeightsIntegration(t *testing.T) {
+	encoder := NewEncoder(1)
+	frameSize := 960
+	nbBands := 21
+	channels := 1
+
+	// Create mock normalized coefficients (tonal signal)
+	N0 := frameSize
+	normX := make([]float64, N0*channels)
+	for i := range normX {
+		if i%20 == 0 {
+			normX[i] = 0.9
+		} else {
+			normX[i] = 0.01
+		}
+	}
+	normXNorm := float64sToNorms(normX)
+
+	// Test with uniform weights
+	uniformWeights := make([]int32, nbBands)
+	for i := range nbBands {
+		uniformWeights[i] = 1
+	}
+	decisionUniform := encoder.SpreadingDecisionWithWeights(normXNorm, nbBands, channels, frameSize, false, uniformWeights)
+
+	// Test with computed weights from high-energy bands
+	bandLogE := generateFlatBandEnergies(nbBands, 15.0)
+	computedWeights := computeSpreadWeights(float64sToGLogs(bandLogE), nbBands, channels, 16)
+	encoder = NewEncoder(1) // Reset state
+	decisionComputed := encoder.SpreadingDecisionWithWeights(normXNorm, nbBands, channels, frameSize, false, computedWeights)
+
+	t.Logf("Spread decision with uniform weights: %d", decisionUniform)
+	t.Logf("Spread decision with computed weights: %d", decisionComputed)
+	t.Logf("Computed weights: %v", computedWeights)
+
+	// Both decisions should be valid
+	if decisionUniform < 0 || decisionUniform > 3 {
+		t.Errorf("Uniform weights decision %d out of range", decisionUniform)
+	}
+	if decisionComputed < 0 || decisionComputed > 3 {
+		t.Errorf("Computed weights decision %d out of range", decisionComputed)
+	}
+}
+
+// TestImportanceIntegrationWithTF tests that importance affects TF analysis.
+func TestImportanceIntegrationWithTF(t *testing.T) {
+	nbBands := 21
+	N0 := 960 // 20ms frame
+
+	// Create mock normalized coefficients
+	X := make([]float64, N0)
+	for i := range X {
+		X[i] = math.Sin(float64(i)*0.1) * 0.1
+	}
+	XNorm := float64sToNorms(X)
+
+	lm := 3
+	isTransient := false
+	tfEstimate := 0.3
+	effectiveBytes := 200
+
+	// Test with nil importance (should use default 13)
+	tfRes1, tfSelect1 := TFAnalysis(XNorm, N0, nbBands, isTransient, lm, opusVal16(tfEstimate), effectiveBytes, nil)
+
+	// Test with computed importance
+	bandLogE := generateRealisticBandEnergies(nbBands)
+	oldBandE := generateFlatBandEnergies(MaxBands, 5.0)
+	importance := ComputeImportance(float64sToGLogs(bandLogE), float64sToGLogs(oldBandE), nbBands, 1, lm, 16, effectiveBytes)
+	tfRes2, tfSelect2 := TFAnalysis(XNorm, N0, nbBands, isTransient, lm, opusVal16(tfEstimate), effectiveBytes, importance)
+
+	t.Logf("TF with nil importance: tfSelect=%d, tfRes=%v", tfSelect1, tfRes1)
+	t.Logf("TF with computed importance: tfSelect=%d, tfRes=%v", tfSelect2, tfRes2)
+	t.Logf("Importance values: %v", importance)
+
+	// Verify results are valid
+	if len(tfRes1) != nbBands || len(tfRes2) != nbBands {
+		t.Error("TF result length mismatch")
+	}
+}
+
+// TestDynallocScratchMatchesReferenceRandomized requires the scratch
+// dynalloc_analysis to match the allocating reference in every output bit over
+// random energies, band ranges, frame sizes, rate modes and tone inputs.
+func TestDynallocScratchMatchesReferenceRandomized(t *testing.T) {
+	rng := rand.New(rand.NewSource(0x5eed))
+	logN := make([]int16, MaxBands)
+	for i := range logN {
+		logN[i] = int16(LogN[i])
+	}
+	var scratch DynallocScratch
+	energy := func() celtGLog {
+		switch rng.Intn(8) {
+		case 0:
+			return 0
+		case 1:
+			return celtGLog(-28 + rng.Float32()*4)
+		}
+		return celtGLog(rng.Float32()*24 - 8)
+	}
+	for trial := range 4000 {
+		channels := 1 + rng.Intn(2)
+		lm := rng.Intn(4)
+		end := 1 + rng.Intn(MaxBands)
+		start := 0
+		if rng.Intn(3) == 0 {
+			start = min(HybridCELTStartBand, end)
+		}
+		bandLogE := make([]celtGLog, channels*MaxBands)
+		oldBandE := make([]celtGLog, channels*MaxBands)
+		for i := range bandLogE {
+			bandLogE[i] = energy()
+			oldBandE[i] = energy()
+		}
+		var bandLogE2 []celtGLog
+		if rng.Intn(2) == 0 {
+			bandLogE2 = make([]celtGLog, len(bandLogE))
+			for i := range bandLogE2 {
+				bandLogE2[i] = energy()
+			}
+		}
+		var surround []celtGLog
+		if rng.Intn(3) == 0 {
+			surround = make([]celtGLog, MaxBands)
+			for i := range surround {
+				surround[i] = celtGLog(rng.Float32() * 3)
+			}
+		}
+		leak := make([]uint8, leakBands)
+		for i := range leak {
+			leak[i] = uint8(rng.Intn(256))
+		}
+		toneFreq, toneishness := float32(-1), float32(0)
+		if rng.Intn(3) == 0 {
+			toneFreq, toneishness = rng.Float32()*3.1, 0.97+rng.Float32()*0.03
+		}
+		effectiveBytes := 10 + rng.Intn(300)
+		isTransient, vbr, cvbr, lfe := rng.Intn(2) == 0, rng.Intn(2) == 0, rng.Intn(2) == 0, rng.Intn(10) == 0
+		analysisValid := rng.Intn(2) == 0
+		lsbDepth := 16 + rng.Intn(9)
+
+		want := DynallocAnalysis(bandLogE, bandLogE2, oldBandE, MaxBands, start, end, channels, lsbDepth, lm, logN,
+			effectiveBytes, isTransient, vbr, cvbr, lfe, toneFreq, toneishness, surround, analysisValid, leak)
+		got := DynallocAnalysisWithScratch(bandLogE, bandLogE2, oldBandE, MaxBands, start, end, channels, lsbDepth, lm, logN,
+			effectiveBytes, isTransient, vbr, cvbr, lfe, toneFreq, toneishness, surround, analysisValid, leak, &scratch, EBands[:])
+		if math.Float32bits(float32(got.MaxDepth)) != math.Float32bits(float32(want.MaxDepth)) || got.TotBoost != want.TotBoost {
+			t.Fatalf("trial %d: maxDepth/totBoost got %v/%d want %v/%d", trial, got.MaxDepth, got.TotBoost, want.MaxDepth, want.TotBoost)
+		}
+		for i := range MaxBands {
+			if got.Offsets[i] != want.Offsets[i] || got.SpreadWeight[i] != want.SpreadWeight[i] || got.Importance[i] != want.Importance[i] {
+				t.Fatalf("trial %d band %d: got off/spread/imp %d/%d/%d want %d/%d/%d", trial, i,
+					got.Offsets[i], got.SpreadWeight[i], got.Importance[i], want.Offsets[i], want.SpreadWeight[i], want.Importance[i])
+			}
+		}
+	}
+	bandLogE := make([]celtGLog, 2*MaxBands)
+	for i := range bandLogE {
+		bandLogE[i] = energy()
+	}
+	leak := make([]uint8, leakBands)
+	run := func() {
+		DynallocAnalysisWithScratch(bandLogE, nil, bandLogE, MaxBands, 0, MaxBands, 2, 24, 0, logN,
+			200, false, false, false, false, 0.5, 0.99, nil, true, leak, &scratch, EBands[:])
+	}
+	run()
+	if allocs := testing.AllocsPerRun(50, run); allocs != 0 {
+		t.Fatalf("warm allocations=%v want 0", allocs)
 	}
 }
