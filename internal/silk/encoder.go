@@ -55,8 +55,6 @@ type Encoder struct {
 	scratchAbsPulses    []int32 // encodePulses: absolute value pulses (opus_int-width)
 	scratchSumPulses    []int32 // encodePulses: sum per shell block (opus_int-width)
 	scratchNRshifts     []int32 // encodePulses: right shifts per shell block (opus_int-width)
-	scratchLSFQ15       []int16 // lpcToLSF: LSF result in Q15
-	scratchLPCQ16       []int32 // silkA2NLSF: LPC coefficients in Q16
 
 	// Pitch detection scratch buffers
 	scratchFrame8kHz      []float32 // detectPitch: downsampled to 8kHz
@@ -74,22 +72,14 @@ type Encoder struct {
 	scratchPitchXcorr     []float32 // detectPitch: celt_pitch_xcorr scratch
 
 	// NSQ (computeNSQExcitation) scratch buffers
-	scratchInputQ0          []int16 // PCM converted to int16
-	scratchGainsUnqQ16      []int32 // unquantized gains in Q16 format
-	scratchGainsQ16         []int32 // gains in Q16 format
-	scratchLBRRGainsQ16     []int32 // LBRR dequantized gains (must not alias scratchGainsQ16)
-	scratchPitchL           []int32 // pitch lags for NSQ
-	scratchArShpQ13         []int16 // AR shaping coefficients
-	scratchLtpCoefQ14       []int16 // LTP coefficients
-	scratchPredCoefQ12      []int16 // prediction coefficients
-	scratchHarmShapeGainQ14 []int32 // harmonic shaping gain (opus_int-width)
-	scratchTiltQ14          []int32 // tilt values (opus_int-width)
-	scratchLfShpQ14         []int32 // low-frequency shaping
-	scratchEcBufCopy        []byte  // range encoder buffer snapshot
+	scratchInputQ0     []int16 // PCM converted to int16
+	scratchArShpQ13    []int16 // AR shaping coefficients
+	scratchLtpCoefQ14  []int16 // LTP coefficients
+	scratchPredCoefQ12 []int16 // prediction coefficients
+	scratchEcBufCopy   []byte  // range encoder buffer snapshot
 
 	// LPC/Burg scratch buffers. The Burg work arrays mirror C double arrays
 	// in libopus silk/float/burg_modified_FLP.c; input/output stay silk_float.
-	scratchLpcQ12        []int16     // computeLPCAndNLSFWithInterp: output LPC Q12
 	scratchBurgAf        []silkCReal // burgModifiedFLPZeroAllocF32: Af buffer
 	scratchBurgCFirstRow []silkCReal // burgModifiedFLPZeroAllocF32: CFirstRow
 	scratchBurgCLastRow  []silkCReal // burgModifiedFLPZeroAllocF32: CLastRow
@@ -101,33 +91,18 @@ type Encoder struct {
 	scratchPitchRes32   []float32 // Pitch analysis: residual as float32
 	scratchPitchInput32 []float32 // Pitch analysis: input buffer (float32)
 	scratchPitchWsig32  []float32 // Pitch analysis: windowed signal (float32)
-	scratchPitchAuto32  []float32 // Pitch analysis: autocorrelation (float32)
-	scratchPitchRefl32  []float32 // Pitch analysis: reflection coefficients (float32)
-	scratchPitchA32     []float32 // Pitch analysis: LPC coefficients (float32)
 
-	scratchLtpResF32    []float32 // LTP analysis: LTP residual with pre-length
-	scratchLpcResF32    []float32 // Residual energy: LPC residual scratch (float32)
-	scratchResNrg       []float32 // Gain processing: residual energies (silk_float)
-	scratchPredCoefF32A []float32 // Gain processing: LPC coeffs (first half, float32)
-	scratchPredCoefF32B []float32 // Gain processing: LPC coeffs (second half, float32)
+	scratchLtpResF32 []float32 // LTP analysis: LTP residual with pre-length
+	scratchLpcResF32 []float32 // Residual energy: LPC residual scratch (float32)
 
 	// FindLPC interpolation scratch buffers
 	scratchLpcX        []float32 // FindLPC input (silk_float)
 	scratchLpcResidual []float32 // LPC residual for energy (silk_float)
 
 	// LSF quantization scratch buffers
-	scratchLsfResiduals   []int32 // computeStage2ResidualsLibopus: residuals
-	scratchEcIx           []int16 // computeStage2ResidualsLibopus / NLSF decode: ecIx
-	scratchPredQ8         []uint8 // computeStage2ResidualsLibopus / NLSF decode: predQ8
-	scratchResQ10         []int16 // computeStage2ResidualsLibopus / NLSF decode: resQ10
-	scratchNLSFIndices    []int8  // NLSF decode indices (stage1 + residuals)
-	scratchNLSFWeights    []int16 // NLSF VQ weights (Laroia)
-	scratchNLSFWeightsTmp []int16 // NLSF weights for interpolated vector
-	scratchNLSFTempQ15    []int16 // Interpolated NLSF scratch
+	scratchLsfResiduals []int32 // computeStage2ResidualsLibopus: residuals
 
 	// Gain encoding scratch buffers
-	scratchGains   []float32 // computeSubframeGains: output gains
-	scratchGainInd []int8    // silkGainsQuant: gain indices
 
 	// frameF32 holds the LP-filtered frame as silk_float normalized to [-1, 1].
 	frameF32 []float32
@@ -139,12 +114,38 @@ type Encoder struct {
 
 	// --- Pointer-free (noscan) tail ---
 
+	// Inline fixed-bound scratch arrays (pointer-free, zero GC scanning).
+	scratchLSFQ15           [maxLPCOrder]int16
+	scratchLPCQ16           [maxLPCOrder]int32
+	scratchGainsUnqQ16      [maxNbSubfr]int32
+	scratchGainsQ16         [maxNbSubfr]int32
+	scratchLBRRGainsQ16     [maxNbSubfr]int32
+	scratchPitchL           [maxNbSubfr]int32
+	scratchHarmShapeGainQ14 [maxNbSubfr]int32
+	scratchTiltQ14          [maxNbSubfr]int32
+	scratchLfShpQ14         [maxNbSubfr]int32
+	scratchLpcQ12           [maxLPCOrder]int16
+	scratchPitchAuto32      [maxShapeLpcOrder + 1]float32
+	scratchPitchRefl32      [maxShapeLpcOrder + 1]float32
+	scratchPitchA32         [maxShapeLpcOrder + 1]float32
+	scratchResNrg           [maxNbSubfr]float32
+	scratchPredCoefF32A     [maxLPCOrder]float32
+	scratchPredCoefF32B     [maxLPCOrder]float32
+	scratchEcIx             [maxLPCOrder]int16
+	scratchPredQ8           [maxLPCOrder]uint8
+	scratchResQ10           [maxLPCOrder]int16
+	scratchNLSFIndices      [maxLPCOrder + 1]int8
+	scratchNLSFWeights      [maxLPCOrder]int16
+	scratchNLSFWeightsTmp   [maxLPCOrder]int16
+	scratchNLSFTempQ15      [maxLPCOrder]int16
+	scratchGains            [maxNbSubfr]float32
+	scratchGainInd          [maxNbSubfr]int8
+
 	// Inline backing arrays for LBRR pulses, Burg CReal work buffers, and
 	// small int8/uint8 scratch slices (pointer-free, zero heap allocs).
-	lbrrPulsesBuf    [maxFramesPerPacket][maxFrameLength]int8
-	scratchCRealBuf  [5*silkMaxOrderLPC + 2]silkCReal
-	scratchI8Buf     [maxFrameLength + maxLPCOrder + 1 + maxNbSubfr]int8
-	scratchPredQ8Buf [maxLPCOrder]uint8
+	lbrrPulsesBuf   [maxFramesPerPacket][maxFrameLength]int8
+	scratchCRealBuf [5*silkMaxOrderLPC + 2]silkCReal
+	scratchI8Buf    [maxFrameLength]int8
 
 	// nsqLowerCopy is sNSQ_copy[1] of silk_encode_frame_FLP: the persistent NSQ
 	// state of the best under-budget gain pass, written only when that pass is
@@ -322,16 +323,6 @@ func ensureInt32Slice(buf *[]int32, n int) []int32 {
 	return *buf
 }
 
-// ensureUint8Slice ensures the slice has at least n elements.
-func ensureUint8Slice(buf *[]uint8, n int) []uint8 {
-	if cap(*buf) < n {
-		*buf = make([]uint8, n)
-	} else {
-		*buf = (*buf)[:n]
-	}
-	return *buf
-}
-
 // ensureByteSlice ensures the slice has at least n elements.
 func ensureByteSlice(buf *[]byte, n int) []byte {
 	if cap(*buf) < n {
@@ -386,11 +377,6 @@ func newEncoder() *Encoder {
 	// Carve small int8/uint8 scratch from inline buffers (0 allocs).
 	i8 := enc.scratchI8Buf[:]
 	enc.scratchPaddedPulses = i8[:maxFrameLength]
-	i8 = i8[maxFrameLength:]
-	enc.scratchNLSFIndices = i8[:maxLPCOrder+1]
-	i8 = i8[maxLPCOrder+1:]
-	enc.scratchGainInd = i8[:maxNbSubfr]
-	enc.scratchPredQ8 = enc.scratchPredQ8Buf[:]
 
 	// Carve all float32 scratch from one contiguous noscan arena.
 	enc.encScratchF32.Ensure(
@@ -412,17 +398,10 @@ func newEncoder() *Encoder {
 	enc.scratchBurgResult = enc.encScratchF32.AllocN(maxLPCOrder)
 	enc.scratchPitchInput32 = enc.encScratchF32.AllocN(maxPitchWinLen)
 	enc.scratchPitchWsig32 = enc.encScratchF32.AllocN(maxPitchWinLen)
-	enc.scratchPitchAuto32 = enc.encScratchF32.AllocN(maxLPCOrder + 1)
-	enc.scratchPitchRefl32 = enc.encScratchF32.AllocN(maxLPCOrder)
-	enc.scratchPitchA32 = enc.encScratchF32.AllocN(maxLPCOrder)
 	enc.scratchLtpResF32 = enc.encScratchF32.AllocN(maxLtpResLen)
 	enc.scratchLpcResF32 = enc.encScratchF32.AllocN(maxLtpResLen)
-	enc.scratchResNrg = enc.encScratchF32.AllocN(maxNbSubfr)
-	enc.scratchPredCoefF32A = enc.encScratchF32.AllocN(maxLPCOrder)
-	enc.scratchPredCoefF32B = enc.encScratchF32.AllocN(maxLPCOrder)
 	enc.scratchLpcX = enc.encScratchF32.AllocN(xBufLen)
 	enc.scratchLpcResidual = enc.encScratchF32.AllocN(maxLtpResLen)
-	enc.scratchGains = enc.encScratchF32.AllocN(maxNbSubfr)
 	enc.frameF32 = enc.encScratchF32.AllocN(maxFrameLength)
 
 	// Carve all int16 scratch from one contiguous noscan arena.
@@ -432,7 +411,6 @@ func newEncoder() *Encoder {
 			maxNbSubfr*ltpOrderConst + 2*maxLPCOrder + maxLPCOrder +
 			5*maxLPCOrder + maxFrameLength,
 	)
-	enc.scratchLSFQ15 = enc.encScratchI16.AllocN(maxLPCOrder)
 	enc.scratchFrame16Fix = enc.encScratchI16.AllocN(maxFrameLength)
 	enc.scratchFrame8Fix = enc.encScratchI16.AllocN(maxFrameLength)
 	enc.scratchFrame4Fix = enc.encScratchI16.AllocN(maxFrameLength / 2)
@@ -441,12 +419,6 @@ func newEncoder() *Encoder {
 	enc.scratchArShpQ13 = enc.encScratchI16.AllocN(maxNbSubfr * maxShapeLpcOrder)
 	enc.scratchLtpCoefQ14 = enc.encScratchI16.AllocN(maxNbSubfr * ltpOrderConst)
 	enc.scratchPredCoefQ12 = enc.encScratchI16.AllocN(2 * maxLPCOrder)
-	enc.scratchLpcQ12 = enc.encScratchI16.AllocN(maxLPCOrder)
-	enc.scratchEcIx = enc.encScratchI16.AllocN(maxLPCOrder)
-	enc.scratchResQ10 = enc.encScratchI16.AllocN(maxLPCOrder)
-	enc.scratchNLSFWeights = enc.encScratchI16.AllocN(maxLPCOrder)
-	enc.scratchNLSFWeightsTmp = enc.encScratchI16.AllocN(maxLPCOrder)
-	enc.scratchNLSFTempQ15 = enc.encScratchI16.AllocN(maxLPCOrder)
 	enc.vadScratch = enc.encScratchI16.AllocN(maxFrameLength)
 
 	// Carve all int32 scratch from one contiguous noscan arena.
@@ -457,17 +429,9 @@ func newEncoder() *Encoder {
 	enc.scratchAbsPulses = enc.encScratchI32.AllocN(maxFrameLength)
 	enc.scratchSumPulses = enc.encScratchI32.AllocN(maxIter)
 	enc.scratchNRshifts = enc.encScratchI32.AllocN(maxIter)
-	enc.scratchLPCQ16 = enc.encScratchI32.AllocN(maxLPCOrder)
 	enc.scratchResampler = enc.encScratchI32.AllocN(maxFrameLength + 4)
 	enc.scratchDSrch = enc.encScratchI32.AllocN(peDSrchLength)
 	enc.scratchPitchLags = enc.encScratchI32.AllocN(maxNbSubfr)
-	enc.scratchGainsUnqQ16 = enc.encScratchI32.AllocN(maxNbSubfr)
-	enc.scratchGainsQ16 = enc.encScratchI32.AllocN(maxNbSubfr)
-	enc.scratchLBRRGainsQ16 = enc.encScratchI32.AllocN(maxNbSubfr)
-	enc.scratchPitchL = enc.encScratchI32.AllocN(maxNbSubfr)
-	enc.scratchHarmShapeGainQ14 = enc.encScratchI32.AllocN(maxNbSubfr)
-	enc.scratchTiltQ14 = enc.encScratchI32.AllocN(maxNbSubfr)
-	enc.scratchLfShpQ14 = enc.encScratchI32.AllocN(maxNbSubfr)
 	enc.scratchLsfResiduals = enc.encScratchI32.AllocN(maxLPCOrder)
 
 	enc.reset()

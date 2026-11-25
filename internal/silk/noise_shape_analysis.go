@@ -158,7 +158,7 @@ func (e *Encoder) computeShapingARAndGains(
 	codingQuality float32,
 	inputQuality float32,
 ) ([]float32, []int16) {
-	gains := ensureFloat32Slice(&e.scratchGains, numSubframes)
+	gains := e.scratchGains[:numSubframes]
 	arShpQ13 := ensureInt16Slice(&e.scratchArShpQ13, numSubframes*maxShapeLpcOrder)
 	if numSubframes == 0 || subframeSamples <= 0 || len(pcm) == 0 {
 		clear(arShpQ13)
@@ -233,9 +233,9 @@ func (e *Encoder) computeShapingARAndGains(
 	slopePart := max((shapeWinLength-flatPart)/2, 0)
 
 	win := ensureFloat32Slice(&e.scratchPitchWsig32, shapeWinLength)
-	autoCorr := ensureFloat32Slice(&e.scratchPitchAuto32, shapeOrder+1)
-	rc := ensureFloat32Slice(&e.scratchPitchRefl32, shapeOrder+1)
-	ar := ensureFloat32Slice(&e.scratchPitchA32, shapeOrder)
+	autoCorr := e.scratchPitchAuto32[:shapeOrder+1]
+	rc := e.scratchPitchRefl32[:shapeOrder+1]
+	ar := e.scratchPitchA32[:shapeOrder]
 
 	for k := range numSubframes {
 		offset := k * subframeSamples

@@ -43,7 +43,7 @@ func (e *Encoder) encodeAbsoluteGainIndex(gainIndex, signalType int) {
 // Uses scratch buffers for zero-allocation operation.
 func (e *Encoder) computeSubframeGains(pcm []float32, numSubframes int) []float32 {
 	if len(pcm) == 0 || numSubframes <= 0 {
-		gains := ensureFloat32Slice(&e.scratchGains, numSubframes)
+		gains := e.scratchGains[:numSubframes]
 		for i := range gains {
 			gains[i] = 0
 		}
@@ -51,7 +51,7 @@ func (e *Encoder) computeSubframeGains(pcm []float32, numSubframes int) []float3
 	}
 
 	subframeSamples := len(pcm) / numSubframes
-	gains := ensureFloat32Slice(&e.scratchGains, numSubframes)
+	gains := e.scratchGains[:numSubframes]
 
 	for sf := range numSubframes {
 		start := sf * subframeSamples
@@ -99,14 +99,14 @@ func (e *Encoder) computeSubframeGains(pcm []float32, numSubframes int) []float3
 // Uses scratch buffers for zero-allocation operation.
 func (e *Encoder) computeSubframeGainsFromResidual(pcm []float32, numSubframes int) []float32 {
 	if len(pcm) == 0 || numSubframes <= 0 {
-		gains := ensureFloat32Slice(&e.scratchGains, numSubframes)
+		gains := e.scratchGains[:numSubframes]
 		for i := range gains {
 			gains[i] = 1.0
 		}
 		return gains
 	}
 
-	gains := ensureFloat32Slice(&e.scratchGains, numSubframes)
+	gains := e.scratchGains[:numSubframes]
 
 	// Get residual energy from LPC analysis (set by burgModifiedFLPZeroAlloc)
 	// residualEnergy = C0 * invGain where C0 is total energy and invGain is inverse prediction gain

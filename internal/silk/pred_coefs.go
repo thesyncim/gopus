@@ -172,8 +172,8 @@ func (e *Encoder) buildLTPResidual(pitchBuf []float32, frameStart int, gains []f
 
 func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, subframeSamples int, minInvGainVal float32) ([]int16, []int16, int) {
 	order := int(e.lpcOrder)
-	lpcQ12 := ensureInt16Slice(&e.scratchLpcQ12, order)
-	lsfQ15 := ensureInt16Slice(&e.scratchLSFQ15, order)
+	lpcQ12 := e.scratchLpcQ12[:order]
+	lsfQ15 := e.scratchLSFQ15[:order]
 
 	if order <= 0 {
 		return lpcQ12, lsfQ15, 4
@@ -200,7 +200,7 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 		lpcQ12[i] = int16(float32ToInt32RoundEven(a32 * 4096.0))
 	}
 
-	lpcQ16 := ensureInt32Slice(&e.scratchLPCQ16, order)
+	lpcQ16 := e.scratchLPCQ16[:order]
 	for i := range order {
 		a32 := float32(aFull[i])
 		lpcQ16[i] = float32ToInt32RoundEven(a32 * 65536.0)
@@ -230,7 +230,7 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 				copy(interpolationTrace.LastBurgCoefficients[:], aLast[:order])
 				interpolationTrace.LastResidualEnergy = resNrgLast
 			}
-			lsfLast := ensureInt16Slice(&e.scratchNLSFTempQ15, order)
+			lsfLast := e.scratchNLSFTempQ15[:order]
 			for i := range order {
 				a32 := float32(aLast[i])
 				lpcQ16[i] = float32ToInt32RoundEven(a32 * 65536.0)
@@ -251,7 +251,7 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 			if analyzeLen <= totalLen {
 				var interpNLSF [maxLPCOrder]int16
 				var lpcTmpQ12 [maxLPCOrder]int16
-				lpcTmpF32 := ensureFloat32Slice(&e.scratchPredCoefF32A, order)
+				lpcTmpF32 := e.scratchPredCoefF32A[:order]
 				lpcRes := ensureFloat32Slice(&e.scratchLpcResF32, analyzeLen)
 
 				for k := 3; k >= 0; k-- {
@@ -308,7 +308,7 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 func (e *Encoder) computeResidualEnergies(ltpRes []float32, predCoefQ12 []int16, interpIdx int, gains []float32, numSubframes, subframeSamples int) []float32 {
 	order := int(e.lpcOrder)
 	subfrLen := subframeSamples + order
-	resNrg := ensureFloat32Slice(&e.scratchResNrg, numSubframes)
+	resNrg := e.scratchResNrg[:numSubframes]
 	for i := range resNrg {
 		resNrg[i] = 0
 	}
@@ -323,8 +323,8 @@ func (e *Encoder) computeResidualEnergies(ltpRes []float32, predCoefQ12 []int16,
 		}
 	}
 
-	coef0 := ensureFloat32Slice(&e.scratchPredCoefF32A, order)
-	coef1 := ensureFloat32Slice(&e.scratchPredCoefF32B, order)
+	coef0 := e.scratchPredCoefF32A[:order]
+	coef1 := e.scratchPredCoefF32B[:order]
 	coefToF32(coef1, predCoefQ12[maxLPCOrder:maxLPCOrder+order])
 	if interpIdx < 4 {
 		coefToF32(coef0, predCoefQ12[:order])

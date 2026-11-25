@@ -118,8 +118,8 @@ func (e *Encoder) silkEncodeIndices(
 	cb1Offset := (signalType >> 1) * nVectors
 	re.EncodeICDF(int(indices.NLSFIndices[0]), cb.cb1ICDF[cb1Offset:], 8)
 
-	ecIx := ensureInt16Slice(&e.scratchEcIx, order)
-	predQ8 := ensureUint8Slice(&e.scratchPredQ8, order)
+	ecIx := e.scratchEcIx[:order]
+	predQ8 := e.scratchPredQ8[:order]
 	silkNLSFUnpack(ecIx, predQ8, cb, int(indices.NLSFIndices[0]))
 	for i := 0; i < order; i++ {
 		idx := int(indices.NLSFIndices[i+1])

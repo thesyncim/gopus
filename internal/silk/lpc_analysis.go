@@ -622,7 +622,7 @@ func (e *Encoder) FindLPCWithInterpolation(x []float32, prevNLSFQ15 []int16, use
 				}
 
 				// Calculate residual energy with interpolation using scratch
-				lpcTmpF32 := ensureFloat32Slice(&e.scratchPredCoefF32A, order)
+				lpcTmpF32 := e.scratchPredCoefF32A[:order]
 				copy(lpcTmpF32, aTmp)
 				lpcRes := ensureFloat32Slice(&e.scratchLpcResidual, analyzeLen)
 				lpcAnalysisFilterF32(lpcRes, lpcTmpF32, xF32, analyzeLen, order)

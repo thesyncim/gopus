@@ -81,7 +81,7 @@ func (e *Encoder) lbrrEncode(
 	}
 	// Dequantize LBRR gains for NSQ using the primary frame's condCoding,
 	// matching libopus silk_LBRR_encode_FLP (not the LBRR payload condCoding).
-	lbrrGainsQ16 := ensureInt32Slice(&e.scratchLBRRGainsQ16, numSubframes)
+	lbrrGainsQ16 := e.scratchLBRRGainsQ16[:numSubframes]
 	e.decodeLBRRGains(lbrrGainsQ16, condCoding, numSubframes)
 
 	if frameSamples <= 0 {
@@ -176,8 +176,8 @@ func (e *Encoder) encodeLBRRIndices(re *rangecoding.Encoder, frameIdx, condCodin
 	}
 	re.EncodeICDF(stage1Idx, cb.cb1ICDF[cb1Offset:], 8)
 
-	ecIx := ensureInt16Slice(&e.scratchEcIx, order)
-	predQ8 := ensureUint8Slice(&e.scratchPredQ8, order)
+	ecIx := e.scratchEcIx[:order]
+	predQ8 := e.scratchPredQ8[:order]
 	silkNLSFUnpack(ecIx, predQ8, cb, stage1Idx)
 	for i := range order {
 		idx := int(indices.NLSFIndices[i+1])
