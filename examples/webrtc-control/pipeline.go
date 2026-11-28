@@ -269,10 +269,15 @@ func (p *pipeline) encodeLoop() {
 		}
 
 		dur := time.Duration(float64(frameSize) / float64(sampleRate) * float64(time.Second))
-		// Advance RTP sequence and timestamp for a simulated drop without sending payload.
+		// Advance RTP timestamp and sequence separately for a simulated drop:
+		// WriteSample skips PrevDroppedPackets*Duration in addition to Duration
+		// when both fields are non-zero on an empty sample.
 		if curSimLoss > 0 && rand.IntN(100) < curSimLoss {
-			if err := p.track.WriteSample(media.Sample{Duration: dur, PrevDroppedPackets: 1}); err != nil {
-				log.Printf("advance dropped sample: %v", err)
+			if err := p.track.WriteSample(media.Sample{Duration: dur}); err != nil {
+				log.Printf("advance dropped sample timestamp: %v", err)
+			}
+			if err := p.track.WriteSample(media.Sample{PrevDroppedPackets: 1}); err != nil {
+				log.Printf("advance dropped sample sequence: %v", err)
 			}
 			continue
 		}
